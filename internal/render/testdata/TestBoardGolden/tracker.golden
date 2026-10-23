@@ -1,12 +1,12 @@
-␛[0;1mboard␛[m␛[0;2m (4)␛[m␛[0;2m · workspace (0)␛[m             ␛[0;1mctrl+x␛[m
-  ␛[0;1mCatch up monthly financials␛[m
-  ␛[0;2mtracker · 3 of 8 done · card 1840 · hub ·␛[m
-  ␛[0;2mprivate␛[m
+␛[0;1;36mBoard␛[m␛[0;2m 4␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;36m╭─␛[m ␛[0;1;35mCatch up monthly financials␛[m ␛[0;36m───␛[m ␛[0;2m3 of 8␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m     ␛[0;2mJUN␛[m ␛[0;2mJUL␛[m ␛[0;1;36mAUG␛[m ␛[0;2mSEP␛[m                     ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;7mBMO ␛[0;7;35m●␛[0;7m   ␛[0;7;35m●␛[0;7m   ␛[0;7m○␛[0;7m   ␛[0;2;7m○␛[0;7m                       ␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m RBC ␛[0;2m×␛[m   ␛[0;2m○␛[m   ␛[0;2m○␛[m   ␛[0;2m○␛[m                       ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m──────────────────────────────────────────␛[m␛[0;36m╯␛[m
 
-  ␛[0;2mcolumns: ␛[m1 Jun␛[0;2m · ␛[m2 Jul␛[0;2m · ␛[m␛[0;7m3␛[m Aug␛[0;2m · ␛[m4 Sep
 
-▸ 1 BMO  x x ␛[0;7m·␛[m ·
-  2 RBC  - · · ·
+
 
 
 

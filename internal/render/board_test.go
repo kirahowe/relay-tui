@@ -1,6 +1,7 @@
 package render
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -83,7 +84,7 @@ func TestBoardSideBySide(t *testing.T) {
 	s := detail(boardState(false, cardChecklist), 1851, 0, 0)
 	f := View(s, "› ", "ctrl+j for a new line", t0, 130, 20)
 	plain := ansi.Strip(f.Content)
-	if !strings.Contains(plain, "board (1)") || !strings.Contains(plain, "Make a folder") ||
+	if !strings.Contains(plain, "Board 1") || !strings.Contains(plain, "Make a folder") ||
 		!strings.Contains(plain, "ctrl+x to focus") {
 		t.Errorf("board not beside the chat:\n%s", plain)
 	}
@@ -104,13 +105,13 @@ func TestWideTrackerWraps(t *testing.T) {
 		}
 	}
 	joined := ansi.Strip(strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "▸ 1 BMO\n") {
+	if !regexp.MustCompile(`│ BMO +│`).MatchString(joined) {
 		t.Errorf("row name not on its own line:\n%s", joined)
 	}
 }
 
-// Outside text shows under the untrusted mark, as relay sent it, with no
-// live link.
+// Outside text shows in the warning colour, as relay sent it, with no
+// live link, and its card's footer says the card holds outside text.
 func TestOutsiderTextIsMarked(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		url := rapid.SampledFrom([]string{"https://evil.test/x?d=1", "www.evil.test", "hxxps://evil[.]test/x"}).Draw(t, "url")
@@ -120,9 +121,15 @@ func TestOutsiderTextIsMarked(t *testing.T) {
 		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
 		w := rapid.IntRange(30, 70).Draw(t, "width")
 		for _, s := range []core.State{boardState(true, c), detail(boardState(true, c), c.ID, 1, 0)} {
-			plain := ansi.Strip(strings.Join(PaneLines(s, t0, w, 30), "\n"))
-			if !strings.Contains(plain, "untrusted") {
-				t.Fatalf("no untrusted mark:\n%s", plain)
+			lines := PaneLines(s, t0, w, 30)
+			plain := ansi.Strip(strings.Join(lines, "\n"))
+			if !strings.Contains(plain, "outside text") {
+				t.Fatalf("the footer does not say so:\n%s", plain)
+			}
+			for _, l := range lines {
+				if strings.Contains(ansi.Strip(l), "see") && !strings.Contains(l, ";33m") {
+					t.Fatalf("outside text not in the warning colour: %q", l)
+				}
 			}
 			if live(plain) {
 				t.Fatalf("a live link:\n%s", plain)

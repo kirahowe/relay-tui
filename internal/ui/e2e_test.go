@@ -7,6 +7,7 @@ package ui_test
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/charmbracelet/colorprofile"
 	"io"
 	"os"
 	"os/exec"
@@ -81,7 +82,7 @@ func startWith(t *testing.T, script string, w, h int, title string, agentFlags .
 	}
 	h0.conn = conn
 	h0.p = tea.NewProgram(ui.New(conn, title), tea.WithInput(h0.emu.in), tea.WithOutput(h0.emu),
-		tea.WithWindowSize(w, h), tea.WithoutSignals())
+		tea.WithWindowSize(w, h), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor))
 	close(started)
 	go func() { _, _ = h0.p.Run(); close(h0.done) }()
 	t.Cleanup(func() {

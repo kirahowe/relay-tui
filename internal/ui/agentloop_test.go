@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/charmbracelet/colorprofile"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -150,7 +151,7 @@ func startAgentloop(t *testing.T, api *fakeMessagesAPI) (h *harness, calls strin
 	}
 	h0.conn = conn
 	h0.p = tea.NewProgram(ui.New(conn, ""), tea.WithInput(h0.emu.in), tea.WithOutput(h0.emu),
-		tea.WithWindowSize(w, hgt), tea.WithoutSignals())
+		tea.WithWindowSize(w, hgt), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor))
 	close(started)
 	go func() { _, _ = h0.p.Run(); close(h0.done) }()
 	t.Cleanup(func() {

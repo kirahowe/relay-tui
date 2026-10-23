@@ -1,9 +1,9 @@
-␛[0;1mboard␛[m␛[0;2m (4)␛[m␛[0;2m · workspace (0)␛[m             ␛[0;1mctrl+x␛[m
-▸ ␛[0;1mWhere the statements are␛[m
-  ␛[0;2mnote · card 1860 · operator · private␛[m
+␛[0;1;36mBoard␛[m␛[0;2m 4␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;36m╭─␛[m ␛[0;7m␛[0;1;7;34mWhere the statements are␛[0;7m␛[m ␛[0;36m────────␛[m ␛[0;2mnote␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m BMO: online banking, Documents.         ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m RBC: mailed.                            ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m──────────────────────────────────────────␛[m␛[0;36m╯␛[m
 
-  BMO: online banking, Documents.
-  RBC: mailed.
 
 
 

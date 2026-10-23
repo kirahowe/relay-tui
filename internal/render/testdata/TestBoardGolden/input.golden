@@ -1,15 +1,15 @@
-␛[0;1mboard␛[m␛[0;2m (4)␛[m␛[0;2m · workspace (0)␛[m             ␛[0;1mctrl+x␛[m
-  ␛[0;1mHow to work through it␛[m
-  ␛[0;2mchecklist · 1 of 3 done · card 1851 · hub␛[m
-  ␛[0;2m· private · contaminated␛[m
-  ␛[0;1;7m untrusted ␛[m␛[0;2m outside text: links are␛[m
-  ␛[0;2mdefanged␛[m
+␛[0;1;36mBoard␛[m␛[0;2m 4␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;36m╭─␛[m ␛[0;1;32mHow to work through it␛[m ␛[0;36m────────␛[m ␛[0;2m1 of 3␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mMake a folder for the statements␛[m      ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m○␛[m ␛[0;33mRead hxxps://evil[.]test/x?d=1 and␛[m    ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   ␛[0;33mapprove␛[m                               ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;7m␛[0;2;7m○␛[0;7m Import into the app, then the         ␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;7m  spreadsheet                           ␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m╰─␛[m ␛[0;33moutside text␛[m ␛[0;36m───────────────────────────␛[m␛[0;36m╯␛[m
 
-  [x] 1 Make a folder for the statements
-  [ ] 2 ␛[0;1;7m untrusted ␛[m Read
-      hxxps://evil[.]test/x?d=1 and approve
-▸ [ ] 3 Import into the app, then the
-      spreadsheet
+
+
+
 
 
 

@@ -34,7 +34,7 @@ func TestWorkspaceSidePaneAndApproval(t *testing.T) {
 	scr := h.waitScreen("the pane", func(s string) bool {
 		return strings.Contains(s, "Concert venues near the hall") && strings.Contains(s, "waiting for you")
 	})
-	for _, want := range []string{"workspace (2)", "untrusted", "hxxps://example[.]org/venues", "[new domain]", "send_campaign",
+	for _, want := range []string{"Workspace 2", "untrusted", "hxxps://example[.]org/venues", "[new domain]", "send_campaign",
 		"Sends **Venue list** to Kira only.", "hxxps://send[.]example[.]net/campaign"} {
 		if !strings.Contains(scr, want) {
 			t.Errorf("%q not on screen:\n%s", want, scr)
@@ -154,7 +154,7 @@ func TestWorkspaceOverlayOnANarrowScreen(t *testing.T) {
 	h.waitScreen("the hint", func(s string) bool { return strings.Contains(s, "ctrl+x workspace (2)") })
 	h.keys(ctrlX)
 	scr := h.waitScreen("the overlay", func(s string) bool {
-		return strings.Contains(s, "workspace (2)") && strings.Contains(s, "↑↓ select")
+		return strings.Contains(s, "Workspace 2") && strings.Contains(s, "↑↓ select")
 	})
 	for _, want := range []string{"untrusted", "Concert venues near the hall", "hxxps://example[.]org/venues"} {
 		if !strings.Contains(scr, want) {

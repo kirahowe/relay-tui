@@ -253,14 +253,14 @@ func TestPaneNamesTheBoard(t *testing.T) {
 	}
 	s.Pane.Board = core.Board{Items: true, Loaded: true, Cards: []core.Card{{ID: 1}, {ID: 2}}}
 	lines := PaneLines(s, t0, 44, 12)
-	if head := ansi.Strip(lines[0]); !strings.HasPrefix(head, "workspace (1) · board (2)") {
+	if head := ansi.Strip(lines[0]); !strings.HasPrefix(head, "Workspace 1") || !strings.HasSuffix(head, "b  board 2") {
 		t.Fatalf("header %q", head)
 	}
 	if text := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(text, "ctrl+x to focus, then b for the board") {
 		t.Fatalf("no way to the board:\n%s", text)
 	}
-	// Too narrow for both, the header keeps its own view and the key.
-	if head := ansi.Strip(PaneLines(s, t0, 24, 12)[0]); strings.Contains(head, "board") || !strings.HasSuffix(head, PaneKey) {
+	// Too narrow for both, the header keeps its own view.
+	if head := ansi.Strip(PaneLines(s, t0, 16, 12)[0]); strings.Contains(head, "board") || !strings.HasPrefix(head, "Workspace") {
 		t.Fatalf("narrow header %q", head)
 	}
 	s.Pane.Board.Unavailable = true

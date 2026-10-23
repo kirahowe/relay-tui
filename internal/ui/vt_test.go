@@ -3,11 +3,14 @@ package ui_test
 import (
 	"bytes"
 	"fmt"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/vt"
@@ -183,4 +186,34 @@ func TestVTReproduces1822(t *testing.T) {
 	if strings.Contains(s, "VIEW TOP") && strings.Contains(s, "VIEW BOTTOM") {
 		t.Fatal("the view survived: x/vt does not reproduce #1822")
 	}
+}
+
+// styleOf is the style of the first cell of the first place sub is on
+// screen, and false when it is not on screen. Every character the
+// screens these tests look at is one column wide.
+func (t *terminal) styleOf(sub string) (uv.Style, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for y, line := range strings.Split(t.emu.String(), "\n") {
+		if i := strings.Index(line, sub); i >= 0 {
+			x := utf8.RuneCountInString(line[:i])
+			if c := t.emu.CellAt(x, y); c != nil {
+				return c.Style, true
+			}
+		}
+	}
+	return uv.Style{}, false
+}
+
+// selected says sub is on screen on a selection: a tint behind it, or
+// reverse video where the terminal's colours are not known.
+func (t *terminal) selected(sub string) bool {
+	st, ok := t.styleOf(sub)
+	return ok && (st.Bg != nil || st.Attrs&uv.AttrReverse != 0)
+}
+
+// warned says sub is on screen in the warning colour, as outside text is.
+func (t *terminal) warned(sub string) bool {
+	st, ok := t.styleOf(sub)
+	return ok && st.Fg == ansi.Yellow
 }

@@ -1,4 +1,4 @@
-␛[0;1mworkspace␛[m␛[0;2m (3)␛[m                         ␛[0;1mctrl+x␛[m
+␛[0;1;36mWorkspace␛[m␛[0;2m 3␛[m
   ␛[0;1;7m untrusted ␛[m send_campaign␛[0;2m · ␛[mwaiting
 ␛[0;2m  proposal · private · contaminated␛[m
 ␛[0;2m    Sends **Venue list** to Kira only.␛[m

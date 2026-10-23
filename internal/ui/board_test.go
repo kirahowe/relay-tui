@@ -9,7 +9,7 @@ import (
 // board, which the pane shows by default.
 func openBoard(t *testing.T) *harness {
 	h := start(t, "board.jsonl", 140, 40)
-	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (4)") })
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "Board 4") })
 	h.keys(ctrlX)
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	return h
@@ -18,7 +18,7 @@ func openBoard(t *testing.T) *harness {
 func TestBoardSnapshot(t *testing.T) {
 	h := openBoard(t)
 	scr := h.screen()
-	for _, want := range []string{"Catch up monthly financials", "tracker · 3 of 8 done · card 1840", "How to work through it",
+	for _, want := range []string{"Catch up monthly financials", "3 of 8", "How to work through it",
 		"Where the statements are", "Moves", "kanban"} {
 		if !strings.Contains(scr, want) {
 			t.Errorf("%q not on the board:\n%s", want, scr)
@@ -29,9 +29,9 @@ func TestBoardSnapshot(t *testing.T) {
 	}
 	// Switching away and back does not ask again.
 	h.keys("b")
-	h.waitScreen("the items", func(s string) bool { return strings.Contains(s, "workspace (") })
+	h.waitScreen("the items", func(s string) bool { return strings.Contains(s, "Workspace 0") })
 	h.keys("b")
-	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (4)") })
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "Board 4") })
 	if n := len(h.extensionCalls("_relay/cards")); n != 1 {
 		t.Errorf("%d cards calls", n)
 	}
@@ -48,16 +48,16 @@ func TestBoardOpRoundTripAndRefusal(t *testing.T) {
 	h.keys("j\r")
 	scr := h.waitScreen("the checklist", func(s string) bool { return strings.Contains(s, "x tick") })
 	// Outside text is marked and shows as relay sent it.
-	if l := lineWith(scr, "[ ] 2"); !strings.Contains(l, "untrusted") || !strings.Contains(scr, "hxxps://evil[.]test/x?d=1") {
+	if !h.emu.warned("Read hxxps://evil[.]test/x?d=1") || !strings.Contains(scr, "outside text") {
 		t.Errorf("outside item not marked:\n%s", scr)
 	}
 	if strings.Contains(scr, "https://") {
 		t.Errorf("a live link:\n%s", scr)
 	}
 	h.keys("jjj")
-	h.waitScreen("item 3", func(s string) bool { return strings.Contains(lineWith(s, "Import into the app"), "▸") })
+	h.waitScreen("item 3", func(string) bool { return h.emu.selected("Import into the app") })
 	h.keys("x")
-	h.waitScreen("the answer", func(s string) bool { return strings.Contains(s, "[x] 3 Import into the app") })
+	h.waitScreen("the answer", func(s string) bool { return strings.Contains(s, "✓ Import into the app") })
 	calls := h.extensionCalls("_relay/cards/op")
 	if len(calls) != 1 || calls[0] != `{"card":1851,"item":3,"op":"tick","sessionId":"fake-session"}` {
 		t.Fatalf("op calls %q", calls)
@@ -65,7 +65,7 @@ func TestBoardOpRoundTripAndRefusal(t *testing.T) {
 	// Unticking is refused; relay's words show and the item stays done.
 	h.keys("x")
 	scr = h.waitScreen("the refusal", func(s string) bool { return strings.Contains(s, "Refused.") })
-	if !strings.Contains(scr, "Card 1851 is archived.") || !strings.Contains(scr, "[x] 3 Import") {
+	if !strings.Contains(scr, "Card 1851 is archived.") || !strings.Contains(scr, "✓ Import") {
 		t.Errorf("refusal not shown:\n%s", scr)
 	}
 	if calls := h.extensionCalls("_relay/cards/op"); len(calls) != 2 || !strings.Contains(calls[1], `"op":"untick"`) {
@@ -93,7 +93,7 @@ func TestBoardEditAndNotifications(t *testing.T) {
 	h.waitScreen("unfocused", func(s string) bool { return strings.Contains(s, ctrlXHint) })
 	h.keys("go\r")
 	h.waitIdle()
-	scr := h.waitScreen("the change", func(s string) bool { return strings.Contains(s, "board (3)") })
+	scr := h.waitScreen("the change", func(s string) bool { return strings.Contains(s, "Board 3") })
 	if strings.Contains(scr, "Where the statements are") {
 		t.Errorf("the archived card is still on the board:\n%s", scr)
 	}
@@ -106,13 +106,13 @@ func TestBoardEditAndNotifications(t *testing.T) {
 // there without a key.
 func TestTheBoardIsTheDefaultAndACardAddedInATurnShows(t *testing.T) {
 	h := start(t, "card_added.jsonl", 140, 30)
-	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (1) · workspace (0)") })
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "Board 1") && strings.Contains(s, "b  workspace 0") })
 	if scr := h.screen(); !strings.Contains(scr, "Where the statements are") || !strings.Contains(scr, "then b for the workspace") {
 		t.Errorf("the board is not in view:\n%s", scr)
 	}
 	h.keys("go\r")
 	h.waitIdle()
-	scr := h.waitScreen("the new card", func(s string) bool { return strings.Contains(s, "board (2)") })
+	scr := h.waitScreen("the new card", func(s string) bool { return strings.Contains(s, "Board 2") })
 	if !strings.Contains(scr, "Focus by area") || !strings.Contains(scr, "I've put a note on your board.") {
 		t.Errorf("the new card is not in view:\n%s", scr)
 	}

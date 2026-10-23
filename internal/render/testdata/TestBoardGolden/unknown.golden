@@ -1,10 +1,10 @@
-␛[0;1mboard␛[m␛[0;2m (4)␛[m␛[0;2m · workspace (0)␛[m             ␛[0;1mctrl+x␛[m
-▸ ␛[0;1mMoves␛[m
-  ␛[0;2mkanban · card 1870 · hub · private␛[m
+␛[0;1;36mBoard␛[m␛[0;2m 4␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;36m╭─␛[m ␛[0;7m␛[0;1;7mMoves␛[0;7m␛[m ␛[0;36m─────────────────────────␛[m ␛[0;2mkanban␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m Card 1870: Moves (kanban) [[card:1870]] ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m Todo: pack                              ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m Done: book van                          ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m──────────────────────────────────────────␛[m␛[0;36m╯␛[m
 
-  Card 1870: Moves (kanban) [[card:1870]]
-  Todo: pack
-  Done: book van
 
 
 
