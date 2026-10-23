@@ -350,6 +350,9 @@ type parts struct {
 	head, body, foot []string
 	selA, selB       int
 	scrolls          bool
+	// keys is the pane's key hints, "key what · key what"; a panel puts
+	// them on the screen's row of hints rather than in the pane.
+	keys string
 }
 
 func paneParts(s core.State, now time.Time, width int) parts {
@@ -384,7 +387,7 @@ func paneParts(s core.State, now time.Time, width int) parts {
 	case p.Detail && sel >= 0:
 		pr.body = detailBody(s, items[sel], width)
 		pr.scrolls = true
-		pr.foot = hint("↑↓ scroll · t trust · esc back")
+		pr.keys = "↑↓ scroll · t trust · esc back"
 	default:
 		for i, it := range items {
 			if i > 0 {
@@ -409,11 +412,11 @@ func paneParts(s core.State, now time.Time, width int) parts {
 		}
 		switch {
 		case p.Focus:
-			pr.foot = hint("↑↓ select · enter open · t trust · b board · esc back")
+			pr.keys = "↑↓ select · enter open · t trust · b board · esc back"
 		case hasBoard(p.Board):
-			pr.foot = hint(PaneKey + " to focus, then b for the board")
+			pr.keys = PaneKey + " to focus, then b for the board"
 		default:
-			pr.foot = hint(PaneKey + " to focus")
+			pr.keys = PaneKey + " to focus"
 		}
 	}
 	if p.Message != "" {
@@ -559,11 +562,27 @@ func trustBody(s core.State, width int) []string {
 }
 
 // paneRender draws the pane exactly height lines tall and no wider than
-// width, and says how far its detail view can scroll.
+// width, and says how far its detail view can scroll. Its key hints are
+// its last rows.
 func paneRender(s core.State, now time.Time, width, height int) ([]string, int) {
+	pr := paneParts(s, now, max(width, 1))
+	if pr.keys != "" {
+		pr.foot = append(pr.foot, wrap(styleKeys(pr.keys), max(width, 1))...)
+	}
+	return paneDraw(s, pr, width, height)
+}
+
+// paneRenderKeys draws the pane without its key hints, and gives them
+// back for the screen's row of hints.
+func paneRenderKeys(s core.State, now time.Time, width, height int) ([]string, int, string) {
+	pr := paneParts(s, now, max(width, 1))
+	lines, mx := paneDraw(s, pr, width, height)
+	return lines, mx, pr.keys
+}
+
+func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	height = max(height, 0)
 	width = max(width, 1)
-	pr := paneParts(s, now, width)
 	avail := height - len(pr.head) - len(pr.foot)
 	var all []string
 	maxScroll := 0

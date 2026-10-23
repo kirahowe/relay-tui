@@ -21,6 +21,6 @@
 
 
 ␛[0;2mcell: ␛[mBMO␛[0;2m × ␛[mAug␛[0;2m · ␛[mopen
-␛[0;2m↑↓←→ select · x mark · a row · A column · e␛[m
-␛[0;2mrename · E rename column · X archive · r␛[m
-␛[0;2mreload · b workspace · esc back␛[m
+␛[0;36m↑↓←→␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36mx␛[m␛[0;2m mark␛[m␛[0;2m • ␛[m␛[0;36ma␛[m␛[0;2m row␛[m␛[0;2m • ␛[m␛[0;36mA␛[m␛[0;2m column␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m␛[m
+␛[0;2mrename␛[m␛[0;2m • ␛[m␛[0;36mE␛[m␛[0;2m rename column␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m archive␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m␛[m
+␛[0;2mreload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m workspace␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m

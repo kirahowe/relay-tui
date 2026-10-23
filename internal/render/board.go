@@ -289,7 +289,7 @@ func boardParts(s core.State, width int) parts {
 
 	switch {
 	case !p.Focus:
-		pr.foot = hint(PaneKey + " to focus, then b for the workspace")
+		pr.keys = PaneKey + " to focus, then b for the workspace"
 	case b.Input != nil:
 		in := b.Input
 		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)
@@ -300,19 +300,19 @@ func boardParts(s core.State, width int) parts {
 		pr.foot = cellLine(b, c, width)
 		switch c.Kind {
 		case core.CardChecklist:
-			pr.foot = append(pr.foot, hint("↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back")...)
+			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
-			pr.foot = append(pr.foot, hint("↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back")...)
+			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back"
 		default:
-			pr.foot = append(pr.foot, hint("e retitle · X archive · r reload · b workspace · esc back")...)
+			pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
 		}
 	case len(b.Cards) > 0:
-		pr.foot = hint("↑↓ select · enter open · e retitle · X archive · r reload · b workspace · esc back")
+		pr.keys = "↑↓ select · enter open · e retitle · X archive · r reload · b workspace · esc back"
 	case b.Unavailable:
 		// r would not ask again: the agent has no such method.
-		pr.foot = hint("b workspace · esc back")
+		pr.keys = "b workspace · esc back"
 	default:
-		pr.foot = hint("r reload · b workspace · esc back")
+		pr.keys = "r reload · b workspace · esc back"
 	}
 	if b.Message != "" {
 		msg := wrap(styled(bold, cardLine(b.Message, false)), width)

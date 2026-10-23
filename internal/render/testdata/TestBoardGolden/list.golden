@@ -22,5 +22,5 @@
 
 
 
-␛[0;2m↑↓ select · enter open · e retitle · X␛[m
-␛[0;2marchive · r reload · b workspace · esc back␛[m
+␛[0;36m↑↓␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m retitle␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m␛[m
+␛[0;2marchive␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m reload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m workspace␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m

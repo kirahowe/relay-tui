@@ -480,3 +480,22 @@ func TestHubTruncatedReplayIsSaidAtTheTop(t *testing.T) {
 		t.Errorf("not styled as relay's own line: %q", styledLine)
 	}
 }
+
+// The cursor goes where the input's first character is drawn, in a panel
+// or not, with the pane beside the conversation or not.
+func TestHubCursorIsOnTheInput(t *testing.T) {
+	h := hubFixture()
+	for _, w := range []int{30, 71, 72, 99, 150, 160, 200} {
+		for _, rows := range []int{12, 24} {
+			f := HubView(h, "Q", "", t0, w, rows)
+			if !f.Cursor {
+				t.Fatalf("%dx%d: no cursor", w, rows)
+			}
+			lines := strings.Split(ansi.Strip(f.Content), "\n")
+			row := []rune(lines[f.InputY])
+			if f.InputX >= len(row) || row[f.InputX] != 'Q' {
+				t.Errorf("%dx%d: cursor at %d,%d is not on the input: %q", w, rows, f.InputX, f.InputY, lines[f.InputY])
+			}
+		}
+	}
+}
