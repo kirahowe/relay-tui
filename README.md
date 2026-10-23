@@ -360,7 +360,11 @@ A removed role is not focused and its draft is dropped, with a note. An
 archived card is not selected. A role whose conversation has ended
 shows none, and opening the view opens no conversation. If you press a
 key before those arrive, what you did stands: the layout and the card
-are not put back over it, and only the drafts come back. `--open ROLE` wins over the saved focus.
+are not put back over it, and only the drafts come back. A saved draft
+goes ahead of anything you typed for that role meanwhile, and its
+pastes take the numbers after any you made, so neither is lost, even if
+you close relay-tui before it came back. `--open ROLE` wins over the
+saved focus.
 
 A restored paste is never more trusted than it was. One you trusted
 with Ctrl-Y comes back trusted, the rest untrusted, and anything about

@@ -236,20 +236,54 @@ func TestSaveHubKeepsWhatHasNotComeBackYet(t *testing.T) {
 	}
 }
 
-// A paste made since the start takes the numbers the saved ones had, so
-// a saved draft with pastes is not put back over it.
-func TestRestoreHubDoesNotMixPastes(t *testing.T) {
+// A paste made since the start keeps its number, and the saved draft's
+// pastes take the numbers after it, placeholders and trust with them, so
+// both come back.
+func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
 	left, drafts := leftHub(t)
 	v := SaveHub(left, drafts)
 	v.Hub = nil
 	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
 	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: viewRoster()})
 	got := restoredDrafts(fx)
-	if _, ok := got["mail"]; ok || got["dev"] == "" || !strings.Contains(h.Notice, "could not be put back") {
-		t.Fatalf("drafts %q notice %q", got, h.Notice)
+	saved := left.Blanks[0].State.Pastes // #1 untrusted, #2 trusted
+	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
+	if want := "see " + moved[0].Token() + " and " + moved[1].Token(); got["mail"] != want || h.Notice != "" {
+		t.Fatalf("mail %q want %q notice %q", got["mail"], want, h.Notice)
 	}
-	if ps := h.ConvOf("mail"); ps == nil || len(ps.State.Pastes) != 1 || ps.State.Pastes[0].Text != "new" {
-		t.Fatalf("mail %+v", ps)
+	c := h.ConvOf("mail")
+	if c == nil || !reflect.DeepEqual(c.State.Pastes, append([]Paste{{ID: 1, Text: "new"}}, moved...)) || c.State.NextPaste != 3 {
+		t.Fatalf("mail %+v", c)
+	}
+}
+
+// A draft typed before the restore came back is saved with the one
+// still waiting, the saved one ahead, so closing in between loses
+// neither: not the text, not the pastes, not their trust.
+func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
+	left, drafts := leftHub(t)
+	v := SaveHub(left, drafts)
+	v.Hub = nil
+	saved := left.Blanks[0].State.Pastes
+	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
+	newer := h.ConvOf("mail").State.Pastes[0]
+	got := SaveHub(h, map[string]string{"mail": "n " + newer.Token()})
+	i := slices.IndexFunc(got.Drafts, func(d Draft) bool { return d.Role == "mail" })
+	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
+	want := Draft{Role: "mail", Text: "see " + moved[0].Token() + " and " + moved[1].Token() + "\nn " + newer.Token(),
+		Pastes: append([]Paste{newer}, moved...), NextPaste: 3}
+	if i < 0 || !reflect.DeepEqual(got.Drafts[i], want) {
+		t.Fatalf("saved %+v\nwant %+v", got.Drafts, want)
+	}
+	// Reopened from that, it all comes back.
+	g, fx := reopen(t, got, viewRoster(), viewCards())
+	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.Blanks[slices.IndexFunc(g.Blanks, func(b Blank) bool { return b.Role == "mail" })].State.Pastes, want.Pastes) {
+		t.Fatalf("reopened %v %+v", fx, g.Blanks)
+	}
+	// Against a single agent, typed text with no pastes.
+	x := RestoreSingle(Single{}, View{Drafts: []Draft{{Text: "old draft"}}})
+	if d := SaveSingle(x, "n").Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
+		t.Fatalf("single %+v", d)
 	}
 }
 
@@ -420,4 +454,45 @@ func TestHubFromSingleAfterAKey(t *testing.T) {
 	if h.Focus != "mail" {
 		t.Fatalf("no key: focus %q", h.Focus)
 	}
+}
+
+// A draft typed while a saved one waits is saved with it: every paste of
+// both goes out as it would have, no two share a number, and the result
+// comes back as saved.
+func TestCarryKeepsBothDrafts(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// A prefix keeps each paste's words its own; the line count, and so
+		// the placeholder, is the same.
+		saved, typed := genDraft(t), genDraft(t)
+		saved.Role, typed.Role = "r", "r"
+		for i := range saved.Pastes {
+			saved.Pastes[i].Text = "s" + saved.Pastes[i].Text
+		}
+		for i := range typed.Pastes {
+			typed.Pastes[i].Text = "t" + typed.Pastes[i].Text
+		}
+		typed.Pastes = referenced(typed.Pastes, typed.Text) // as SaveHub saves it
+		got := carry(View{Drafts: []Draft{typed}}, &Restore{View: View{Drafts: []Draft{saved}}, Drafts: true})
+		if len(got.Drafts) != 1 {
+			t.Fatalf("drafts %+v", got.Drafts)
+		}
+		m := got.Drafts[0]
+		want := sentAs(saved.Text, saved.Pastes)
+		for words, how := range sentAs(typed.Text, typed.Pastes) {
+			want[words] = how
+		}
+		if out := sentAs(m.Text, m.Pastes); !reflect.DeepEqual(out, want) {
+			t.Fatalf("sent as %v, want %v\nsaved %+v\ntyped %+v\nmerged %+v", out, want, saved, typed, m)
+		}
+		seen := map[int]bool{}
+		for _, p := range m.Pastes {
+			if seen[p.ID] || p.ID <= 0 || p.ID > m.NextPaste {
+				t.Fatalf("paste %d in %+v", p.ID, m)
+			}
+			seen[p.ID] = true
+		}
+		if text, pastes, _ := restoredDraft(m); text != m.Text || len(pastes) != len(m.Pastes) {
+			t.Fatalf("comes back as %q %+v from %+v", text, pastes, m)
+		}
+	})
 }

@@ -248,13 +248,10 @@ func (r *hubReducer) restoreDrafts(ds []Draft) {
 			} else {
 				s = &r.blank(d.Role).State
 			}
-			if len(s.Pastes) > 0 || s.NextPaste > 0 {
-				// Pasted into since the start: the saved pastes' numbers
-				// may be taken, so the draft is not put back.
-				lost++
-				continue
-			}
-			s.Pastes, s.NextPaste = pastes, next
+			// Pasted into since the start: the saved pastes take the
+			// numbers after the new ones.
+			text, pastes, next = afterPastes(text, pastes, next, s.Pastes, s.NextPaste)
+			s.Pastes, s.NextPaste = append(slices.Clone(s.Pastes), pastes...), max(next, s.NextPaste)
 		}
 		r.emit(RestoreDraft{Role: d.Role, Text: text})
 	}
@@ -288,11 +285,8 @@ func restoreSingle(x Single, at time.Time, fx []Effect) (Single, []Effect) {
 					continue
 				}
 				if len(pastes) > 0 {
-					if len(x.State.Pastes) > 0 || x.State.NextPaste > 0 {
-						x.State.Message = Message{Text: "the saved draft could not be put back", At: at}
-						continue
-					}
-					x.State.Pastes, x.State.NextPaste = pastes, next
+					text, pastes, next = afterPastes(text, pastes, next, x.State.Pastes, x.State.NextPaste)
+					x.State.Pastes, x.State.NextPaste = append(slices.Clone(x.State.Pastes), pastes...), max(next, x.State.NextPaste)
 				}
 				fx = append(fx, RestoreDraft{Text: text})
 			}
@@ -391,12 +385,59 @@ func carry(v View, rs *Restore) View {
 	}
 	if rs.Drafts {
 		for _, d := range rs.View.Drafts {
-			if !slices.ContainsFunc(v.Drafts, func(x Draft) bool { return x.Role == d.Role }) {
+			i := slices.IndexFunc(v.Drafts, func(x Draft) bool { return x.Role == d.Role })
+			if i < 0 {
 				v.Drafts = append(v.Drafts, d)
+				continue
 			}
+			// Typed since the start: the saved draft goes ahead of it, as
+			// it will when it comes back, and neither is lost.
+			typed := v.Drafts[i]
+			text, pastes, next := restoredDraft(d)
+			text, pastes, next = afterPastes(text, pastes, next, typed.Pastes, typed.NextPaste)
+			v.Drafts = slices.Clone(v.Drafts)
+			v.Drafts[i] = Draft{Role: d.Role, Text: aheadOf(text, typed.Text),
+				Pastes: append(slices.Clone(typed.Pastes), pastes...), NextPaste: max(next, typed.NextPaste)}
 		}
 	}
 	return v
+}
+
+// aheadOf is saved text put ahead of what has been typed since, as the
+// shell puts a restored draft back.
+func aheadOf(saved, typed string) string {
+	if typed != "" {
+		saved += "\n" + typed
+	}
+	return saved
+}
+
+// afterPastes renumbers a saved draft's pastes to follow the ones made
+// since (have, numbered up to haveNext), placeholders and all, so the
+// two never share a number. Each paste keeps its trust.
+func afterPastes(text string, pastes []Paste, next int, have []Paste, haveNext int) (string, []Paste, int) {
+	off := haveNext
+	for _, p := range have {
+		off = max(off, p.ID)
+	}
+	if off == 0 || len(pastes) == 0 {
+		return text, pastes, next
+	}
+	out := slices.Clone(pastes)
+	// Highest first: a paste's new number is above every number not yet
+	// moved, so no placeholder is moved twice.
+	slices.SortFunc(out, func(a, b Paste) int { return b.ID - a.ID })
+	for i, p := range out {
+		q := p
+		q.ID += off
+		for _, trusted := range []bool{false, true} {
+			p.Trusted, q.Trusted = trusted, trusted
+			text = strings.ReplaceAll(text, p.Token(), q.Token())
+		}
+		out[i].ID = q.ID
+	}
+	slices.Reverse(out)
+	return text, out, next + off
 }
 
 // SaveHub is the saved view of a hub. drafts is the text of each role's

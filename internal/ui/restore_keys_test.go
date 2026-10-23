@@ -48,3 +48,18 @@ func TestTypingBeforeTheRestoreKeepsTheKeys(t *testing.T) {
 		t.Fatalf("hub: pane %v focus %q list %v", m.hub.App.PaneFocus, m.hub.Focus, m.hub.List)
 	}
 }
+
+// A letter typed before the saved draft is back does not push the saved
+// draft out of the next save.
+func TestSavedDraftSurvivesTypingBeforeTheRestore(t *testing.T) {
+	saved := core.View{Drafts: []core.Draft{{Text: "old draft"}}}
+	m := update(New(nopConn{}, "").Restore(saved, ""), letter('n'))
+	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
+		t.Fatalf("single: saved %+v", d)
+	}
+	saved = core.View{Drafts: []core.Draft{{Role: "mail", Text: "old draft"}}}
+	m = update(New(nopConn{}, "").Open("mail").Restore(saved, ""), ev(core.HubConnected{At: time.Now()}), letter('n'))
+	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Role != "mail" || d[0].Text != "old draft\nn" {
+		t.Fatalf("hub: saved %+v", d)
+	}
+}
