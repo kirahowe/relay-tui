@@ -375,7 +375,7 @@ func (r *reducer) apply(e Event) {
 		r.pasted(e)
 	case TrustPaste:
 		r.trustPaste(e)
-	case ItemsLoaded, CitationResolved, TrustDone, PaneKey, CardsLoaded, CardsChanged, CardOpDone:
+	case ItemsLoaded, CitationResolved, TrustDone, PaneKey, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
 		r.pane(e)
 	case PermissionAsked:
 		r.closeTranscript()

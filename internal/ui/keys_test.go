@@ -22,6 +22,7 @@ func (nopConn) Resolve(string, string)                   {}
 func (nopConn) Trust(string, string, string, string)     {}
 func (nopConn) Cards(string)                             {}
 func (nopConn) CardOp(string, int64, core.CardOp)        {}
+func (nopConn) CardTrust(string, int64, int64, string)   {}
 func (nopConn) Attach(string, string)                    {}
 func (nopConn) End(string)                               {}
 func (nopConn) Seen(string, int)                         {}

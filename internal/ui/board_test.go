@@ -1,8 +1,10 @@
 package ui_test
 
 import (
+	"github.com/kirahowe/acp-tui/internal/core"
 	"strings"
 	"testing"
+	"time"
 )
 
 // openBoard starts the board script on a wide screen and focuses the
@@ -126,4 +128,23 @@ func TestBoardWithoutRelay(t *testing.T) {
 	h.keys(ctrlX)
 	h.keys("b")
 	h.waitScreen("no board", func(s string) bool { return strings.Contains(s, "This agent has no board.") })
+}
+
+// t asks to trust a card with outside text; y, after a moment, sends
+// relay the rev and digest it was shown, and the clean card replaces it.
+func TestTrustingACardFromTheBoard(t *testing.T) {
+	h := start(t, "card_trust.jsonl", 140, 30)
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "outside text") })
+	h.keys(ctrlX)
+	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "t trust") })
+	h.keys("t")
+	h.waitScreen("the question", func(s string) bool { return strings.Contains(s, "It clears outside") })
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.waitScreen("armed", func(s string) bool { return !strings.Contains(s, "wait a moment") })
+	h.keys("y")
+	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
+	calls := h.extensionCalls("_relay/cards/trust")
+	if len(calls) != 1 || calls[0] != `{"card":9,"rev":9,"sessionId":"fake-session","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
+		t.Fatalf("trust calls %q", calls)
+	}
 }

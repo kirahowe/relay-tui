@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -270,6 +271,7 @@ func TrustOutcome(path string, raw json.RawMessage, err error, at time.Time) cor
 const (
 	MethodCards        = "_relay/cards"
 	MethodCardOp       = "_relay/cards/op"
+	MethodCardTrust    = "_relay/cards/trust"
 	MethodCardsChanged = "_relay/cards/changed"
 )
 
@@ -339,8 +341,9 @@ type rawCard struct {
 		Column int    `json:"column"`
 		State  string `json:"state"`
 	} `json:"cells"`
-	Note *rawText `json:"note"`
-	Text string   `json:"text"`
+	Note   *rawText `json:"note"`
+	SHA256 string   `json:"sha256"`
+	Text   string   `json:"text"`
 }
 
 func elems(raw []rawText) ([]core.CardElem, bool) {
@@ -364,6 +367,9 @@ func card(raw json.RawMessage) (core.Card, bool) {
 	}
 	c := core.Card{ID: *r.ID, Kind: r.Kind, Status: r.Status, Complete: r.Complete, Rev: r.Rev, Owner: r.Owner,
 		AddedAt: r.AddedAt, Labels: labelNames(r.Labels), Text: r.Text}
+	if sha256Hex.MatchString(r.SHA256) {
+		c.SHA256 = r.SHA256
+	}
 	if c.Status == "" {
 		c.Status = core.CardActive
 	}
@@ -430,6 +436,35 @@ func Cards(raw json.RawMessage, err error, at time.Time) core.CardsLoaded {
 		return core.CardsLoaded{At: at, Err: "relay's answer could not be read"}
 	}
 	return core.CardsLoaded{At: at, Rev: r.Rev, Cards: cardList(r.Cards)}
+}
+
+// sha256Hex is a digest as relay writes one.
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// CardTrustParams is the parameters of _relay/cards/trust: the card, and
+// the rev and digest relay sent with the card the operator was shown.
+func CardTrustParams(session acp.SessionId, card, rev int64, sha string) map[string]any {
+	return map[string]any{"sessionId": session, "card": card, "rev": rev, "sha256": sha}
+}
+
+// CardTrustOutcome translates the answer to _relay/cards/trust on card
+// id: the card, clean, or relay's refusal.
+func CardTrustOutcome(id int64, raw json.RawMessage, err error, at time.Time) core.CardTrustDone {
+	if err != nil {
+		return core.CardTrustDone{At: at, CardID: id, Err: errText(err)}
+	}
+	var r struct {
+		Trusted bool            `json:"trusted"`
+		Card    json.RawMessage `json:"card"`
+	}
+	if strictjson.Unmarshal(raw, &r) != nil || !r.Trusted || r.Card == nil {
+		return core.CardTrustDone{At: at, CardID: id, Err: "relay did not say it trusted the card"}
+	}
+	c, ok := card(r.Card)
+	if !ok || c.ID != id {
+		return core.CardTrustDone{At: at, CardID: id, Err: "relay's answer could not be read"}
+	}
+	return core.CardTrustDone{At: at, CardID: id, Card: &c}
 }
 
 // CardOpOutcome translates the answer to _relay/cards/op on card id. A

@@ -32,6 +32,7 @@ type Conn interface {
 	// relay's notifications of changed cards, come back as events.
 	Cards(session string)
 	CardOp(session string, card int64, op core.CardOp)
+	CardTrust(session string, card, rev int64, sha string)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as
@@ -446,6 +447,8 @@ func (m *Model) sessionEffect(session string, f core.Effect) bool {
 		m.conn.Cards(session)
 	case core.SendCardOp:
 		m.conn.CardOp(session, f.Card, f.Op)
+	case core.SendCardTrust:
+		m.conn.CardTrust(session, f.Card, f.Rev, f.SHA256)
 	default:
 		return false
 	}
@@ -501,8 +504,8 @@ func (m *Model) tick(now time.Time) tea.Cmd {
 // trustArming says a trust confirmation is waiting out its delay, so the
 // pane must redraw when it arms.
 func (m *Model) trustArming(now time.Time) bool {
-	t := m.core.Pane.Trust
-	return t != nil && !t.Sent && now.Sub(t.Since) < core.ArmDelay+tickEvery
+	since, ok := core.TrustSince(m.core)
+	return ok && now.Sub(since) < core.ArmDelay+tickEvery
 }
 
 // width is the width everything is drawn at: one column narrower than

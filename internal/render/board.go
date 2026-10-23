@@ -3,8 +3,10 @@ package render
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -121,10 +123,23 @@ func cardRight(b core.Board, c core.Card) string {
 }
 
 // cardFoot is what the bottom border of a card's panel says: that some
-// of its text came from outside.
-func cardFoot(c core.Card) string {
-	if c.Labels.Contaminated {
-		return styled(warnColour, "outside text")
+// of its text came from outside, and, on the card that has the keys, that
+// t trusts it.
+func cardFoot(c core.Card, focus bool) string {
+	if !c.Labels.Contaminated {
+		return ""
+	}
+	f := styled(warnColour, "outside text")
+	if focus && c.SHA256 != "" {
+		f += styled(faint, " · t trust")
+	}
+	return f
+}
+
+// trustKey is the hint for t on card c, when t trusts it from here.
+func trustKey(c core.Card) string {
+	if c.Labels.Contaminated && c.SHA256 != "" {
+		return "t trust · "
 	}
 	return ""
 }
@@ -327,7 +342,7 @@ func cardPanel(b core.Board, c core.Card, width int, full, focus bool) (out []st
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
-	out = panel(title, cardRight(b, c), cardFoot(c), body, width, len(body)+2, focus)
+	out = panel(title, cardRight(b, c), cardFoot(c, focus), body, width, len(body)+2, focus)
 	if full && focus {
 		if core.BoardLine(b, c) == 0 {
 			return out, 0, 1
@@ -360,7 +375,7 @@ func cardName(b core.Board, id int64) string {
 }
 
 // boardParts lays out the board view.
-func boardParts(s core.State, width int) parts {
+func boardParts(s core.State, now time.Time, width int) parts {
 	p := s.Pane
 	b := p.Board
 	var pr parts
@@ -379,6 +394,11 @@ func boardParts(s core.State, width int) parts {
 		pr.body = []string{styled(faint, "loading…")}
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
+	case b.Trust != nil:
+		// What the operator vouches for: the whole card, as it is now.
+		if i := slices.IndexFunc(b.Cards, func(x core.Card) bool { return x.ID == b.Trust.Card }); i >= 0 {
+			pr.body, _, _ = cardPanel(b, b.Cards[i], width, true, false)
+		}
 	case b.Detail && sel >= 0:
 		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, p.Focus)
 	case len(b.Cards) == 0:
@@ -405,18 +425,28 @@ func boardParts(s core.State, width int) parts {
 		pr.foot = append(pr.foot, hint("enter send · esc cancel")...)
 	case b.Confirm != 0:
 		pr.foot = wrap(styled(bold, "Archive "+cardName(b, b.Confirm)+"?")+styled(faint, " y archive · any other key cancels"), width)
+	case b.Trust != nil:
+		pr.foot = wrap(styled(bold, "Trust "+cardName(b, b.Trust.Card)+"? It clears outside text from what it says now."), width)
+		switch {
+		case b.Trust.Sent:
+			pr.foot = append(pr.foot, hint("trusting…")...)
+		case now.Sub(b.Trust.Since) >= core.ArmDelay:
+			pr.foot = append(pr.foot, wrap(styled(bold|accent, "y trust")+styled(faint, " · any other key cancels"), width)...)
+		default:
+			pr.foot = append(pr.foot, hint("y trust (wait a moment) · any other key cancels")...)
+		}
 	case b.Detail && sel >= 0:
 		pr.foot = cellLine(b, c, width)
 		switch c.Kind {
 		case core.CardChecklist:
-			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓ select · x tick · a add · e edit · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
-			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
 		default:
-			pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
+			pr.keys = "e retitle · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
 		}
 	case len(b.Cards) > 0:
-		pr.keys = "↑↓ select · enter open · e retitle · X archive · r reload · b workspace · esc back"
+		pr.keys = "↑↓ select · enter open · e retitle · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
 	case b.Unavailable:
 		// r would not ask again: the agent has no such method.
 		pr.keys = "b workspace · esc back"

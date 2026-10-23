@@ -273,7 +273,7 @@ func (m *Model) hubTick(now time.Time) tea.Cmd {
 		if r := m.hub.RoleByID(m.hub.Focus); r != nil && r.Conv != nil && r.Conv.Turn == core.TurnRunning {
 			busy = true
 		}
-		if t := st.Pane.Trust; t != nil && !t.Sent && now.Sub(t.Since) < core.ArmDelay+tickEvery {
+		if since, ok := core.TrustSince(st); ok && now.Sub(since) < core.ArmDelay+tickEvery {
 			busy = true
 		}
 	}

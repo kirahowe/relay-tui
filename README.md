@@ -206,6 +206,15 @@ Keys on the board:
   renames the selected column. A note's text cannot be edited here.
 - X archives the selected card, after you confirm with y. relay's CLI can
   restore it.
+- t trusts the selected card when it holds outside text. The pane shows
+  the whole card and asks "Trust …? It clears outside text from what it
+  says now." After a short delay, y confirms, and any other key cancels.
+  acp-tui sends relay the card's rev and the digest relay sent with it
+  (`_relay/cards/trust`), so a card that changed in the meantime is not
+  trusted. If the card changes while you are being asked, the question
+  closes. relay takes trust only from `relay chat`, which runs with
+  approvals. Elsewhere the pane names the `relay trust card <id>` command
+  to run in a terminal.
 - r asks relay for the board again; b goes back to the workspace items. An agent with
   no board is not asked again.
 

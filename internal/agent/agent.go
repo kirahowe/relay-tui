@@ -322,6 +322,16 @@ func (a *Agent) CardOp(session string, card int64, op core.CardOp) {
 	})
 }
 
+// CardTrust asks relay to trust a card at the rev and digest the operator
+// was shown, and emits CardTrustDone. It does not block.
+func (a *Agent) CardTrust(session string, card, rev int64, sha string) {
+	id := a.sid(session)
+	a.enqueue(func() {
+		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(id, card, rev, sha))
+		a.emit(a.route(id, wire.CardTrustOutcome(card, raw, err, time.Now())))
+	})
+}
+
 // HandleExtensionMethod takes relay's _relay/cards/changed notification.
 // The client answers no extension request.
 func (c client) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {

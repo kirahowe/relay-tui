@@ -503,7 +503,7 @@ func (r *reducer) pane(e Event) {
 		r.refresh()
 	case PaneKey:
 		r.paneKey(e)
-	case CardsLoaded, CardsChanged, CardOpDone:
+	case CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
 		r.board(e)
 	}
 }

@@ -232,6 +232,8 @@ func ClassifyBoard(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEditColumn
 	case "X":
 		return core.PaneArchive
+	case "t":
+		return core.PaneTrust
 	case "y", "Y":
 		return core.PaneYes
 	}

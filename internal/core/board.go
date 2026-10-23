@@ -72,6 +72,10 @@ type Card struct {
 	Cells    []Cell     // tracker
 	Note     *CardText  // note
 	Text     string     // the text form, for a kind the client does not know
+	// SHA256 is the digest relay sends with a card that holds outside
+	// text, which a trust of the card gives back. Empty when relay sent
+	// none.
+	SHA256 string
 }
 
 // Native says the client draws the card's kind itself.
@@ -155,6 +159,8 @@ type Board struct {
 	Input  *BoardInput
 	// Confirm is the card waiting for y to archive it.
 	Confirm int64
+	// Trust is a trust of a whole card waiting for y, or on its way.
+	Trust *CardTrust
 	// Sending is the card an op is on its way for; the op is its name.
 	// Sent is the input the op came from, if it carried text, so a
 	// refusal can give the operator back what they typed.
@@ -165,6 +171,18 @@ type Board struct {
 	// refusal, shown escaped.
 	Message string
 	Failure string
+}
+
+// CardTrust is a trust of a whole card: the card, and the rev and digest
+// relay sent with the card the operator is looking at, so a card that
+// changes meanwhile is not trusted. Since is when the question was asked;
+// y does nothing until ArmDelay after it. Sent says it is on its way.
+type CardTrust struct {
+	Card   int64
+	Rev    int64
+	SHA256 string
+	Since  time.Time
+	Sent   bool
 }
 
 // Events about the board.
@@ -196,11 +214,20 @@ type (
 		Unchanged bool
 		Err       string
 	}
+	// CardTrustDone is relay's answer to _relay/cards/trust: the card,
+	// clean, or relay's refusal in Err.
+	CardTrustDone struct {
+		At     time.Time
+		CardID int64
+		Card   *Card
+		Err    string
+	}
 )
 
-func (e CardsLoaded) at() time.Time  { return e.At }
-func (e CardsChanged) at() time.Time { return e.At }
-func (e CardOpDone) at() time.Time   { return e.At }
+func (e CardsLoaded) at() time.Time   { return e.At }
+func (e CardsChanged) at() time.Time  { return e.At }
+func (e CardOpDone) at() time.Time    { return e.At }
+func (e CardTrustDone) at() time.Time { return e.At }
 
 // Effects asking the shell to call relay about cards.
 type (
@@ -209,10 +236,18 @@ type (
 		Card int64
 		Op   CardOp
 	}
+	// SendCardTrust asks relay to trust a card at the rev and digest the
+	// operator was shown.
+	SendCardTrust struct {
+		Card   int64
+		Rev    int64
+		SHA256 string
+	}
 )
 
-func (RequestCards) effect() {}
-func (SendCardOp) effect()   {}
+func (RequestCards) effect()  {}
+func (SendCardOp) effect()    {}
+func (SendCardTrust) effect() {}
 
 // BoardCard is the selected card and its index, or -1.
 func BoardCard(b Board) (Card, int) {
@@ -369,7 +404,18 @@ func (r *reducer) board(e Event) {
 	b := &r.s.Pane.Board
 	anchor, anchored := anchorOf(*b)
 	defer func() { r.reanchor(anchor, anchored) }()
+	defer r.keepTrust()
 	switch e := e.(type) {
+	case CardTrustDone:
+		b.Trust = nil
+		if e.Err != "" {
+			b.Message, b.Failure = "Trust failed.", e.Err
+			return
+		}
+		if e.Card != nil {
+			b.put(*e.Card)
+		}
+		b.Message, b.Failure = "Trusted.", ""
 	case CardsLoaded:
 		switch {
 		case e.Unavailable:
@@ -537,6 +583,22 @@ func (r *reducer) boardKey(e PaneKey) {
 		}
 		return
 	}
+	if t := b.Trust; t != nil {
+		switch {
+		case t.Sent: // the keys wait for relay's answer
+		case e.Action == PaneYes:
+			if e.At.Sub(t.Since) >= ArmDelay && !r.busy() {
+				sent := *t
+				sent.Sent = true
+				b.Trust = &sent
+				r.emit(SendCardTrust{Card: t.Card, Rev: t.Rev, SHA256: t.SHA256})
+			}
+		default:
+			b.Trust = nil
+			b.Message = "Trust cancelled."
+		}
+		return
+	}
 	b.Message, b.Failure = "", ""
 	c, i := BoardCard(*b)
 	switch e.Action {
@@ -594,6 +656,54 @@ func (r *reducer) boardKey(e PaneKey) {
 			b.SelID = c.ID
 			b.Confirm = c.ID
 		}
+	case PaneTrust:
+		if i >= 0 {
+			r.startCardTrust(e.At, c)
+		}
+	}
+}
+
+// TrustSince is when a trust question that has not been answered was
+// asked, a doc's or a card's, and false when none waits. The shell keeps
+// drawing until y is armed, so the operator sees it arm.
+func TrustSince(s State) (time.Time, bool) {
+	if t := s.Pane.Trust; t != nil && !t.Sent {
+		return t.Since, true
+	}
+	if t := s.Pane.Board.Trust; t != nil && !t.Sent {
+		return t.Since, true
+	}
+	return time.Time{}, false
+}
+
+// startCardTrust asks the operator to trust card c, or says why it
+// cannot be.
+func (r *reducer) startCardTrust(at time.Time, c Card) {
+	b := &r.s.Pane.Board
+	switch {
+	case !c.Labels.Contaminated:
+		b.Message = "Nothing to trust: this card has no outside text."
+	case c.SHA256 == "":
+		b.Message = "Trust needs relay chat. In a terminal, run: relay trust card " + strconv.FormatInt(c.ID, 10)
+	default:
+		b.SelID = c.ID
+		b.Trust = &CardTrust{Card: c.ID, Rev: c.Rev, SHA256: c.SHA256, Since: at}
+	}
+}
+
+// keepTrust drops a trust not yet sent when its card has changed or left
+// the board: the operator vouches for what they were shown, and only
+// that.
+func (r *reducer) keepTrust() {
+	b := &r.s.Pane.Board
+	t := b.Trust
+	if t == nil || t.Sent {
+		return
+	}
+	i := slices.IndexFunc(b.Cards, func(c Card) bool { return c.ID == t.Card })
+	if i < 0 || b.Cards[i].Rev != t.Rev || b.Cards[i].SHA256 != t.SHA256 {
+		b.Trust = nil
+		b.Message, b.Failure = "The card changed, so nothing was trusted. Look at it again.", ""
 	}
 }
 

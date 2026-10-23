@@ -188,6 +188,46 @@ func TestRelayCardFixtures(t *testing.T) {
 		}
 	})
 
+	// Trusting the contaminated note: the digest relay sent with it, at a
+	// stale rev and then at the rev shown.
+	t.Run("a trust", func(t *testing.T) {
+		n := cardByID(t, s, note)
+		if n.SHA256 == "" || !n.Labels.Contaminated {
+			t.Fatalf("the note carries no digest to trust it by: %+v", n)
+		}
+		if cardByID(t, s, checklist).SHA256 != "" {
+			t.Error("a clean card carries a digest")
+		}
+		for _, c := range []struct {
+			name string
+			rev  int64
+		}{{"trust_stale", 1}, {"trust", n.Rev}} {
+			var x exchange
+			readRelayFixture(t, c.name, &x)
+			want, _ := json.Marshal(CardTrustParams("fixture-session", note, c.rev, n.SHA256))
+			if x.Request.Method != MethodCardTrust || !sameJSON(t, want, x.Request.Params) {
+				t.Errorf("%s: client would send %s %s, relay was sent %s %s", c.name, MethodCardTrust, want, x.Request.Method, x.Request.Params)
+			}
+		}
+		var stale, ok exchange
+		readRelayFixture(t, "trust_stale", &stale)
+		raw, err := stale.answer()
+		if done := CardTrustOutcome(note, raw, err, t0); done.Err == "" || !strings.Contains(done.Err, "changed since you read it") {
+			t.Errorf("stale trust %+v", done)
+		}
+		readRelayFixture(t, "trust", &ok)
+		raw, err = ok.answer()
+		done := CardTrustOutcome(note, raw, err, t0)
+		if done.Err != "" || done.Card == nil || done.Card.Labels.Contaminated || done.Card.SHA256 != "" || done.Card.Note.Outsider {
+			t.Fatalf("trust %+v", done)
+		}
+		after, _ := core.Reduce(s, done)
+		list := paneText(after)
+		if strings.Contains(list, "outside text") || warned(paneRaw(after), "From a web page") {
+			t.Errorf("the trusted note is still marked:\n%s", list)
+		}
+	})
+
 	// An op the client sends in the form relay was sent, and relay's answer.
 	op := func(name string, item int) (json.RawMessage, error) {
 		t.Helper()

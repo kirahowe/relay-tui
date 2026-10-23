@@ -10,7 +10,7 @@
   },
   "response" : {
     "jsonrpc" : "2.0",
-    "id" : 3,
+    "id" : 5,
     "result" : {
       "card" : {
         "owner" : "hub",
@@ -18,10 +18,10 @@
           "done" : 2,
           "total" : 3
         },
-        "rev" : 11,
+        "rev" : 12,
         "complete" : false,
         "id" : 3,
-        "addedAt" : "2026-10-20T16:56:55.170169Z",
+        "addedAt" : "2026-10-23T15:52:44.432012Z",
         "labels" : [ "private" ],
         "items" : [ {
           "text" : "Make a folder for the statements",
@@ -43,7 +43,7 @@
           "done" : false
         } ],
         "status" : "active",
-        "text" : "Card 3: How to work through it (checklist, 2 of 3 done, rev 11) [[card:3]]\n[x] 1 Make a folder for the statements\n[x] 2 Download one account's months in one login\n[ ] 3 Import into the app, then the spreadsheet",
+        "text" : "Card 3: How to work through it (checklist, 2 of 3 done, rev 12) [[card:3]]\n[x] 1 Make a folder for the statements\n[x] 2 Download one account's months in one login\n[ ] 3 Import into the app, then the spreadsheet",
         "kind" : "checklist",
         "title" : {
           "text" : "How to work through it",
