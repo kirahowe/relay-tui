@@ -587,7 +587,7 @@ func (r *hubReducer) apply(e Event) {
 		// No conversation yet: the paste waits in the role's draft.
 		b := r.blank(h.Focus)
 		var fx []Effect
-		_, b.State, fx = reduce(h.App, b.State, e, true)
+		h.App, b.State, fx = reduce(h.App, b.State, e, true) // the app counts the paste
 		for _, f := range fx {
 			switch f.(type) {
 			case InsertInput, ReplaceInput:

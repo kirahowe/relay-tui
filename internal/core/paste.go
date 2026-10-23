@@ -23,6 +23,11 @@ type Paste struct {
 	// Trusted says the person marked it trusted; its placeholder then
 	// reads "trusted", and it is sent as plain text, not an attachment.
 	Trusted bool
+	// Seq is when it was pasted in this run, counted per connection
+	// (App.PasteSeq): later pastes have higher numbers, whatever their ID
+	// says. 0 means it was not pasted in this run but restored from a
+	// saved view, and Ctrl-Y never trusts it. Seq is never saved.
+	Seq int
 }
 
 // Lines is how many lines the paste has.
@@ -107,7 +112,13 @@ func (r *reducer) pasted(e Pasted) {
 		return // nothing pasted while a request waits or something else has the keys goes anywhere
 	}
 	s.NextPaste++
-	p := Paste{ID: s.NextPaste, Text: e.Text}
+	// After every paste of the run, and every one this conversation
+	// holds, even reduced with no app around it.
+	for _, q := range s.Pastes {
+		r.a.PasteSeq = max(r.a.PasteSeq, q.Seq)
+	}
+	r.a.PasteSeq++
+	p := Paste{ID: s.NextPaste, Text: e.Text, Seq: r.a.PasteSeq}
 	s.Pastes = append(s.Pastes, p)
 	r.emit(InsertInput{Text: p.Token()})
 }
@@ -119,24 +130,41 @@ func (r *reducer) inputInPlay() bool {
 }
 
 // trustPaste marks the latest paste still in the draft as trusted and has
-// the placeholder say so. With none to mark it says so on the status line.
+// the placeholder say so. Latest is by when it was pasted (Seq), not by
+// number or place in the list, which a restore can reorder. Only a paste
+// made in this run can be trusted: one restored from a saved view is
+// never marked, so trusting it means pasting it again. With none to mark
+// it says so on the status line.
 func (r *reducer) trustPaste(e TrustPaste) {
 	s := &r.s
 	if !r.inputInPlay() {
 		return
 	}
-	for i := len(s.Pastes) - 1; i >= 0; i-- {
-		p := s.Pastes[i]
+	best, restored := -1, false
+	for i, p := range s.Pastes {
 		if p.Trusted || !strings.Contains(e.Draft, p.Token()) {
 			continue
 		}
-		old := p.Token()
-		s.Pastes[i].Trusted = true
-		r.emit(ReplaceInput{Old: old, New: s.Pastes[i].Token()})
-		s.Message = Message{}
+		if p.Seq == 0 {
+			restored = true
+			continue
+		}
+		if best < 0 || p.Seq > s.Pastes[best].Seq {
+			best = i
+		}
+	}
+	if best < 0 {
+		text := "no untrusted paste in the input to trust"
+		if restored {
+			text = "a paste from before cannot be trusted: paste it again"
+		}
+		s.Message = Message{Text: text, At: e.At}
 		return
 	}
-	s.Message = Message{Text: "no untrusted paste in the input to trust", At: e.At}
+	old := s.Pastes[best].Token()
+	s.Pastes[best].Trusted = true
+	r.emit(ReplaceInput{Old: old, New: s.Pastes[best].Token()})
+	s.Message = Message{}
 }
 
 // resolve turns the text of a prompt into what is sent: the placeholders

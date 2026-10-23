@@ -39,6 +39,9 @@ type App struct {
 	// role in focus all mean moving (see settleMode). Letters move and
 	// act while moving, and go into the input while typing.
 	Moving bool
+	// PasteSeq counts the pastes of this run, in every conversation, so
+	// the latest can be told by when it came (Paste.Seq).
+	PasteSeq int
 }
 
 // Events that move between typing and moving, and between the columns:

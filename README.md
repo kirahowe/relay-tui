@@ -452,6 +452,9 @@ text, paste it and then press Ctrl-Y: it marks the latest paste still in
 the input, and its placeholder changes to `[pasted 42 lines · trusted #1]`.
 At send it goes into the prompt as plain text, and the transcript notes
 that it was not labelled. Press Ctrl-Y again to trust the one before it.
+"Latest" means the one pasted last, and only a paste made since
+relay-tui started counts: a paste that came back with a saved draft
+keeps the trust it had, and to trust it you paste it again.
 With no untrusted paste in the input, Ctrl-Y does nothing and the status
 line says so. Nothing is armed ahead of a paste, so no paste can inherit
 a trust meant for another. If a placeholder still reads `untrusted` when

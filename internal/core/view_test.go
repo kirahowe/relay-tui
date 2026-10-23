@@ -101,13 +101,13 @@ func TestRestoreHubPutsTheViewBack(t *testing.T) {
 		t.Fatalf("drafts %q", got)
 	}
 	mail := slices.IndexFunc(h.Blanks, func(b Blank) bool { return b.Role == "mail" })
-	if mail < 0 || !reflect.DeepEqual(h.Blanks[mail].State.Pastes, left.Blanks[0].State.Pastes) || h.Blanks[mail].State.NextPaste != 2 {
+	if mail < 0 || !reflect.DeepEqual(h.Blanks[mail].State.Pastes, unseq(left.Blanks[0].State.Pastes)) || h.Blanks[mail].State.NextPaste != 2 {
 		t.Fatalf("mail's pastes %+v", h.Blanks)
 	}
 	// Dev's pastes wait in its blank, and go to its conversation when it
 	// attaches.
 	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"})
-	if c := h.ConvOf("dev"); c == nil || !reflect.DeepEqual(c.State.Pastes, left.ConvOf("dev").State.Pastes) {
+	if c := h.ConvOf("dev"); c == nil || !reflect.DeepEqual(c.State.Pastes, unseq(left.ConvOf("dev").State.Pastes)) {
 		t.Fatalf("dev's pastes %+v", c)
 	}
 	// Nothing restored counts as sent, asked or confirmed.
@@ -252,7 +252,7 @@ func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
 		t.Fatalf("mail %q want %q notice %q", got["mail"], want, h.Notice)
 	}
 	c := h.ConvOf("mail")
-	if c == nil || !reflect.DeepEqual(c.State.Pastes, append([]Paste{{ID: 1, Text: "new"}}, moved...)) || c.State.NextPaste != 3 {
+	if c == nil || !reflect.DeepEqual(c.State.Pastes, append([]Paste{{ID: 1, Text: "new", Seq: 1}}, moved...)) || c.State.NextPaste != 3 {
 		t.Fatalf("mail %+v", c)
 	}
 }
@@ -277,7 +277,7 @@ func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
 	}
 	// Reopened from that, it all comes back.
 	g, fx := reopen(t, got, viewRoster(), viewCards())
-	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.Blanks[slices.IndexFunc(g.Blanks, func(b Blank) bool { return b.Role == "mail" })].State.Pastes, want.Pastes) {
+	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.Blanks[slices.IndexFunc(g.Blanks, func(b Blank) bool { return b.Role == "mail" })].State.Pastes, unseq(want.Pastes)) {
 		t.Fatalf("reopened %v %+v", fx, g.Blanks)
 	}
 	// Against a single agent, typed text with no pastes.
@@ -303,7 +303,7 @@ func TestRestoreSingle(t *testing.T) {
 	if d := effectsOf[RestoreDraft](fx); len(d) != 1 || d[0] != (RestoreDraft{Text: draft}) || !y.PaneFocus {
 		t.Fatalf("after the session: pane %v %v", y.PaneFocus, fx)
 	}
-	if !reflect.DeepEqual(y.State.Pastes, x.State.Pastes) || y.State.NextPaste != 1 {
+	if !reflect.DeepEqual(y.State.Pastes, unseq(x.State.Pastes)) || y.State.NextPaste != 1 {
 		t.Fatalf("pastes %+v", y.State.Pastes)
 	}
 	y, _ = feedS(y, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
@@ -515,4 +515,13 @@ func TestHubLayoutAloneSurvivesTheStart(t *testing.T) {
 	if x.Restore != nil || x.App.PaneFocus {
 		t.Fatalf("single: %+v pane %v", x.Restore, x.App.PaneFocus)
 	}
+}
+
+// unseq is pastes as a restore gives them back: not from this run.
+func unseq(ps []Paste) []Paste {
+	out := slices.Clone(ps)
+	for i := range out {
+		out[i].Seq = 0
+	}
+	return out
 }
