@@ -1,6 +1,9 @@
 package core
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // The client's state comes in two parts. The app is one per connection:
 // what relay's own methods answer about the connection as a whole, such
@@ -30,6 +33,47 @@ type App struct {
 	// PaneFocus says the workspace pane has the keys. On a screen too
 	// narrow for the pane beside the conversation, it is then the screen.
 	PaneFocus bool
+	// Moving says the operator is moving about the screen; otherwise
+	// they are typing in the conversation in focus. Only the
+	// conversation can be typed in, so the pane, the list and having no
+	// role in focus all mean moving (see settleMode). Letters move and
+	// act while moving, and go into the input while typing.
+	Moving bool
+}
+
+// Events that move between typing and moving, and between the columns:
+// the list of roles (hub mode only), the conversation, and the pane.
+type (
+	// Move goes Delta columns to the right (h is -1, l is +1). It stops
+	// at the edge, and skips a column with nothing in it.
+	Move struct {
+		At    time.Time
+		Delta int
+	}
+	// Type starts typing in the conversation in focus: i, or enter on
+	// the conversation.
+	Type struct{ At time.Time }
+	// StopTyping is esc while typing: what was typed stays.
+	StopTyping struct{ At time.Time }
+	// Unbound is a letter that does nothing where the operator is: it
+	// says how to type, so the letter is not lost without a word.
+	Unbound struct{ At time.Time }
+)
+
+func (e Move) at() time.Time       { return e.At }
+func (e Type) at() time.Time       { return e.At }
+func (e StopTyping) at() time.Time { return e.At }
+func (e Unbound) at() time.Time    { return e.At }
+
+// UnboundNote is what the status line says for an Unbound key.
+const UnboundNote = "i to type"
+
+// settleMode keeps the mode true to the column: anywhere but the
+// conversation is moving.
+func settleMode(a *App) {
+	if a.PaneFocus {
+		a.Moving = true
+	}
 }
 
 // Single is the whole client state against one agent that is not relay's
@@ -51,6 +95,7 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 	if rs != nil {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
+	settleMode(&out.App)
 	return out, fx
 }
 

@@ -47,10 +47,13 @@ type View struct {
 	Drafts []Draft
 }
 
-// HubView is the hub's part of a saved view (see Hub).
+// HubView is the hub's part of a saved view (see Hub). The column with
+// the keys is saved, not the mode: the mode follows from the column
+// when the view comes back (typing in a conversation, moving anywhere
+// else).
 type HubView struct {
-	Focus, Cursor      string
-	List, PaneFromList bool
+	Focus, Cursor string
+	List          bool
 }
 
 // Draft is an unsent input: its text, with the placeholders of the
@@ -83,7 +86,7 @@ func fromOperator(e Event) bool {
 	switch e.(type) {
 	case KeyPressed, Submit, Interrupt, EOF, Pasted, TrustPaste, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
 		PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll,
-		FocusMove, FocusIndex, FocusLast, ToggleList, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd:
+		FocusIndex, Move, Type, StopTyping, Unbound, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd:
 		return true
 	}
 	return false
@@ -214,15 +217,14 @@ func (r *hubReducer) restoreLayout(v View, at time.Time) {
 		r.clampCursor()
 	}
 	h.List = hv.List || h.Focus == ""
+	// Back in a conversation is typing in it; anywhere else is moving.
+	defer func() { h.App.Moving = h.List || h.App.PaneFocus || h.Focus == "" }()
 	if c := h.Focused(); !v.PaneFocus || h.Focus != hv.Focus || !h.PaneShown() || (c != nil && len(c.State.Asks) > 0) {
 		// The pane had the keys over a role that has gone, or has
 		// nothing to show, or a request has the keys.
 		return
 	}
-	h.App.PaneFocus = true
-	if hv.PaneFromList || h.Focus == "" {
-		h.List, h.PaneFromList = false, true
-	}
+	h.App.PaneFocus, h.List = true, false
 }
 
 // restoreDrafts puts back the drafts of the roles still in the roster:
@@ -296,7 +298,7 @@ func restoreSingle(x Single, at time.Time, fx []Effect) (Single, []Effect) {
 		if rs.Layout {
 			rs.Layout = false
 			if rs.View.PaneFocus && len(x.State.Asks) == 0 && x.State.Phase != Exited {
-				x.App.PaneFocus = true
+				x.App.PaneFocus, x.App.Moving = true, true
 			}
 		}
 	}
@@ -446,7 +448,7 @@ func afterPastes(text string, pastes []Paste, next int, have []Paste, haveNext i
 // input, the one in focus included.
 func SaveHub(h Hub, drafts map[string]string) View {
 	v := appView(h.App)
-	v.Hub = &HubView{Focus: h.Focus, Cursor: h.Cursor, List: h.List, PaneFromList: h.PaneFromList}
+	v.Hub = &HubView{Focus: h.Focus, Cursor: h.Cursor, List: h.List}
 	roles := make([]string, 0, len(drafts))
 	for role := range drafts {
 		roles = append(roles, role)

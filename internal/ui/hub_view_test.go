@@ -87,7 +87,10 @@ func startSaved(t *testing.T, base, state string, cfg fakehub.Config, w, h int) 
 // and waits for the view to be written.
 func (r *savedRun) quit() {
 	r.t.Helper()
-	r.keys(ctrlG)
+	if strings.Contains(r.screen(), "TYPING") {
+		r.escape()
+	}
+	r.keys("hh") // from the pane or the conversation; the list is the edge
 	r.waitScreen("the list", contains("enter open"))
 	r.keys("\x03")
 	select {
@@ -104,8 +107,10 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	base, state := t.TempDir(), filepath.Join(t.TempDir(), "state")
 	r := startSaved(t, base, state, boardRoles(), 170, 40)
 	r.waitScreen("the board", contains("Board 3"))
-	r.keys("\x1b3") // alt+3: News, no conversation
+	r.keys("3") // News, no conversation
 	r.waitScreen("news", contains("No conversation with News"))
+	r.keys("i")
+	r.waitScreen("typing", contains("TYPING"))
 	r.keys("draft for news ")
 	r.keys(bracketed("an email from outside"))
 	r.keys(" and ")
@@ -113,7 +118,8 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	r.waitScreen("two placeholders", contains("untrusted #2]"))
 	r.keys("\x19") // ctrl+y trusts the latest
 	r.waitScreen("trusted", contains("trusted #2]"))
-	r.keys(ctrlX + "\rj") // Trip prep, open, its first item
+	r.escape()
+	r.keys("l\rj") // the board, Trip prep, open, its first item
 	r.waitScreen("the item", func(string) bool { return r.emu.selected("Renew passport") })
 	r.quit()
 
@@ -126,7 +132,7 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	r.waitScreen("the list over news", func(s string) bool {
 		return strings.Contains(s, "enter open") && strings.Contains(s, "No conversation with News")
 	})
-	r.keys("\x1b") // back from the list, to the pane, which had the keys
+	r.keys("ll") // to the conversation, then the pane with the card still open
 	r.waitScreen("the open card with the keys", func(s string) bool {
 		return strings.Contains(s, "x tick") && r.emu.selected("Renew passport")
 	})
@@ -141,7 +147,7 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	}
 	// Sent, the untrusted paste goes as an attachment and the trusted one
 	// as text, as they would have before.
-	r.keys(ctrlX)
+	r.keys("hi")
 	r.waitScreen("the input has the keys", contains("enter send"))
 	r.keys("\r")
 	line := r.waitLog("prompt ")
@@ -160,10 +166,12 @@ func TestHubSavedViewWithARoleRemoved(t *testing.T) {
 	base, state := t.TempDir(), filepath.Join(t.TempDir(), "state")
 	r := startSaved(t, base, state, boardRoles(), 170, 40)
 	r.waitScreen("the board", contains("Board 3"))
-	r.keys("\x1b2") // Mail
+	r.keys("2") // Mail
 	r.waitScreen("mail", contains("No conversation with Mail"))
+	r.keys("i")
+	r.waitScreen("typing", contains("TYPING"))
 	r.keys("for mail")
-	r.keys("\x1b3") // News
+	r.keys("\x1b3") // alt+3: News, still typing
 	r.waitScreen("news", contains("No conversation with News"))
 	r.keys("for news")
 	r.waitScreen("typed", contains("for news"))

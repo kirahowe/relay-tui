@@ -25,8 +25,7 @@ func genView(t *rapid.T) core.View {
 	}
 	if rapid.Bool().Draw(t, "hub") {
 		v.Hub = &core.HubView{Focus: rapid.StringMatching(`[a-z]{0,5}`).Draw(t, "focus"),
-			Cursor: rapid.StringMatching(`[a-z]{0,5}`).Draw(t, "cursor"), List: rapid.Bool().Draw(t, "list"),
-			PaneFromList: rapid.Bool().Draw(t, "from list")}
+			Cursor: rapid.StringMatching(`[a-z]{0,5}`).Draw(t, "cursor"), List: rapid.Bool().Draw(t, "list")}
 	}
 	for i := rapid.IntRange(0, 3).Draw(t, "drafts"); i > 0; i-- {
 		d := core.Draft{Role: rapid.StringMatching(`[a-z]{0,5}`).Draw(t, "role"),

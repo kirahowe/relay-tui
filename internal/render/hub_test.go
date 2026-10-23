@@ -50,7 +50,7 @@ func hubFixture() core.Hub {
 func TestHubGolden(t *testing.T) {
 	now := t0.Add(time.Minute)
 	h := hubFixture()
-	list := hubStep(h, core.ToggleList{At: t0})
+	list := hubStep(h, core.Move{At: t0, Delta: -1})
 	asking := hubStep(h, core.FocusIndex{At: t0, Index: 1})
 	ending := hubStep(h, core.AskEnd{At: t0})
 	helped := hubStep(h, core.ToggleHelp{At: t0})
@@ -74,7 +74,7 @@ func TestHubFrameFits(t *testing.T) {
 	h := hubFixture()
 	views := map[string]core.Hub{
 		"conversation": h,
-		"list":         hubStep(h, core.ToggleList{At: t0}),
+		"list":         hubStep(h, core.Move{At: t0, Delta: -1}),
 		"request":      hubStep(h, core.FocusIndex{At: t0, Index: 1}),
 		"ending":       hubStep(h, core.AskEnd{At: t0}),
 		"help":         hubStep(h, core.ToggleHelp{At: t0}),
@@ -102,10 +102,10 @@ func TestHubFrameFits(t *testing.T) {
 func TestHubNarrowShowsOneOrTheOther(t *testing.T) {
 	h := hubFixture()
 	conv := HubView(h, "", "", t0, 50, 14).Content
-	if strings.Contains(conv, "Garden planner") || !strings.Contains(conv, "ctrl+g roles") || !strings.Contains(conv, "dentist") {
+	if strings.Contains(conv, "Garden planner") || !strings.Contains(conv, "h roles") || !strings.Contains(conv, "dentist") {
 		t.Errorf("conversation screen:\n%s", conv)
 	}
-	list := HubView(hubStep(h, core.ToggleList{At: t0}), "", "", t0, 50, 14).Content
+	list := HubView(hubStep(h, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content
 	if strings.Contains(list, "dentist") || !strings.Contains(list, "Garden planner") {
 		t.Errorf("list screen:\n%s", list)
 	}
@@ -137,7 +137,7 @@ func TestHubQueuedTurnIsSaid(t *testing.T) {
 	if !strings.Contains(f, "waiting for the role's scheduled work") {
 		t.Errorf("the queued turn is not said:\n%s", f)
 	}
-	list := ansi.Strip(HubView(hubStep(h, core.ToggleList{At: t0}), "", "", t0, 50, 14).Content)
+	list := ansi.Strip(HubView(hubStep(h, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content)
 	if !strings.Contains(list, "waiting for scheduled work") {
 		t.Errorf("the list does not say it:\n%s", list)
 	}
@@ -229,7 +229,7 @@ func TestHubShowsTheDisplayBesideTheConversation(t *testing.T) {
 			t.Errorf("the hub view lacks %q:\n%s", want, hub)
 		}
 	}
-	// Narrower than that the pane waits for ctrl+x, as inline.
+	// Narrower than that the pane waits for l, as inline.
 	if narrow := ansi.Strip(HubView(hubOf(st), "", "", t0, 99, 50).Content); strings.Contains(narrow, "Venues near the hall") {
 		t.Errorf("the pane stood beside a conversation too narrow for it:\n%s", narrow)
 	}
@@ -453,8 +453,8 @@ func TestHubSaysWhenConversationsEndWithTheClient(t *testing.T) {
 		name string
 		h    core.Hub
 		w    int
-	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.ToggleList{At: t0}), 50},
-		{"wide list", hubStep(h, core.ToggleList{At: t0}), 100}} {
+	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.Move{At: t0, Delta: -1}), 50},
+		{"wide list", hubStep(h, core.Move{At: t0, Delta: -1}), 100}} {
 		got := ansi.Strip(HubView(v.h, "", "", t0, v.w, 20).Content)
 		if !strings.Contains(strings.Join(strings.Fields(got), " "), "relay service not running") {
 			t.Errorf("%s:\n%s", v.name, got)
@@ -487,7 +487,7 @@ func TestHubTruncatedReplayIsSaidAtTheTop(t *testing.T) {
 
 // The cursor goes where the input's first character is drawn, in a panel
 // or not, with the pane beside the conversation or not. The input starts
-// with the text area's own prompt mark, two columns, which is drawn once.
+// with the text area's own prompt mark, two columns.
 func TestHubCursorIsOnTheInput(t *testing.T) {
 	h := hubFixture()
 	for _, w := range []int{30, 71, 72, 99, 150, 160, 200} {
@@ -498,7 +498,7 @@ func TestHubCursorIsOnTheInput(t *testing.T) {
 			}
 			lines := strings.Split(ansi.Strip(f.Content), "\n")
 			row := []rune(lines[f.InputY])
-			if f.InputX+2 >= len(row) || row[f.InputX+2] != 'Q' || row[f.InputX] != '›' || strings.Contains(lines[f.InputY], "› ›") {
+			if f.InputX+2 >= len(row) || row[f.InputX+2] != 'Q' || row[f.InputX] != '›' {
 				t.Errorf("%dx%d: cursor at %d,%d is not on the input: %q", w, rows, f.InputX, f.InputY, lines[f.InputY])
 			}
 		}

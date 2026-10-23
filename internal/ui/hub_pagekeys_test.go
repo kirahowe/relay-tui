@@ -54,7 +54,8 @@ func TestPageKeysGoToThePaneWhenItHasTheFocus(t *testing.T) {
 		t.Fatal("page up did nothing while a request waited")
 	}
 	// With the pane focused they are the pane's.
-	m = step(m, press(t, "ctrl+x"))
+	m = step(m, press(t, "esc"))
+	m = step(m, press(t, "l"))
 	if !m.hub.App.PaneFocus {
 		t.Fatal("the pane did not take the focus")
 	}

@@ -78,18 +78,32 @@ type KeyHelp struct {
 	What string
 }
 
-// InlineKeys is what the keys do in the inline view.
-var InlineKeys = []KeyHelp{
+// InlineTypingKeys is what the keys do while typing in the inline view.
+var InlineTypingKeys = []KeyHelp{
 	{[]string{"enter"}, "send"},
 	{[]string{"shift+enter", "ctrl+j"}, "new line"},
+	{[]string{"esc"}, "stop typing; what you typed stays"},
 	{[]string{"ctrl+t"}, "transcript with tool calls in full"},
 	{[]string{"ctrl+o"}, "transcript with thinking in full"},
-	{[]string{"ctrl+x"}, "workspace pane"},
 	{[]string{"ctrl+y"}, "trust the latest paste in the input"},
 	{[]string{"ctrl+c"}, "stop the turn, clear, or quit"},
 	{[]string{"ctrl+d"}, "quit, from an empty input"},
 	{[]string{"?"}, "these keys, from an empty input"},
 }
+
+// InlineMovingKeys is what the keys do while moving in the inline view.
+var InlineMovingKeys = []KeyHelp{
+	{[]string{"h", "l", "left", "right"}, "conversation, pane"},
+	{[]string{"enter", "i"}, "type in the conversation"},
+	{[]string{"ctrl+t"}, "transcript with tool calls in full"},
+	{[]string{"ctrl+o"}, "transcript with thinking in full"},
+	{[]string{"ctrl+c"}, "stop the turn, or quit"},
+	{[]string{"ctrl+d"}, "quit, from an empty input"},
+	{[]string{"?"}, "these keys"},
+}
+
+// paneHelp is the line under the moving keys about the pane's own.
+const paneHelp = "in the pane, its own keys are along its foot"
 
 // TranscriptKeys is what the keys do in the transcript view.
 var TranscriptKeys = []KeyHelp{
@@ -102,7 +116,7 @@ var TranscriptKeys = []KeyHelp{
 	{[]string{"?"}, "these keys"},
 }
 
-var keyGlyphs = map[string]string{"up": "↑", "down": "↓"}
+var keyGlyphs = map[string]string{"up": "↑", "down": "↓", "left": "←", "right": "→"}
 
 // helpBox lists keys in a box, at width.
 func helpBox(title string, rows []KeyHelp, width int) []string {
@@ -128,10 +142,14 @@ func helpBox(title string, rows []KeyHelp, width int) []string {
 	return box(title, lines, width)
 }
 
-// HelpLines is the list of keys for the inline view, bottom-aligned in
-// room rows.
-func HelpLines(width, room int) []string {
-	lines := helpBox("keys", InlineKeys, width)
+// HelpLines is the list of keys for the inline view in the mode the
+// operator is in, bottom-aligned in room rows.
+func HelpLines(moving bool, width, room int) []string {
+	lines := helpBox("typing keys", InlineTypingKeys, width)
+	if moving {
+		lines = helpBox("moving keys", InlineMovingKeys, width)
+		lines = append(lines, styled(faint, truncate(paneHelp, InputWidth(width))))
+	}
 	if len(lines) > room {
 		lines = lines[len(lines)-room:]
 	}

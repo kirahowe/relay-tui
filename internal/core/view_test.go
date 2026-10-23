@@ -209,15 +209,15 @@ func TestRestoreHubOpenFlagWins(t *testing.T) {
 	}
 }
 
-// The board opened from the list comes back with the keys, and esc
+// The board with no role in focus comes back with the keys, and esc
 // still goes back to the list.
-func TestRestoreHubBoardFromTheList(t *testing.T) {
+func TestRestoreHubBoardWithNoRole(t *testing.T) {
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
-		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()}, ListMove{At: t0, Delta: 2}, PaneKey{At: t0, Action: PaneToggle})
+		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()}, ListMove{At: t0, Delta: 2}, Move{At: t0, Delta: 1})
 	v := SaveHub(h, nil)
 	g, _ := reopen(t, v, viewRoster(), viewCards())
-	if g.Focus != "" || g.List || !g.App.PaneFocus || !g.PaneFromList || g.Cursor != "news" {
-		t.Fatalf("focus %q list %v pane %v from list %v cursor %q", g.Focus, g.List, g.App.PaneFocus, g.PaneFromList, g.Cursor)
+	if g.Focus != "" || g.List || !g.App.PaneFocus || g.Cursor != "news" || !g.App.Moving {
+		t.Fatalf("focus %q list %v pane %v cursor %q moving %v", g.Focus, g.List, g.App.PaneFocus, g.Cursor, g.App.Moving)
 	}
 	g, _ = apply(t, g, PaneKey{At: t0, Action: PaneEsc})
 	if !g.List || g.Cursor != "news" {

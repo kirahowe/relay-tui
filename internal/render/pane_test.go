@@ -257,7 +257,7 @@ func TestPaneNamesTheBoard(t *testing.T) {
 	if head := ansi.Strip(lines[0]); !strings.HasPrefix(head, "Workspace 1") || !strings.HasSuffix(head, "b  board 2") {
 		t.Fatalf("header %q", head)
 	}
-	if text := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(text, "ctrl+x to focus, then b for the board") {
+	if text := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(text, "l to focus, then b for the board") {
 		t.Fatalf("no way to the board:\n%s", text)
 	}
 	// Too narrow for both, the header keeps its own view.

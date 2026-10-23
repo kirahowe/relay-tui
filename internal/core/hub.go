@@ -99,15 +99,13 @@ type Hub struct {
 	RosterLoaded      bool
 	Convs             []Conv
 	// Focus is the role whose conversation is on screen ("" for none).
-	// Last is the role before it. Cursor is the role the list has
-	// selected. List says the list has the keys: on a narrow screen it
-	// is the screen.
-	Focus, Last, Cursor string
-	List                bool
-	// PaneFromList says the list gave the pane the keys (ctrl+x), so
-	// leaving the pane gives them back to the list, not to a
-	// conversation. With no role in focus that is the only way in.
-	PaneFromList bool
+	// Cursor is the role the list has selected. List says the list has
+	// the keys: on a narrow screen it is the screen. The keys are in one
+	// of three columns: the list, the conversation in focus, or the pane
+	// (App.PaneFocus). With no role in focus there is no conversation
+	// column, so the keys are in the list or the pane.
+	Focus, Cursor string
+	List          bool
 	// EndAsk says the operator is being asked to confirm ending Focus's
 	// conversation. Ending says the request is out.
 	EndAsk, Ending bool
@@ -151,7 +149,7 @@ type Blank struct {
 
 // NewHub is the state at start: open names the role to focus, or "".
 func NewHub(open string) Hub {
-	return Hub{Open: open, List: open == ""}
+	return Hub{Open: open, List: open == "", App: App{Moving: true}}
 }
 
 // PaneShown says the workspace pane has something to show: the
@@ -273,23 +271,20 @@ type (
 // (Submit, Interrupt, PaneKey and so on) apply to the conversation in
 // focus.
 type (
-	FocusMove struct {
-		At    time.Time
-		Delta int
-	} // ctrl+n, ctrl+p
+	// FocusIndex brings a role's conversation on screen, in the mode the
+	// operator was in: 1 (moving) or alt+1 (typing) is Index 0.
 	FocusIndex struct {
 		At    time.Time
 		Index int
-	} // alt+1 is Index 0
-	FocusLast  struct{ At time.Time } // ctrl+l
-	ToggleList struct{ At time.Time } // ctrl+g
-	ListMove   struct {
+	}
+	ListMove struct {
 		At    time.Time
 		Delta int
 	}
+	// ListOpen is enter on the list: the role under the cursor, typing.
 	ListOpen          struct{ At time.Time }
 	StartConversation struct{ At time.Time }
-	AskEnd            struct{ At time.Time } // ctrl+s
+	AskEnd            struct{ At time.Time } // X on the conversation
 	ConfirmEnd        struct {
 		At  time.Time
 		Yes bool
@@ -303,10 +298,7 @@ func (e Attached) at() time.Time          { return e.At }
 func (e PermissionSettled) at() time.Time { return e.At }
 func (e Replayed) at() time.Time          { return e.At }
 func (e ConversationEnded) at() time.Time { return e.At }
-func (e FocusMove) at() time.Time         { return e.At }
 func (e FocusIndex) at() time.Time        { return e.At }
-func (e FocusLast) at() time.Time         { return e.At }
-func (e ToggleList) at() time.Time        { return e.At }
 func (e ListMove) at() time.Time          { return e.At }
 func (e ListOpen) at() time.Time          { return e.At }
 func (e StartConversation) at() time.Time { return e.At }
@@ -349,8 +341,8 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	r := &hubReducer{h: h}
 	before, view := h.onScreen(), h.view()
 	r.apply(e)
-	r.backToList()
 	r.restoreHub(e.at())
+	r.settleColumn()
 	r.adoptBlanks()
 	r.settle(before, e.at())
 	r.keepCardTrust(view)
@@ -427,17 +419,17 @@ func (r *hubReducer) settle(before string, at time.Time) {
 
 // hubView is what decides what the screen shows, apart from the pane.
 type hubView struct {
-	focus              string
-	list, help, endAsk bool
+	focus                    string
+	list, pane, help, endAsk bool
 }
 
 func (h Hub) view() hubView {
-	return hubView{focus: h.Focus, list: h.List, help: h.Help, endAsk: h.EndAsk}
+	return hubView{focus: h.Focus, list: h.List, pane: h.App.PaneFocus, help: h.Help, endAsk: h.EndAsk}
 }
 
 // keepCardTrust drops a trust of a card that has not been sent when the
-// screen changed under it: another role came into focus, or the list,
-// the help or the end question covered it. The operator asks again on
+// screen changed under it: another role came into focus, the keys went
+// to another column, or the help or the end question covered it. The operator asks again on
 // purpose, so a y typed for something else cannot answer it. A doc's
 // trust goes the same way, with its conversation (Blurred).
 func (r *hubReducer) keepCardTrust(was hubView) {
@@ -494,6 +486,7 @@ func (r *hubReducer) apply(e Event) {
 		r.withApp(func(rd *reducer) { rd.askCards() })
 		if h.Open != "" {
 			r.focus(h.Open, true, e.At)
+			h.App.Moving = false // opened to talk to it
 		}
 	case RosterUpdate:
 		r.roster(e)
@@ -503,8 +496,7 @@ func (r *hubReducer) apply(e Event) {
 		r.toApp(e, false)
 	case PaneKey:
 		if h.List {
-			r.listToPane(e)
-			return
+			return // the pane does not have the keys
 		}
 		r.toApp(e, true)
 	case Attached:
@@ -538,32 +530,18 @@ func (r *hubReducer) apply(e Event) {
 		}
 		r.emit(Quit{})
 	case Tick, TerminalReady, Printed, KeyPressed:
-	case FocusMove:
-		r.move(e.Delta, e.At)
 	case FocusIndex:
 		if e.Index >= 0 && e.Index < len(h.Roles) {
 			r.focus(h.Roles[e.Index].ID, false, e.At)
 		}
-	case FocusLast:
-		if h.Last != "" && h.RoleByID(h.Last) != nil {
-			r.focus(h.Last, false, e.At)
-		}
-	case ToggleList:
-		if h.PaneFromList {
-			// Back to the list the pane was opened from, where it was.
-			h.PaneFromList, h.App.PaneFocus, h.List = false, false, true
-			r.clampCursor()
-			return
-		}
-		if h.List {
-			if h.Focus != "" {
-				h.List = false
-			}
-			return
-		}
-		h.List = true
-		h.Cursor = h.Focus
-		r.clampCursor()
+	case Move:
+		r.column(e.Delta, e.At)
+	case Type:
+		r.startTyping(e.At)
+	case StopTyping:
+		h.App.Moving = true
+	case Unbound:
+		h.Notice = UnboundNote
 	case ListMove:
 		if h.List {
 			r.moveCursor(e.Delta)
@@ -571,6 +549,7 @@ func (r *hubReducer) apply(e Event) {
 	case ListOpen:
 		if h.List && h.RoleByID(h.Cursor) != nil {
 			r.focus(h.Cursor, false, e.At)
+			h.App.Moving = false
 		}
 	case StartConversation:
 		if h.Focus != "" && h.Focused() == nil && !h.List {
@@ -636,32 +615,120 @@ func (r *hubReducer) apply(e Event) {
 	}
 }
 
-// listToPane gives the pane the keys from the list: ctrl+x there opens
-// the board (or the items), with or without a role in focus.
-func (r *hubReducer) listToPane(e PaneKey) {
+// The columns, left to right.
+const (
+	colList = iota
+	colConv
+	colPane
+)
+
+// col is the column with the keys.
+func (h Hub) col() int {
+	switch {
+	case h.List:
+		return colList
+	case h.App.PaneFocus:
+		return colPane
+	}
+	return colConv
+}
+
+// has says a column has something in it: the conversation only with a
+// role in focus, the pane only with something to show.
+func (h Hub) has(col int) bool {
+	switch col {
+	case colList:
+		return true
+	case colConv:
+		return h.Focus != ""
+	case colPane:
+		return h.PaneShown()
+	}
+	return false
+}
+
+// column is h or l: the keys go to the next column with something in
+// it, delta's way, and stay put at the edge. The pane is entered and
+// left as a toggle, which drops what was unsent there and refuses while
+// a request has the keys.
+func (r *hubReducer) column(delta int, at time.Time) {
 	h := &r.h
-	if e.Action != PaneToggle || !h.PaneShown() {
+	h.App.Moving = true
+	if delta == 0 {
 		return
 	}
-	if !h.App.PaneFocus {
-		r.toApp(e, true) // as ctrl+x from a conversation: what was unsent goes
+	step := 1
+	if delta < 0 {
+		step = -1
 	}
-	if h.App.PaneFocus {
-		h.List, h.PaneFromList = false, true
+	to := h.col() + step
+	for to >= colList && to <= colPane && !h.has(to) {
+		to += step
+	}
+	if to < colList || to > colPane {
+		return
+	}
+	r.toColumn(to, at)
+}
+
+// toColumn gives the keys to column to.
+func (r *hubReducer) toColumn(to int, at time.Time) {
+	h := &r.h
+	if h.App.PaneFocus && to != colPane {
+		r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
+		if h.App.PaneFocus {
+			return // the pane is waiting on relay, and keeps the keys
+		}
+	}
+	switch to {
+	case colList:
+		if !h.List {
+			h.List = true
+			if h.Focus != "" {
+				h.Cursor = h.Focus
+			}
+			r.clampCursor()
+		}
+	case colConv:
+		h.List = false
+	case colPane:
+		was := h.List
+		h.List = false
+		if !h.App.PaneFocus {
+			r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
+		}
+		if !h.App.PaneFocus {
+			h.List = was // refused: a request has the keys
+		}
 	}
 }
 
-// backToList gives the keys back to the list once the pane it opened
-// lets them go (esc, ctrl+x).
-func (r *hubReducer) backToList() {
+// startTyping is i, or enter on the conversation: the keys go to the
+// conversation in focus, to type. With no role in focus there is
+// nothing to type into, and the status line says so.
+func (r *hubReducer) startTyping(at time.Time) {
 	h := &r.h
-	if h.PaneFromList && !h.App.PaneFocus {
-		h.PaneFromList = false
-		if c := h.Focused(); c != nil && len(c.State.Asks) > 0 {
-			return // a request took the keys: they stay with it, not the list
-		}
+	if h.Focus == "" {
+		h.Notice = "no role in focus: pick one first"
+		return
+	}
+	r.toColumn(colConv, at)
+	if h.col() == colConv {
+		h.App.Moving = false
+	}
+}
+
+// settleColumn keeps the keys somewhere they can be: with no role in
+// focus there is no conversation to have them, so the list does; and
+// anywhere but the conversation is moving.
+func (r *hubReducer) settleColumn() {
+	h := &r.h
+	if h.Focus == "" && !h.List && !h.App.PaneFocus {
 		h.List = true
 		r.clampCursor()
+	}
+	if h.List || h.App.PaneFocus || h.Focus == "" {
+		h.App.Moving = true
 	}
 }
 
@@ -783,27 +850,6 @@ func (r *hubReducer) interrupt(e Interrupt) {
 	r.emit(Quit{})
 }
 
-// move focuses the role delta places from the one in focus, wrapping.
-func (r *hubReducer) move(delta int, at time.Time) {
-	h := &r.h
-	n := len(h.Roles)
-	if n == 0 || delta == 0 {
-		return
-	}
-	from := slices.IndexFunc(h.Roles, func(x Role) bool { return x.ID == h.Focus })
-	if from < 0 {
-		from = slices.IndexFunc(h.Roles, func(x Role) bool { return x.ID == h.Cursor })
-		if from < 0 {
-			from = 0
-			if delta > 0 {
-				delta--
-			}
-		}
-	}
-	to := ((from+delta)%n + n) % n
-	r.focus(h.Roles[to].ID, false, at)
-}
-
 func (r *hubReducer) moveCursor(delta int) {
 	h := &r.h
 	n := len(h.Roles)
@@ -832,17 +878,12 @@ func (r *hubReducer) clampCursor() {
 // relay lists one. force opens one when there is none.
 func (r *hubReducer) focus(role string, force bool, at time.Time) {
 	h := &r.h
-	if h.Focus != role && h.Focus != "" {
-		h.Last = h.Focus
-	}
-	if h.Focus != role {
-		// The operator came to the role for its conversation: the keys go
-		// to it, not to the pane they left. The board keeps its place.
-		h.App.PaneFocus = false
-	}
-	if h.PaneFromList {
-		// The keys go to the conversation; leaving the pane goes there too.
-		h.PaneFromList, h.App.PaneFocus = false, false
+	// The operator came to the role for its conversation: the keys go to
+	// it, not to the pane or the list they left. The board keeps its
+	// place; what was unsent in the pane goes, as leaving it with h does.
+	if h.App.PaneFocus {
+		r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
+		h.App.PaneFocus = false // even past a trust in flight, whose answer still lands
 	}
 	h.Focus, h.Cursor, h.List = role, role, false
 	h.EndAsk, h.Ending = false, false

@@ -120,12 +120,18 @@ func (h *hubHarness) waitLog(prefix string) string {
 }
 
 const (
-	ctrlN = "\x0e"
-	ctrlP = "\x10"
-	ctrlG = "\x07"
-	ctrlL = "\x0c"
-	ctrlS = "\x13"
+	alt1 = "\x1b1"
+	alt2 = "\x1b2"
 )
+
+// escape stops typing. It goes on its own and waits for the mode to
+// change: an escape sent together with the next key reads as alt and
+// that key.
+func (h *harness) escape() {
+	h.t.Helper()
+	h.keys("\x1b")
+	h.waitScreen("moving", contains("MOVING"))
+}
 
 func contains(sub string) func(string) bool {
 	return func(s string) bool { return strings.Contains(s, sub) }
@@ -167,7 +173,7 @@ func TestHubOpenFlagAttachesAndPromptsEcho(t *testing.T) {
 func TestHubSwitchingKeepsEveryConversationIntact(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 24, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
-	h.keys(ctrlN) // Mail has no conversation yet
+	h.keys(alt2) // Mail has no conversation yet; still typing
 	h.waitScreen("empty", contains("No conversation with Mail"))
 	if n := len(h.logged("new mail")); n != 0 {
 		t.Fatalf("moving to a role must not start a conversation: %v", h.logged("new"))
@@ -177,7 +183,7 @@ func TestHubSwitchingKeepsEveryConversationIntact(t *testing.T) {
 	if l := h.waitLog("new mail"); l != "new mail attached=false" {
 		t.Errorf("%q", l)
 	}
-	h.keys(ctrlP)
+	h.keys(alt1)
 	s := h.waitScreen("dev again", contains("hello from dev"))
 	if strings.Contains(s, "echo: to mail") {
 		t.Errorf("Mail's reply leaked into Dev:\n%s", s)
@@ -200,12 +206,12 @@ func TestHubDraftsStayWithTheirRole(t *testing.T) {
 	h.waitScreen("dev", contains("hello from dev"))
 	h.keys("half a thought")
 	h.waitScreen("typed", contains("half a thought"))
-	h.keys(ctrlN)
+	h.keys(alt2)
 	s := h.waitScreen("mail", contains("No conversation with Mail"))
 	if strings.Contains(s, "half a thought") {
 		t.Errorf("the draft followed to the next role:\n%s", s)
 	}
-	h.keys(ctrlP)
+	h.keys(alt1)
 	h.waitScreen("draft back", contains("half a thought"))
 }
 
@@ -290,19 +296,22 @@ func TestHubAnotherDevicesPromptAppears(t *testing.T) {
 func TestHubEndAsksFirstThenEnds(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 24, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
-	h.keys(ctrlS)
+	h.escape()
+	h.keys("X")
 	h.waitScreen("the question", contains("End the conversation with Dev?"))
 	h.keys("n")
 	h.waitScreen("asked no", func(s string) bool { return !strings.Contains(s, "End the conversation") })
 	if len(h.logged("end ")) != 0 {
 		t.Fatal("ended after no")
 	}
-	h.keys(ctrlS)
+	h.keys("X")
 	h.waitScreen("the question", contains("End the conversation with Dev?"))
 	h.keys("y")
 	h.waitLog("end fh-dev-1")
 	h.waitScreen("gone", contains("No conversation with Dev"))
 	// The role is still there, and typing starts a new conversation.
+	h.keys("i")
+	h.waitScreen("typing", contains("TYPING"))
 	h.keys("again\r")
 	h.waitScreen("new conversation", contains("echo: again"))
 	h.waitLog("new dev attached=false")
@@ -323,10 +332,15 @@ func TestHubNarrowScreenShowsTheListOrTheConversation(t *testing.T) {
 	}
 	h.keys("\r")
 	s = h.waitScreen("the conversation", contains("hello from dev"))
-	if strings.Contains(s, "News") || !strings.Contains(s, "ctrl+g roles") {
+	if strings.Contains(s, "News") || !strings.Contains(s, "h roles") {
 		t.Errorf("narrow conversation:\n%s", s)
 	}
-	h.keys(ctrlG)
+	h.escape()
+	h.keys("h")
+	h.waitScreen("the list again", contains("News"))
+	h.keys("l")
+	h.waitScreen("the conversation again", contains("hello from dev"))
+	h.keys("h")
 	h.waitScreen("the list again", contains("News"))
 	h.keys("\x1b") // esc goes back to the conversation
 	h.waitScreen("the conversation again", contains("hello from dev"))
@@ -346,9 +360,14 @@ func TestHubHelpListsTheKeys(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 30, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
 	h.keys("?")
-	h.waitScreen("the help", func(s string) bool { return strings.Contains(s, "ctrl+n ctrl+p") && strings.Contains(s, "ctrl+s") })
+	h.waitScreen("the help", func(s string) bool { return strings.Contains(s, "typing keys") && strings.Contains(s, "alt+1") })
 	h.keys("x")
 	h.waitScreen("closed", func(s string) bool { return !strings.Contains(s, "any key closes") })
+	h.escape()
+	h.keys("x") // nothing while moving, and the input stays empty
+	h.waitScreen("the note", contains("i to type"))
+	h.keys("?")
+	h.waitScreen("the moving keys", func(s string) bool { return strings.Contains(s, "moving keys") && strings.Contains(s, "X") })
 }
 
 func TestHubCtrlCWithAnEmptyInputQuits(t *testing.T) {
@@ -373,15 +392,16 @@ func TestHubCancelsASlowTurn(t *testing.T) {
 func TestHubWorkspacePaneAndBoardWorkForTheFocusedConversation(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 24, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
-	h.keys("\x18") // ctrl+x
+	h.escape()
+	h.keys("l")
 	h.waitScreen("the pane", contains("nothing yet"))
 	h.keys("b")
 	h.waitScreen("the board", contains("This agent has no board."))
-	h.keys("\x18")
+	h.keys("h")
 	h.waitScreen("the conversation", func(s string) bool { return !strings.Contains(s, "nothing yet") })
 	// Moving to another role gives the keys to its conversation, and its
 	// pane lists its own items.
-	h.keys(ctrlN)
+	h.keys("2")
 	s := h.waitScreen("mail", contains("No conversation with Mail"))
 	if strings.Contains(s, "nothing yet") {
 		t.Errorf("the pane followed to another role:\n%s", s)
@@ -491,7 +511,7 @@ func TestHubEmbeddedModeIsSaidAllTheTime(t *testing.T) {
 	h.waitScreen("the note", func(s string) bool {
 		return strings.Contains(strings.Join(strings.Fields(s), " "), "relay service not running")
 	})
-	h.keys(ctrlN)
+	h.keys(alt2)
 	h.waitScreen("still there", func(s string) bool {
 		return strings.Contains(strings.Join(strings.Fields(s), " "), "relay service not running")
 	})
@@ -523,8 +543,8 @@ func TestHubQuitLeavesRequestsUnanswered(t *testing.T) {
 	h.waitScreen("dev", contains("hello from dev"))
 	h.say("ask dev")
 	h.waitScreen("the request", contains("permission needed"))
-	h.keys(ctrlG)
-	h.waitScreen("the list", contains("News"))
+	h.keys("h") // the request has the keys, and h goes past it
+	h.waitScreen("the list", contains("MOVING"))
 	h.keys("\x03") // ctrl+c from the list quits
 	h.waitDone()
 	if got := h.logged("permission "); len(got) != 0 {

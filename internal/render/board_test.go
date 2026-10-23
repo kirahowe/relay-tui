@@ -85,7 +85,7 @@ func TestBoardSideBySide(t *testing.T) {
 	f := View(s, "› ", "ctrl+j for a new line", t0, 130, 20)
 	plain := ansi.Strip(f.Content)
 	if !strings.Contains(plain, "Board 1") || !strings.Contains(plain, "Make a folder") ||
-		!strings.Contains(plain, "ctrl+x to focus") {
+		!strings.Contains(plain, "l to focus") {
 		t.Errorf("board not beside the chat:\n%s", plain)
 	}
 }

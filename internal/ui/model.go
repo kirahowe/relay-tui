@@ -238,6 +238,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	now := time.Now()
 	var ev core.Event
+	var evs []core.Event
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -252,16 +253,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.caps.Disambiguation = msg.SupportsKeyDisambiguation()
 	case tea.KeyPressMsg:
 		// Every key is the operator's, even one only the input box sees.
-		m.one, _ = core.ReduceSingle(m.one, core.KeyPressed{At: now})
 		var cmd tea.Cmd
-		ev, cmd = m.key(msg, now)
+		evs, cmd = m.key(msg, now)
+		evs = append([]core.Event{core.KeyPressed{At: now}}, evs...)
 		cmds = append(cmds, cmd)
 	case tea.MouseWheelMsg:
 		if m.one.State.Transcript.Open {
 			ev = m.wheel(msg, now)
 		}
 	case tea.PasteMsg:
-		ev = core.Pasted{At: now, Text: msg.Content} // the core drops it when the input is not in play
+		evs = []core.Event{core.KeyPressed{At: now}, pasted(m.one.App, now, msg.Content)}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {
@@ -278,8 +279,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.back = false
 	}
 	if ev != nil {
+		evs = append(evs, ev)
+	}
+	for _, e := range evs {
+		if e == nil {
+			continue
+		}
 		var fx []core.Effect
-		m.one, fx = core.ReduceSingle(m.one, ev)
+		m.one, fx = core.ReduceSingle(m.one, e)
 		for _, f := range fx {
 			cmds = append(cmds, m.effect(f, now))
 		}
@@ -335,10 +342,11 @@ func (m *Model) wheel(w tea.MouseWheelMsg, now time.Time) core.Event {
 	return core.TranscriptKey{At: now, Action: a, Max: m.transcriptFrame(now).Max, Page: 3}
 }
 
-// key turns a key press into an event, or passes it to the input box.
-func (m *Model) key(k tea.KeyPressMsg, now time.Time) (core.Event, tea.Cmd) {
+// key turns a key press into events, or passes it to the input box.
+func (m *Model) key(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
+	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
 	if len(m.one.State.Asks) > 0 {
-		return askKey(ClassifyAsk(k), now), nil
+		return one(askKey(ClassifyAsk(k), now))
 	}
 	empty := m.input.Value() == ""
 	if m.one.State.Help {
@@ -348,43 +356,52 @@ func (m *Model) key(k tea.KeyPressMsg, now time.Time) (core.Event, tea.Cmd) {
 		}
 	}
 	if m.one.State.Transcript.Open {
-		return m.transcriptKey(k, empty, now), nil
+		return one(m.transcriptKey(k, empty, now))
 	}
+	if !m.one.App.Moving {
+		return m.typingKey(k, now)
+	}
+	a, index := ClassifyMoving(k)
 	if m.one.App.PaneFocus {
-		return paneEvent(m.one.App, m.one.State, k, empty, now, func() int { return m.frame(now).DetailMax }), nil
+		return m.paneMoving(k, a, index, m.one.State, now)
 	}
-	switch Classify(k, empty) {
-	case Send:
-		text := m.input.Value()
-		if strings.TrimSpace(text) == "" {
-			return nil, nil
+	// The conversation, moving. It is printed into the terminal's
+	// scrollback, so the terminal scrolls it, and ctrl+t or ctrl+o opens
+	// the transcript.
+	switch a {
+	case MoveLeft:
+		return one(core.Move{At: now, Delta: -1}) // the edge: nothing
+	case MoveRight:
+		return one(core.Move{At: now, Delta: 1})
+	case MoveEnter, MoveType:
+		return one(core.Type{At: now})
+	case MoveTools:
+		return one(core.ShowTools{At: now})
+	case MoveThinking:
+		return one(core.ShowThinking{At: now})
+	case MoveHelp:
+		return one(core.ToggleHelp{At: now})
+	case MoveInterrupt:
+		return one(core.Interrupt{At: now, InputEmpty: true})
+	case MoveEOF:
+		if empty {
+			return one(core.EOF{At: now})
 		}
-		m.input.Reset()
-		return core.Submit{At: now, Text: text}, nil
-	case Newline:
-		m.input.InsertString("\n")
-		return nil, nil
-	case Interrupt:
-		if m.one.State.Phase == core.Idle && !empty {
-			m.input.Reset() // like a shell: Ctrl-C clears the line
+	default:
+		if printable(k) {
+			return one(core.Unbound{At: now})
 		}
-		return core.Interrupt{At: now, InputEmpty: empty}, nil
-	case EOF:
-		return core.EOF{At: now}, nil
-	case ShowTools:
-		return core.ShowTools{At: now}, nil
-	case ShowThinking:
-		return core.ShowThinking{At: now}, nil
-	case Help:
-		return core.ToggleHelp{At: now}, nil
-	case TrustPaste:
-		return core.TrustPaste{At: now, Draft: m.input.Value()}, nil
-	case TogglePane:
-		return core.PaneKey{At: now, Action: core.PaneToggle}, nil
 	}
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(k)
-	return nil, cmd
+	return nil, nil
+}
+
+// pasted is the event for a paste: into the input while typing, and a
+// word on how to type otherwise, so nothing pasted is lost unseen.
+func pasted(a core.App, now time.Time, text string) core.Event {
+	if a.Moving {
+		return core.Unbound{At: now}
+	}
+	return core.Pasted{At: now, Text: text} // the core drops it when the input is not in play
 }
 
 // transcriptKey is the event for a key pressed in the transcript view.
@@ -413,22 +430,9 @@ func (m *Model) transcriptKey(k tea.KeyPressMsg, empty bool, now time.Time) core
 	return nil
 }
 
-// paneKey is the event for a key pressed while the workspace pane has
-// focus. The input box never sees it. Ctrl-C still stops a running turn
-// and, otherwise, leaves the pane; Ctrl-D quits only from an empty input.
-func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, empty bool, now time.Time, detailMax func() int) core.Event {
-	switch k.String() {
-	case "ctrl+c":
-		if st.Phase == core.Busy {
-			return core.Interrupt{At: now, InputEmpty: true}
-		}
-		return core.PaneKey{At: now, Action: core.PaneToggle}
-	case "ctrl+d":
-		if empty {
-			return core.EOF{At: now}
-		}
-		return nil
-	}
+// paneEvent is the event for one of the pane's own keys, pressed while
+// it has the keys. The input box never sees it.
+func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, detailMax func() int) core.PaneKey {
 	if b := a.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
@@ -602,7 +606,7 @@ func (m Model) View() tea.View {
 	}
 	f := m.frame(time.Now())
 	v := tea.NewView(f.Content)
-	if c := m.input.Cursor(); c != nil && len(m.one.State.Asks) == 0 && !m.one.App.PaneFocus && !m.one.State.Help {
+	if c := m.input.Cursor(); c != nil && len(m.one.State.Asks) == 0 && !m.one.App.PaneFocus && !m.one.State.Help && !m.one.App.Moving {
 		c.Position.X += f.InputX
 		c.Position.Y += f.InputY
 		v.Cursor = c

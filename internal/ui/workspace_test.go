@@ -8,8 +8,6 @@ import (
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
-const ctrlX = "\x18"
-
 func (h *harness) extensionCalls(method string) []string {
 	var out []string
 	for _, l := range strings.Split(h.agentLog(), "\n") {
@@ -48,8 +46,8 @@ func TestWorkspaceSidePaneAndApproval(t *testing.T) {
 	if !strings.Contains(box, "Sends") || strings.Index(box, "Sends") > strings.Index(box, "Kira only\"") {
 		t.Errorf("no preview above the input in the box:\n%s", scr)
 	}
-	// Keys belong to the request: ctrl+x does not take the pane.
-	h.keys(ctrlX)
+	// Keys belong to the request: l does not take the pane.
+	h.keys("l")
 	time.Sleep(100 * time.Millisecond)
 	time.Sleep(core.ArmDelay)
 	h.keys("y")
@@ -77,10 +75,11 @@ func TestWorkspaceTrust(t *testing.T) {
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	// Keys go to the pane, not the input box.
-	h.keys("hello")
+	h.keys("quz")
 	h.keys("j") // to the shown item
 	h.keys("t")
 	scr := h.waitScreen("the confirmation", func(s string) bool { return strings.Contains(s, "Trust this?") })
@@ -113,7 +112,7 @@ func TestWorkspaceTrust(t *testing.T) {
 	}
 	h.keys("\x1b") // leave the pane
 	h.waitScreen("unfocused", func(s string) bool { return strings.Contains(s, ctrlXHint) })
-	if strings.Contains(h.screen(), "hello") {
+	if strings.Contains(h.screen(), "quz") {
 		t.Errorf("keys typed in the pane reached the input:\n%s", h.screen())
 	}
 	if p := h.prompts(); len(p) != 1 {
@@ -121,7 +120,7 @@ func TestWorkspaceTrust(t *testing.T) {
 	}
 }
 
-const ctrlXHint = "ctrl+x to focus"
+const ctrlXHint = "l to focus"
 
 func TestWorkspaceTrustCancelledByAnotherKey(t *testing.T) {
 	h := wideWorkspace(t)
@@ -130,7 +129,8 @@ func TestWorkspaceTrustCancelledByAnotherKey(t *testing.T) {
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.keys("j")
 	h.keys("t")
 	h.waitScreen("the confirmation", func(s string) bool { return strings.Contains(s, "Trust this?") })
@@ -151,8 +151,9 @@ func TestWorkspaceOverlayOnANarrowScreen(t *testing.T) {
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
-	h.waitScreen("the hint", func(s string) bool { return strings.Contains(s, "ctrl+x workspace (2)") })
-	h.keys(ctrlX)
+	h.waitScreen("the hint", func(s string) bool { return strings.Contains(s, "l workspace (2)") })
+	h.escape()
+	h.keys("l")
 	scr := h.waitScreen("the overlay", func(s string) bool {
 		return strings.Contains(s, "Workspace 2") && strings.Contains(s, "↑↓ select")
 	})
@@ -168,7 +169,7 @@ func TestWorkspaceOverlayOnANarrowScreen(t *testing.T) {
 	h.waitScreen("the list", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	h.keys("\x1b")
 	h.waitScreen("closed", func(s string) bool {
-		return !strings.Contains(s, "↑↓ select") && strings.Contains(s, "ctrl+x workspace (2)")
+		return !strings.Contains(s, "↑↓ select") && strings.Contains(s, "l workspace (2)")
 	})
 	if len(h.extensionCalls("_relay/trust")) != 0 {
 		t.Error("a trust call with nobody asking")
@@ -206,7 +207,8 @@ func TestWorkspaceWithoutRelay(t *testing.T) {
 	h.keys("n")
 	h.waitOutcome(`{"optionId":"reject","outcome":"selected"}`)
 	h.waitIdle()
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	// A notification and a request come in on different goroutines, so
 	// which item is newer varies; select the shown one either way.

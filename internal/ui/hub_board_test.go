@@ -63,9 +63,9 @@ func TestHubBoardShowsBeforeAnyConversation(t *testing.T) {
 func TestHubBoardWorksWithNoConversationOpen(t *testing.T) {
 	h := startHub(t, boardRoles(), 170, 40, "")
 	h.waitScreen("the board", contains("Board 3"))
-	h.keys("\x1b2") // alt+2: Mail, which has no conversation
+	h.keys("2") // Mail, which has no conversation; still moving
 	h.waitScreen("mail", contains("No conversation with Mail"))
-	h.keys(ctrlX)
+	h.keys("l")
 	h.waitScreen("the pane has the keys", contains("↑↓ select"))
 	h.keys("\r") // Trip prep
 	h.waitScreen("the checklist", contains("x tick"))
@@ -89,9 +89,9 @@ func TestHubBoardWorksWithNoConversationOpen(t *testing.T) {
 	}
 	// The same board on Dev, whose conversation opens: the selection is
 	// where it was, so enter opens Trip prep.
-	h.keys("\x1b1") // alt+1: Dev
+	h.keys("1") // Dev
 	h.waitScreen("dev", contains("hello from dev"))
-	h.keys(ctrlX)
+	h.keys("l")
 	h.waitScreen("dev's pane", contains("↑↓ select"))
 	h.keys("\r")
 	h.waitScreen("Trip prep", contains("✓ Book the kennel"))
@@ -105,9 +105,9 @@ func TestHubBoardWorksWithNoConversationOpen(t *testing.T) {
 func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
 	h := startHub(t, boardRoles(), 170, 40, "")
 	h.waitScreen("the board", contains("From a web page"))
-	h.keys("\x1b3") // alt+3: News, no conversation
+	h.keys("3") // News, no conversation
 	h.waitScreen("news", contains("No conversation with News"))
-	h.keys(ctrlX + "jj")
+	h.keys("ljj")
 	h.waitScreen("the outside card", contains("t trust"))
 	h.keys("t")
 	h.waitScreen("the question", contains("It clears outside"))
@@ -121,12 +121,12 @@ func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
 	}
 }
 
-// With no role in focus, ctrl+x from the list gives the board the keys:
-// a card is ticked with no role focused, and esc goes back to the list.
-func TestHubListHandsTheKeysToTheBoard(t *testing.T) {
+// With no role in focus, l from the list gives the board the keys: a
+// card is ticked with no role focused, and esc goes back to the list.
+func TestHubListMovesToTheBoard(t *testing.T) {
 	h := startHub(t, boardRoles(), 170, 40, "")
-	h.waitScreen("the board beside the list", contains("ctrl+x board"))
-	h.keys(ctrlX)
+	h.waitScreen("the board beside the list", contains("l board"))
+	h.keys("l")
 	h.waitScreen("the pane has the keys", contains("↑↓ select"))
 	h.keys("\r")
 	h.waitScreen("the checklist", contains("x tick"))
@@ -140,7 +140,7 @@ func TestHubListHandsTheKeysToTheBoard(t *testing.T) {
 	h.keys("\x1b")
 	h.waitScreen("the list of cards", contains("enter open"))
 	h.keys("\x1b")
-	h.waitScreen("the list has the keys", contains("ctrl+x board"))
+	h.waitScreen("the list has the keys", contains("l board"))
 	h.keys("j\r") // the list moves and opens: the keys are the list's
 	h.waitScreen("mail", contains("No conversation with Mail"))
 	if opened := append(h.logged("new "), h.logged("load ")...); len(opened) != 0 {
@@ -149,15 +149,19 @@ func TestHubListHandsTheKeysToTheBoard(t *testing.T) {
 }
 
 // On a narrow screen the list is the screen, so the board opened from it
-// takes its place, and esc brings the list back.
+// takes its place, and esc or h brings the list back.
 func TestHubNarrowListOpensTheBoardInItsPlace(t *testing.T) {
 	h := startHub(t, boardRoles(), 60, 24, "")
 	h.waitScreen("the list", contains("News"))
-	h.keys(ctrlX)
+	h.keys("l")
 	s := h.waitScreen("the board", contains("Trip prep"))
 	if strings.Contains(s, "News") {
 		t.Errorf("the list is still on screen:\n%s", s)
 	}
 	h.keys("\x1b")
+	h.waitScreen("the list again", contains("News"))
+	h.keys("l")
+	h.waitScreen("the board again", func(s string) bool { return !strings.Contains(s, "News") })
+	h.keys("h")
 	h.waitScreen("the list again", contains("News"))
 }

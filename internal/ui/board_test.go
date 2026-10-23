@@ -12,7 +12,8 @@ import (
 func openBoard(t *testing.T) *harness {
 	h := start(t, "board.jsonl", 140, 40)
 	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "Board 4") })
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	return h
 }
@@ -93,6 +94,8 @@ func TestBoardEditAndNotifications(t *testing.T) {
 	h.waitScreen("the list", func(s string) bool { return strings.Contains(s, "enter open") })
 	h.keys("\x1b")
 	h.waitScreen("unfocused", func(s string) bool { return strings.Contains(s, ctrlXHint) })
+	h.keys("i")
+	h.waitScreen("typing", func(s string) bool { return strings.Contains(s, "TYPING") })
 	h.keys("go\r")
 	h.waitIdle()
 	scr := h.waitScreen("the change", func(s string) bool { return strings.Contains(s, "Board 3") })
@@ -134,7 +137,8 @@ func TestBoardWithoutRelay(t *testing.T) {
 	h.keys("hi\r")
 	h.waitIdle()
 	h.waitScreen("the reply", func(s string) bool { return strings.Contains(s, "Hello there.") })
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.keys("b")
 	h.waitScreen("no board", func(s string) bool { return strings.Contains(s, "This agent has no board.") })
 }
@@ -144,7 +148,8 @@ func TestBoardWithoutRelay(t *testing.T) {
 func TestTrustingACardFromTheBoard(t *testing.T) {
 	h := start(t, "card_trust.jsonl", 140, 30)
 	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "outside text") })
-	h.keys(ctrlX)
+	h.escape()
+	h.keys("l")
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "t trust") })
 	h.keys("t")
 	h.waitScreen("the question", func(s string) bool { return strings.Contains(s, "It clears outside") })

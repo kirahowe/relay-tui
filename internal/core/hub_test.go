@@ -82,7 +82,7 @@ func TestHubPickingARoleWithALiveConversationLoadsItAndAnEmptyOneDoesNot(t *test
 	if got := attachesIn(fx); !reflect.DeepEqual(got, []Attach{{Role: "dev", Session: "s1"}}) {
 		t.Fatalf("attaches %v", got)
 	}
-	h, fx = apply(t, h, FocusMove{At: t0, Delta: 1})
+	h, fx = apply(t, h, FocusIndex{At: t0, Index: 1})
 	if h.Focus != "mail" || len(attachesIn(fx)) != 0 || h.Focused() != nil {
 		t.Fatalf("moving to a role with no conversation opens none: %+v %v", h.Focus, fx)
 	}
@@ -225,7 +225,7 @@ func TestHubSeenIsSentOnceWhenTheLatestTurnIsOnScreen(t *testing.T) {
 		t.Fatalf("%v", fx)
 	}
 	r.Conv.Turn = TurnIdle
-	hl, _ := apply(t, h, ToggleList{At: t0})
+	hl, _ := apply(t, h, Move{At: t0, Delta: -1})
 	_, fx = apply(t, hl, RosterUpdate{At: t0, Roles: []Role{r}})
 	if len(fx) != 0 {
 		t.Fatalf("list open: %v", fx)
@@ -417,13 +417,13 @@ func genHubEvent(t *rapid.T, seq *int, sent map[string]*strings.Builder) Event {
 	case 3:
 		return RosterUpdate{At: t0, Roles: genRosterKeeping(t)}
 	case 4:
-		return FocusMove{At: t0, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")}
+		return Move{At: t0, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")}
 	case 5:
 		return FocusIndex{At: t0, Index: rapid.IntRange(0, 3).Draw(t, "index")}
 	case 6:
-		return FocusLast{At: t0}
+		return Type{At: t0}
 	case 7:
-		return ToggleList{At: t0}
+		return StopTyping{At: t0}
 	case 8:
 		return ListMove{At: t0, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "ldelta")}
 	}
@@ -704,7 +704,7 @@ func answerCount(fx []Effect) int {
 func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 	ask := PermissionAsked{At: t0, Permission: Permission{ID: 4, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
 	paths := map[string][2][]Event{
-		"list": {{ToggleList{}}, {ToggleList{}}},
+		"list": {{Move{Delta: -1}}, {Move{Delta: 1}}},
 		"end":  {{AskEnd{}}, {ConfirmEnd{Yes: false}}},
 		"help": {{ToggleHelp{}}, {ToggleHelp{}}},
 	}
@@ -714,7 +714,7 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 				var out []Event
 				for _, e := range es {
 					switch e := e.(type) {
-					case ToggleList:
+					case Move:
 						e.At = t0.Add(d)
 						out = append(out, e)
 					case AskEnd:
@@ -747,7 +747,7 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 }
 
 func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
-	for name, leave := range map[string]Event{"switch": FocusIndex{At: t0, Index: 1}, "list": ToggleList{At: t0}, "help": ToggleHelp{At: t0}, "end": AskEnd{At: t0}} {
+	for name, leave := range map[string]Event{"switch": FocusIndex{At: t0, Index: 1}, "list": Move{At: t0, Delta: -1}, "pane": Move{At: t0, Delta: 1}, "help": ToggleHelp{At: t0}, "end": AskEnd{At: t0}} {
 		t.Run(name, func(t *testing.T) {
 			h := loadedHub(t)
 			h.Convs = slices.Clone(h.Convs)
@@ -762,7 +762,7 @@ func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
 	h := loadedHub(t)
 	h.Convs = slices.Clone(h.Convs)
 	h.Convs[0].State.Pane.Trust = &TrustPrompt{Since: t0, Sent: true}
-	h, _ = apply(t, h, ToggleList{At: t0})
+	h, _ = apply(t, h, Move{At: t0, Delta: -1})
 	if h.Convs[0].State.Pane.Trust == nil {
 		t.Fatal("a sent trust was dropped")
 	}
@@ -919,7 +919,7 @@ func insertText(fx []Effect) (string, bool) {
 // wherever it arrives, and ctrl+y acts on one already in the input.
 func TestHubPastesAreAlwaysUntrustedOnArrival(t *testing.T) {
 	for name, between := range map[string][]Event{
-		"nothing": nil, "help": {ToggleHelp{At: t0}, ToggleHelp{At: t0}}, "list": {ToggleList{At: t0}, ToggleList{At: t0}},
+		"nothing": nil, "help": {ToggleHelp{At: t0}, ToggleHelp{At: t0}}, "list": {Move{At: t0, Delta: -1}, Move{At: t0, Delta: 1}},
 		"a key": {ShowTools{At: t0}}, "a move": {FocusIndex{At: t0, Index: 1}, FocusIndex{At: t0, Index: 0}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1060,8 +1060,8 @@ func TestHubQuitNeverAnswersARequest(t *testing.T) {
 	for name, quit := range map[string][]Event{
 		"eof":         {EOF{At: t0}},
 		"ctrl-c":      {Interrupt{At: t0, InputEmpty: true}},
-		"from list":   {ToggleList{At: t0}, Interrupt{At: t0, InputEmpty: true}},
-		"ctrl-d list": {ToggleList{At: t0}, EOF{At: t0}},
+		"from list":   {Move{At: t0, Delta: -1}, Interrupt{At: t0, InputEmpty: true}},
+		"ctrl-d list": {Move{At: t0, Delta: -1}, EOF{At: t0}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, fx := apply(t, twoWithRequests(t), quit...)

@@ -220,7 +220,7 @@ type PaneAction int
 
 const (
 	PaneOther  PaneAction = iota // any key without a meaning cancels a trust prompt
-	PaneToggle                   // the pane key: focus the pane, or leave it
+	PaneToggle                   // h or l into or out of the pane (Move): focus it, or leave it
 	PaneUp
 	PaneDown
 	PagePrev
@@ -541,7 +541,8 @@ func (r *reducer) paneKey(e PaneKey) {
 			return
 		}
 		p.Trust, p.Message, p.Failure, p.Command = nil, "", "", ""
-		// An open input stays, so ctrl+x away and back keeps what was typed.
+		// An open input stays, so a request that takes the keys meanwhile
+		// leaves what was typed.
 		// A trust of a card not yet sent goes, as a doc's does: the operator
 		// asks again on purpose.
 		b := &r.a.Board
@@ -551,6 +552,7 @@ func (r *reducer) paneKey(e PaneKey) {
 		}
 		r.a.PaneFocus = !r.a.PaneFocus
 		if r.a.PaneFocus {
+			r.a.Moving = true // the pane is never typed in
 			r.selectIndex(max(SelectedIndex(*s), 0))
 		} else {
 			p.Detail, p.Scroll = false, 0
@@ -638,4 +640,25 @@ func (r *reducer) startTrust(at time.Time, i int) {
 	default:
 		p.Message = "Trust is not available here. It needs relay chat."
 	}
+}
+
+// PaneAsking says the pane asks the operator something its next key
+// answers: whether to archive a card, or to trust a card or an item. That
+// key goes to the pane, whatever it is, so it answers or cancels the
+// question and does nothing else. A trust already sent asks nothing.
+func PaneAsking(a App, s State) bool {
+	b, p := a.Board, s.Pane
+	return b.Confirm != 0 || (b.Trust != nil && !b.Trust.Sent) || (p.Trust != nil && !p.Trust.Sent)
+}
+
+// PaneSideKeys says the pane takes left and right (h and l) for itself:
+// a tracker card is open on the board, and they move between its
+// columns. Esc closes the card, and they move between columns again.
+func PaneSideKeys(a App) bool {
+	b := a.Board
+	if b.Items || !b.Detail {
+		return false
+	}
+	c, i := BoardCard(b)
+	return i >= 0 && c.Kind == CardTracker && len(c.Columns) > 0
 }

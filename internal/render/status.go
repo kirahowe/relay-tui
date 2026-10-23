@@ -84,8 +84,21 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	if l.Spend != nil {
 		add(Money(*l.Spend))
 	}
-	if l.Kind == core.StatusIdle && l.Remote != core.TurnRunning {
-		add(hint)
+	idle := l.Kind == core.StatusIdle && l.Remote != core.TurnRunning
+	if idle {
+		if l.Moving {
+			add(core.UnboundNote)
+		} else {
+			add(hint)
+		}
+	}
+	if l.ShowMode && l.Kind != core.StatusAsking {
+		// After what the agent is doing and how to type, so a narrow line
+		// keeps those first. While a request waits, its keys are the ones
+		// that count.
+		add(modeTag(l.Moving))
+	}
+	if idle {
 		add("? keys")
 	}
 	// The first part always shows, cut if it must be. Each later part
@@ -102,6 +115,18 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	}
 	return styled(faint, truncate(line, width))
 }
+
+// Mode names a mode as the screen shows it.
+func Mode(moving bool) string {
+	if moving {
+		return "MOVING"
+	}
+	return "TYPING"
+}
+
+// modeTag names the mode in the status line, in bold, and returns to
+// faint, the style the whole line is in.
+func modeTag(moving bool) string { return sgr(bold) + Mode(moving) + sgr(faint) }
 
 // badges shows the session's labels in front of the status, so they are
 // always on screen: private in bold, contaminated in reverse video, which

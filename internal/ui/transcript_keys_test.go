@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kirahowe/relay-tui/internal/core"
-	"github.com/kirahowe/relay-tui/internal/render"
 )
 
 // press is the key press Bubble Tea reports for a key it names so.
@@ -43,24 +42,6 @@ func press(t *testing.T, name string) tea.KeyPressMsg {
 	return k
 }
 
-// Every key the list of keys names does something there.
-func TestHelpRowsMatchKeys(t *testing.T) {
-	for _, r := range render.InlineKeys {
-		for _, name := range r.Keys {
-			if a := Classify(press(t, name), true); a == PassThrough {
-				t.Errorf("inline %q (%s) does nothing", name, r.What)
-			}
-		}
-	}
-	for _, r := range render.TranscriptKeys {
-		for _, name := range r.Keys {
-			if a, _ := ClassifyTranscript(press(t, name), true); a == PassThrough {
-				t.Errorf("transcript %q (%s) does nothing", name, r.What)
-			}
-		}
-	}
-}
-
 func TestTranscriptKeys(t *testing.T) {
 	cases := []struct {
 		name string
@@ -85,11 +66,11 @@ func TestTranscriptKeys(t *testing.T) {
 // ? opens the list only from an empty input, so a message can still
 // have one; ctrl+t no longer arms a trusted paste, ctrl+y does.
 func TestInlineKeys(t *testing.T) {
-	if a := Classify(press(t, "?"), false); a != PassThrough {
+	if a := cls(press(t, "?"), false); a != PassThrough {
 		t.Errorf("? with text: %v", a)
 	}
-	for name, want := range map[string]Action{"ctrl+t": ShowTools, "ctrl+o": ShowThinking, "ctrl+y": TrustPaste, "ctrl+_": Help} {
-		if a := Classify(press(t, name), false); a != want {
+	for name, want := range map[string]Action{"ctrl+t": ShowTools, "ctrl+o": ShowThinking, "ctrl+y": TrustPaste, "esc": StopTyping} {
+		if a := cls(press(t, name), false); a != want {
 			t.Errorf("%q: %v, want %v", name, a, want)
 		}
 	}

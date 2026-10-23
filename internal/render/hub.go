@@ -77,33 +77,37 @@ type HubFrame struct {
 	title, right string
 }
 
-// HubKeys is what the keys do in hub mode, in the list of keys.
-var HubKeys = []KeyHelp{
+// TypingKeys is what the keys do while typing in hub mode, in the list
+// of keys. Every other key is typed.
+var TypingKeys = []KeyHelp{
 	{[]string{"enter"}, "send"},
 	{[]string{"shift+enter", "ctrl+j"}, "new line"},
-	{[]string{"ctrl+n", "ctrl+p"}, "next, previous role"},
-	{[]string{"alt+1"}, "role 1 (alt+2 for 2, up to 9)"},
-	{[]string{"ctrl+l"}, "the role before this one"},
-	{[]string{"ctrl+g"}, "list of roles (enter opens, esc back)"},
-	{[]string{"ctrl+s"}, "end this conversation, after asking"},
+	{[]string{"esc"}, "stop typing; what you typed stays"},
+	{[]string{"alt+1"}, "role 1 (alt+2 for 2, up to 9), still typing"},
 	{[]string{"pgup", "pgdown"}, "scroll the conversation"},
 	{[]string{"ctrl+t"}, "show or hide tool calls"},
 	{[]string{"ctrl+o"}, "show or hide thinking"},
-	{[]string{"ctrl+x"}, "workspace pane"},
 	{[]string{"ctrl+y"}, "trust the latest paste in the input"},
 	{[]string{"ctrl+c"}, "stop the turn, clear, or quit"},
 	{[]string{"ctrl+d"}, "quit, from an empty input"},
 	{[]string{"?"}, "these keys, from an empty input"},
 }
 
-// ListKeys is what the keys do while the list of roles has them.
-var ListKeys = []KeyHelp{
-	{[]string{"up", "down", "k", "j"}, "move"},
-	{[]string{"enter"}, "open the role's conversation"},
-	{[]string{"esc", "ctrl+g"}, "back to the conversation"},
-	{[]string{"ctrl+x"}, "the board (esc or ctrl+x back to the list)"},
-	{[]string{"alt+1"}, "role 1 (alt+2 for 2, up to 9)"},
-	{[]string{"ctrl+c"}, "quit"},
+// MovingKeys is what the keys do while moving in hub mode. Nothing is
+// typed.
+var MovingKeys = []KeyHelp{
+	{[]string{"h", "l", "left", "right"}, "roles, conversation, pane"},
+	{[]string{"k", "j", "up", "down"}, "move in the list, or scroll"},
+	{[]string{"pgup", "pgdown", "g", "G", "home", "end"}, "page, top, bottom"},
+	{[]string{"enter"}, "open the role and type, or type"},
+	{[]string{"i"}, "type in the conversation"},
+	{[]string{"1", "alt+1"}, "role 1 (2 for 2, up to 9)"},
+	{[]string{"X"}, "end this conversation, after asking"},
+	{[]string{"esc"}, "back to the conversation"},
+	{[]string{"ctrl+t"}, "show or hide tool calls"},
+	{[]string{"ctrl+o"}, "show or hide thinking"},
+	{[]string{"ctrl+c"}, "stop the turn, or quit"},
+	{[]string{"ctrl+d"}, "quit, from an empty input"},
 	{[]string{"?"}, "these keys"},
 }
 
@@ -299,7 +303,7 @@ func sidebar(h core.Hub, now time.Time, width, height int) []string {
 	for _, r := range h.Roles {
 		rows = append(rows, roleRow(h, r, now, width))
 	}
-	foot := []string{styled(faint, truncate("ctrl+g roles · ? keys", width))}
+	foot := []string{styled(faint, truncate("h roles · ? keys", width))}
 	room := max(height-len(foot), 0)
 	lines = append(lines, window(rows, 1, selected(h), max(room-head, 0))...)
 	if len(lines) > room {
@@ -342,7 +346,7 @@ func listScreen(h core.Hub, now time.Time, width, height int) []string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, note...)
-	foot := styled(faint, truncate("enter open · up/down move · ? keys", width))
+	foot := styled(faint, truncate(modeTag(true)+" · enter open · ↑↓ move · ? keys", width))
 	if h.Notice != "" {
 		foot = styled(faint, truncate("! "+oneLine(h.Notice), width))
 	}
@@ -384,15 +388,17 @@ func withHelp(h core.Hub, input, hint string, now time.Time, width, height int, 
 		cw, _ := hubColumns(h, width)
 		mw = framed(cw)
 	}
-	rows := HubKeys
-	title := "keys"
-	if h.List {
-		rows, title = ListKeys, "list keys"
+	rows, title := TypingKeys, "typing keys"
+	if h.App.Moving {
+		rows, title = MovingKeys, "moving keys"
 	}
 	help := helpBox(title, rows, mw)
-	legend := make([]string, len(hubLegend))
-	for i, l := range hubLegend {
-		legend[i] = styled(faint, truncate(l, InputWidth(mw)))
+	var legend []string
+	if h.App.Moving {
+		legend = append(legend, styled(faint, truncate(paneHelp, InputWidth(mw))))
+	}
+	for _, l := range hubLegend {
+		legend = append(legend, styled(faint, truncate(l, InputWidth(mw))))
 	}
 	help = append(help, legend...)
 	return hubFrame(h, input, hint, now, width, height, wide, help)
@@ -419,7 +425,7 @@ func hubFrame(h core.Hub, input, hint string, now time.Time, width, height int, 
 // paneScreen is the narrow screen's pane with no role in focus: the
 // list gave it the keys, and it takes the list's place.
 func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
-	head := styled(faint, "‹ "+PaneKey+" roles")
+	head := styled(faint, "‹ h roles")
 	if e := elsewhere(h); e != "" {
 		head += "  " + e
 	}
@@ -503,7 +509,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	panelTitle := head
 	if narrow {
-		head = styled(faint, "‹ ctrl+g roles · ") + head
+		head = styled(faint, "‹ h roles · ") + head
 		if e := elsewhere(h); e != "" {
 			head += "  " + e
 		}
@@ -574,10 +580,18 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		return HubFrame{Content: strings.Join(lines[:height], "\n"), TooSmall: true, title: panelTitle}
 	}
 	var status string
+	mode := ""
+	if !inPanel {
+		mode = modeTag(h.App.Moving) + " · "
+	}
 	if h.Focus == "" {
-		status = styled(faint, truncate("  no role in focus · ctrl+g roles · ? keys", width))
+		status = styled(faint, truncate("  "+mode+"no role in focus · h roles · ? keys", width))
 	} else if conv == nil {
-		status = styled(faint, truncate("  no conversation · type a message to start one · ? keys", width))
+		start := "type a message to start one"
+		if h.App.Moving {
+			start = "i to type a message and start one"
+		}
+		status = styled(faint, truncate("  "+mode+"no conversation · "+start+" · ? keys", width))
 	} else {
 		st := core.Status(h.App, s, now)
 		if role != nil { // the roster may not have come yet
@@ -586,7 +600,8 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 				st.Remote = role.Conv.Turn
 			}
 		}
-		st.PaneHint = st.PaneItems > 0 && !beside
+		st.PaneHint = st.PaneItems > 0 && !beside && !h.App.PaneFocus
+		st.ShowMode = !inPanel // the panels name it in the row of keys
 		status = StatusText(st, hint, now, width)
 	}
 	bottom = append(bottom, status)
@@ -692,22 +707,39 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 		f.DetailMax = mx
 		keys = pk
 	}
+	right := ""
 	switch {
-	case h.List && paneShown(h):
-		keys = "enter open · ↑↓ move · " + PaneKey + " " + paneView(h.App) + " · esc back · ? keys"
+	case h.Focus != "":
+		right = " · l conversation"
+	case paneShown(h):
+		right = " · l " + paneView(h.App)
+	}
+	pane := ""
+	if paneShown(h) {
+		pane = " · l " + paneView(h.App)
+	}
+	switch {
 	case h.List:
-		keys = "enter open · ↑↓ move · esc back · ? keys"
+		keys = "enter open · ↑↓ move" + right + " · 1 role · ? keys"
 	case h.App.PaneFocus && pw > 0:
 	case h.App.PaneFocus:
 		keys = "" // the pane, in the conversation's place, lists its own
+	case len(s.Asks) > 0 && h.App.Moving:
+		keys = "h roles · 1 role" // the request's own keys are in its box
+	case len(s.Asks) > 0:
+		keys = "alt+1 role"
+	case h.App.Moving && conv != nil:
+		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · ? keys"
+	case h.App.Moving:
+		keys = "i type · h roles" + pane + " · ? keys"
 	default:
-		keys = "enter send · " + PaneKey + " " + paneView(h.App) + " · ctrl+g roles · ctrl+t tools · ? keys"
+		keys = "enter send · esc move · alt+1 role · ctrl+t tools · ? keys"
 	}
 	rows := []string{topBar(h, now, width)}
 	for i := 0; i < mid; i++ {
 		rows = append(rows, side[i]+sgr(0)+main[i])
 	}
-	rows = append(rows, hintRow(keys, width))
+	rows = append(rows, modeRow(h.App.Moving, keys, width))
 	for i := range rows {
 		rows[i] = truncate(rows[i], width)
 	}
@@ -717,7 +749,16 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	return f
 }
 
-// paneView names what ctrl+x shows: the board, or the workspace items.
+// modeRow is the row of keys along the bottom, led by the mode.
+func modeRow(moving bool, keys string, width int) string {
+	tag := " " + styled(bold, Mode(moving)) + " "
+	if keys == "" {
+		return truncate(tag, width)
+	}
+	return tag + hintRow(keys, max(width-ansi.StringWidth(tag), 1))
+}
+
+// paneView names what l shows: the board, or the workspace items.
 func paneView(a core.App) string {
 	if a.Board.Items {
 		return "workspace"

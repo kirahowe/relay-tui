@@ -54,7 +54,7 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 		if !s.Help || len(s.Asks) > 0 {
 			return nil
 		}
-		return func(room int) []string { return HelpLines(w, room) }
+		return func(room int) []string { return HelpLines(a.Moving, w, room) }
 	}
 	if Side(width) {
 		f := view(a, s, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
@@ -116,7 +116,9 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 		bottom = append(bottom, box("", inputLines, width)...)
 	}
 	st := core.Status(a, s, now)
-	st.PaneHint = paneHint && st.PaneItems > 0 // with nothing to see, the status line stays as it was
+	// With nothing to see the status line stays as it was, and a pane with
+	// the keys lists its own.
+	st.PaneHint = paneHint && st.PaneItems > 0 && !a.PaneFocus
 	bottom = append(bottom, StatusText(st, hint, now, width))
 
 	rows := max(height-1, 1)

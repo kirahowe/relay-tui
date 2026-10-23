@@ -34,7 +34,7 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		evs = m.hubWheel(msg, now)
 	case tea.PasteMsg:
-		evs = []core.Event{core.Pasted{At: now, Text: msg.Content}} // the core drops it when the input is not in play
+		evs = []core.Event{core.KeyPressed{At: now}, pasted(m.hub.App, now, msg.Content)}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {
@@ -45,6 +45,9 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 		evs = []core.Event{core.Tick{At: time.Time(msg)}}
 	}
 	for _, e := range evs {
+		if e == nil {
+			continue
+		}
 		var fx []core.Effect
 		m.hub, fx = core.ReduceHub(m.hub, e)
 		for _, f := range fx {
@@ -142,77 +145,140 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 		}
 		return nil, nil
 	}
-	a, index := ClassifyHub(k)
-	switch a {
-	case HubNext, HubPrev:
-		d := 1
-		if a == HubPrev {
-			d = -1
-		}
-		if m.hub.List {
-			return one(core.ListMove{At: now, Delta: d})
-		}
-		return one(core.FocusMove{At: now, Delta: d})
-	case HubIndex:
-		return one(core.FocusIndex{At: now, Index: index})
-	case HubLast:
-		return one(core.FocusLast{At: now})
-	case HubList:
-		return one(core.ToggleList{At: now})
-	case HubEnd:
-		return one(core.AskEnd{At: now})
-	}
-	if m.hub.List {
-		switch ClassifyList(k) {
-		case ListUp:
-			return one(core.ListMove{At: now, Delta: -1})
-		case ListDown:
-			return one(core.ListMove{At: now, Delta: 1})
-		case ListOpen:
-			return one(core.ListOpen{At: now})
-		case ListBack:
-			return one(core.ToggleList{At: now})
-		case ListPane:
-			return one(core.PaneKey{At: now, Action: core.PaneToggle})
-		case ListHelp:
-			return one(core.ToggleHelp{At: now})
-		case ListInterrupt:
-			return one(core.Interrupt{At: now, InputEmpty: true})
-		case ListEOF:
-			return one(core.EOF{At: now})
-		}
-		return nil, nil
-	}
 	st := m.focusedState()
-	// Scrolling is never the request's: a long one is read by scrolling to
-	// what `v` put in the transcript. Only the approval keys are its. The
-	// workspace pane, when it has the focus, scrolls itself with these.
-	if !m.hub.App.PaneFocus {
-		switch k.String() {
-		case "pgup":
-			return one(m.scroll(core.TranscriptPageUp, now))
-		case "pgdown":
-			return one(m.scroll(core.TranscriptPageDown, now))
-		}
-	}
-	if len(st.Asks) > 0 {
+	a, index := ClassifyMoving(k)
+	if !m.hub.List && !m.hub.App.PaneFocus && len(st.Asks) > 0 {
+		// The request has the keys, typing or not: nothing reaches the
+		// input, and only the request's own keys answer it. Past those,
+		// the operator can still go to the list or another role and
+		// scroll; the request stays until answered, and the sidebar says
+		// so.
 		if e := askKey(ClassifyAsk(k), now); e != nil {
 			return one(e)
 		}
-		return nil, nil
-	}
-	empty := m.input.Value() == ""
-	if m.hub.App.PaneFocus {
-		if e := paneEvent(m.hub.App, st, k, empty, now, func() int { return m.hubFrame(now).DetailMax }); e != nil {
-			return one(e)
+		switch a {
+		case MoveJump:
+			return one(core.FocusIndex{At: now, Index: index})
+		case MoveLeft:
+			return one(core.Move{At: now, Delta: -1})
+		case MovePageUp, MovePageDown:
+			return one(m.hubScroll(k, now))
 		}
 		return nil, nil
 	}
-	switch Classify(k, empty) {
+	if !m.hub.App.Moving {
+		return m.typingKey(k, now)
+	}
+	switch {
+	case m.hub.List:
+		return one(m.listKey(k, a, index, now))
+	case m.hub.App.PaneFocus:
+		return m.paneMoving(k, a, index, st, now)
+	}
+	switch a {
+	case MoveLeft:
+		return one(core.Move{At: now, Delta: -1})
+	case MoveRight:
+		return one(core.Move{At: now, Delta: 1})
+	case MoveUp:
+		return one(m.scroll(core.TranscriptUp, now))
+	case MoveDown:
+		return one(m.scroll(core.TranscriptDown, now))
+	case MovePageUp:
+		return one(m.scroll(core.TranscriptPageUp, now))
+	case MovePageDown:
+		return one(m.scroll(core.TranscriptPageDown, now))
+	case MoveTop:
+		return one(m.scroll(core.TranscriptTop, now))
+	case MoveBottom:
+		return one(m.scroll(core.TranscriptBottom, now))
+	case MoveEnter, MoveType:
+		return one(core.Type{At: now})
+	case MoveJump:
+		return one(core.FocusIndex{At: now, Index: index})
+	case MoveEnd:
+		return one(core.AskEnd{At: now})
+	case MoveTools:
+		return one(core.ShowTools{At: now})
+	case MoveThinking:
+		return one(core.ShowThinking{At: now})
+	case MoveHelp:
+		return one(core.ToggleHelp{At: now})
+	case MoveInterrupt:
+		return one(core.Interrupt{At: now, InputEmpty: true})
+	case MoveEOF:
+		if m.input.Value() == "" {
+			return one(core.EOF{At: now})
+		}
+		return nil, nil
+	case MoveNone:
+		if printable(k) {
+			return one(core.Unbound{At: now})
+		}
+	}
+	return nil, nil
+}
+
+// listKey is the event for a key pressed while moving in the list of
+// roles.
+func (m *Model) listKey(k tea.KeyPressMsg, a MoveAction, index int, now time.Time) core.Event {
+	switch a {
+	case MoveUp:
+		return core.ListMove{At: now, Delta: -1}
+	case MoveDown:
+		return core.ListMove{At: now, Delta: 1}
+	case MoveEnter:
+		return core.ListOpen{At: now}
+	case MoveRight:
+		return core.Move{At: now, Delta: 1}
+	case MoveLeft:
+		return core.Move{At: now, Delta: -1} // the edge: nothing
+	case MoveEsc:
+		if m.hub.Focus != "" {
+			return core.Move{At: now, Delta: 1} // back to the conversation
+		}
+	case MoveType:
+		return core.Type{At: now}
+	case MoveJump:
+		return core.FocusIndex{At: now, Index: index}
+	case MoveHelp:
+		return core.ToggleHelp{At: now}
+	case MoveInterrupt:
+		return core.Interrupt{At: now, InputEmpty: true}
+	case MoveEOF:
+		return core.EOF{At: now}
+	case MoveNone:
+		if printable(k) {
+			return core.Unbound{At: now}
+		}
+	}
+	return nil
+}
+
+// hubScroll is the event for a page key, which scrolls the conversation
+// whatever has the keys in it, or nil for any other key.
+func (m *Model) hubScroll(k tea.KeyPressMsg, now time.Time) core.Event {
+	switch k.String() {
+	case "pgup":
+		return m.scroll(core.TranscriptPageUp, now)
+	case "pgdown":
+		return m.scroll(core.TranscriptPageDown, now)
+	}
+	return nil
+}
+
+// typingKey turns a key pressed while typing into events, or gives it to
+// the input box. It serves both modes: against a single agent there is
+// no role to jump to and no conversation to start.
+func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
+	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
+	empty := m.input.Value() == ""
+	a, index := Classify(k, empty)
+	switch a {
 	case Send:
 		text := m.input.Value()
 		if isBlank(text) {
-			if m.hub.Focus != "" && m.hub.Focused() == nil {
+			if m.hubMode && m.hub.Focus != "" && m.hub.Focused() == nil {
 				return one(core.StartConversation{At: now})
 			}
 			return nil, nil
@@ -223,7 +289,11 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 		m.input.InsertString("\n")
 		return nil, nil
 	case Interrupt:
-		if (m.hub.Focused() == nil || st.Phase == core.Idle) && !empty {
+		idle := m.one.State.Phase == core.Idle
+		if m.hubMode {
+			idle = m.hub.Focused() == nil || m.focusedState().Phase == core.Idle
+		}
+		if idle && !empty {
 			m.input.Reset() // like a shell: Ctrl-C clears the line
 		}
 		return one(core.Interrupt{At: now, InputEmpty: empty})
@@ -237,12 +307,85 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 		return one(core.ToggleHelp{At: now})
 	case TrustPaste:
 		return one(core.TrustPaste{At: now, Draft: m.input.Value()})
-	case TogglePane:
-		return one(core.PaneKey{At: now, Action: core.PaneToggle})
+	case StopTyping:
+		return one(core.StopTyping{At: now})
+	case Jump:
+		if m.hubMode {
+			return one(core.FocusIndex{At: now, Index: index})
+		}
+		return nil, nil
+	}
+	if m.hubMode {
+		if e := m.hubScroll(k, now); e != nil {
+			return one(e)
+		}
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	return nil, cmd
+}
+
+// paneMoving turns a key pressed while the pane has the keys into
+// events. What the pane has open comes first: its one-line input takes
+// every key, and a question it asks (archive, trust) is answered or
+// cancelled by the next key, so nothing else can act past it. Then the
+// keys that move between columns and roles, then the pane's own.
+func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, st core.State, now time.Time) ([]core.Event, tea.Cmd) {
+	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
+	app := m.app()
+	busy := st.Phase == core.Busy
+	if k.String() == "ctrl+c" && (core.PaneAsking(app, st) || app.Board.Input != nil) {
+		if busy {
+			return one(core.Interrupt{At: now, InputEmpty: true})
+		}
+		return one(core.PaneKey{At: now, Action: core.PaneEsc}) // cancels what is open
+	}
+	if !core.PaneAsking(app, st) && app.Board.Input == nil && a.Global() &&
+		!((a == MoveLeft || a == MoveRight) && core.PaneSideKeys(app)) {
+		switch a {
+		case MoveLeft:
+			return one(core.Move{At: now, Delta: -1})
+		case MoveRight:
+			return one(core.Move{At: now, Delta: 1})
+		case MoveType:
+			return one(core.Type{At: now})
+		case MoveJump:
+			if m.hubMode {
+				return one(core.FocusIndex{At: now, Index: index})
+			}
+			return nil, nil
+		case MoveHelp:
+			return one(core.ToggleHelp{At: now})
+		case MoveInterrupt:
+			return one(core.Interrupt{At: now, InputEmpty: true})
+		case MoveEOF:
+			if m.input.Value() == "" {
+				return one(core.EOF{At: now})
+			}
+			return nil, nil
+		}
+	}
+	e := paneEvent(app, st, k, now, func() int { return m.paneDetailMax(now) })
+	if e.Action == core.PaneOther && printable(k) && app.Board.Input == nil && !core.PaneAsking(app, st) {
+		return []core.Event{e, core.Unbound{At: now}}, nil
+	}
+	return one(e)
+}
+
+// app is the connection's state, in either mode.
+func (m Model) app() core.App {
+	if m.hubMode {
+		return m.hub.App
+	}
+	return m.one.App
+}
+
+// paneDetailMax is how far the pane's detail view scrolls, as drawn.
+func (m Model) paneDetailMax(now time.Time) int {
+	if m.hubMode {
+		return m.hubFrame(now).DetailMax
+	}
+	return m.frame(now).DetailMax
 }
 
 func isBlank(s string) bool {
@@ -308,7 +451,7 @@ func (m Model) hubView(now time.Time) tea.View {
 	v := tea.NewView(f.Content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
-	if f.Cursor && !m.hub.List && !m.hub.Help && !m.hub.EndAsk && m.hub.Focus != "" {
+	if f.Cursor && !m.hub.List && !m.hub.Help && !m.hub.EndAsk && m.hub.Focus != "" && !m.hub.App.Moving {
 		if c := m.input.Cursor(); c != nil {
 			c.Position.X += f.InputX
 			c.Position.Y += f.InputY

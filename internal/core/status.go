@@ -54,12 +54,15 @@ type StatusLine struct {
 	Remote TurnState
 	// NoClock says no turn of ours runs, so there is no elapsed time to show.
 	NoClock bool
+	// Moving says the operator is moving, not typing (App.Moving). ShowMode
+	// says the status line names the mode; the panels name it elsewhere.
+	Moving, ShowMode bool
 }
 
 // Status describes conversation s, in app a, at time now.
 func Status(a App, s State, now time.Time) StatusLine {
 	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend, Labels: s.Labels, Asks: len(s.Asks),
-		PaneView: "workspace", PaneItems: len(PaneItems(s))}
+		PaneView: "workspace", PaneItems: len(PaneItems(s)), Moving: a.Moving || a.PaneFocus, ShowMode: true}
 	if !a.Board.Items {
 		l.PaneView, l.PaneItems = "board", len(a.Board.Cards)
 	}

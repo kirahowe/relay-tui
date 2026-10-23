@@ -67,10 +67,9 @@ type wireView struct {
 }
 
 type wireHub struct {
-	Focus        string `json:"focus"`
-	Cursor       string `json:"cursor"`
-	List         bool   `json:"list"`
-	PaneFromList bool   `json:"paneFromList"`
+	Focus  string `json:"focus"`
+	Cursor string `json:"cursor"`
+	List   bool   `json:"list"`
 }
 
 type wireDraft struct {
@@ -117,7 +116,7 @@ func DefaultDir(home string) string { return filepath.Join(home, ".local", "stat
 func toWire(v core.View) wireView {
 	w := wireView{PaneFocus: v.PaneFocus, Items: v.Items, Card: v.Card, Detail: v.Detail, Line: v.Line, Col: v.Col}
 	if v.Hub != nil {
-		w.Hub = &wireHub{Focus: v.Hub.Focus, Cursor: v.Hub.Cursor, List: v.Hub.List, PaneFromList: v.Hub.PaneFromList}
+		w.Hub = &wireHub{Focus: v.Hub.Focus, Cursor: v.Hub.Cursor, List: v.Hub.List}
 	}
 	w.Drafts = []wireDraft{}
 	for _, d := range v.Drafts {
@@ -209,7 +208,7 @@ func sameArgv(a, b []string) bool {
 func fromWire(w wireView) (core.View, bool) {
 	v := core.View{PaneFocus: w.PaneFocus, Items: w.Items, Card: w.Card, Detail: w.Detail, Line: w.Line, Col: w.Col}
 	if w.Hub != nil {
-		v.Hub = &core.HubView{Focus: w.Hub.Focus, Cursor: w.Hub.Cursor, List: w.Hub.List, PaneFromList: w.Hub.PaneFromList}
+		v.Hub = &core.HubView{Focus: w.Hub.Focus, Cursor: w.Hub.Cursor, List: w.Hub.List}
 	}
 	untrusted := false
 	for _, wd := range w.Drafts {

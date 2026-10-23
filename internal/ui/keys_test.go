@@ -47,7 +47,7 @@ func TestKeysNeverLeakEscapes(t *testing.T) {
 		m := New(nopConn{}, "")
 		for range rapid.IntRange(1, 20).Draw(t, "keys") {
 			k := genKey(t)
-			if Classify(k, false) == Newline && k.String() == "enter" {
+			if cls(k, false) == Newline && k.String() == "enter" {
 				t.Fatalf("enter gave Newline")
 			}
 			next, _ := m.Update(k)
@@ -66,14 +66,14 @@ func TestKeysNeverLeakEscapes(t *testing.T) {
 		{Code: 'j', Mod: tea.ModCtrl},
 	}
 	for _, k := range newline {
-		if a := Classify(k, true); a != Newline {
+		if a := cls(k, true); a != Newline {
 			t.Errorf("%s gave %v, want Newline", k, a)
 		}
 	}
-	if a := Classify(tea.KeyPressMsg{Code: tea.KeyEnter}, false); a != Send {
+	if a := cls(tea.KeyPressMsg{Code: tea.KeyEnter}, false); a != Send {
 		t.Errorf("enter gave %v", a)
 	}
-	if a := Classify(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}, false); a != PassThrough {
+	if a := cls(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}, false); a != PassThrough {
 		t.Errorf("ctrl+d with text gave %v", a)
 	}
 }
@@ -165,9 +165,10 @@ func TestPaneFocusSwallowsKeys(t *testing.T) {
 		step(EventMsg{Event: core.Connected{At: time.Now()}})
 		step(EventMsg{Event: core.ItemsLoaded{At: time.Now(), Items: []core.Item{{Kind: core.ShownItem, Ref: "shown:x", Title: "x"}}}})
 		step(tea.KeyPressMsg{Code: 'a', Text: "a"}) // something already typed
-		step(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+		step(tea.KeyPressMsg{Code: tea.KeyEscape})
+		step(tea.KeyPressMsg{Code: 'l', Text: "l"})
 		if !model.(Model).one.PaneFocus {
-			t.Fatal("ctrl+x did not focus the pane")
+			t.Fatal("esc, l did not focus the pane")
 		}
 		for range rapid.IntRange(1, 30).Draw(t, "keys") {
 			m := model.(Model)
@@ -211,4 +212,10 @@ func TestBoardInputKeys(t *testing.T) {
 	if ClassifyBoard(tea.KeyPressMsg{Code: 'x', Text: "x"}) != core.PaneMark || ClassifyPane(tea.KeyPressMsg{Code: 'b', Text: "b"}) != core.PaneBoard {
 		t.Error("board keys")
 	}
+}
+
+// cls is what Classify says a key does, without the role index.
+func cls(k tea.KeyPressMsg, empty bool) Action {
+	a, _ := Classify(k, empty)
+	return a
 }

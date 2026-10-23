@@ -193,7 +193,8 @@ func TestWidthBound(t *testing.T) {
 		}
 		checkWidth(t, "entries", Entries(nil, es, width, now), width)
 		checkWidth(t, "entries in full", entriesAs(nil, es, expand{tools: true, thinking: true}, width, now), width)
-		checkWidth(t, "keys", HelpLines(width, 40), width)
+		checkWidth(t, "keys", HelpLines(false, width, 40), width)
+		checkWidth(t, "moving keys", HelpLines(true, width, 40), width)
 		l := core.StatusLine{
 			Kind: core.StatusKind(rapid.IntRange(int(core.StatusStarting), int(core.StatusExited)).Draw(t, "kind")),
 			Tool: text, Tools: rapid.IntRange(0, 3).Draw(t, "tools"), Reason: text,

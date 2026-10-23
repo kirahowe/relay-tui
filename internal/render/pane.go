@@ -25,7 +25,7 @@ import (
 const SideMinWidth = 119
 
 // PaneKey is the key that focuses the pane, as the hints name it.
-const PaneKey = "ctrl+x"
+const PaneKey = "l"
 
 // Side reports whether the pane stands beside the transcript at width.
 func Side(width int) bool { return width >= SideMinWidth }

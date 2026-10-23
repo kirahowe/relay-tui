@@ -15,7 +15,7 @@ type Caps struct {
 	Disambiguation bool
 }
 
-// Action is what a key press does.
+// Action is what a key press does while typing.
 type Action int
 
 const (
@@ -24,49 +24,144 @@ const (
 	Newline                    // insert a newline into the input
 	Interrupt                  // Ctrl-C
 	EOF                        // Ctrl-D on an empty input
-	ShowTools                  // Ctrl-T: the transcript, with tool calls in full
-	ShowThinking               // Ctrl-O: the transcript, with thinking in full
+	ShowTools                  // Ctrl-T: tool calls in full
+	ShowThinking               // Ctrl-O: thinking in full
 	TrustPaste                 // Ctrl-Y: trust the latest paste in the input
-	TogglePane                 // Ctrl-X: focus the workspace pane
-	Help                       // ? on an empty input, or Ctrl-/: the list of keys
+	Help                       // ? on an empty input: the list of keys
+	StopTyping                 // Esc: start moving; what was typed stays
+	Jump                       // alt+1 to alt+9: that role, still typing
 	Move                       // in the transcript: scroll, or leave
 )
 
-// Classify decides what a key press does. It is pure.
+// Classify decides what a key press does while typing. It is pure, and
+// the index is set for Jump. Only these keys are taken from the input:
+// everything else is typed.
 //
 // Enter always sends. Four keys insert a newline, so one of them works in
 // any terminal: shift+enter and ctrl+enter need the kitty protocol or
 // xterm's modifyOtherKeys (Bubble Tea asks for both), alt+enter works in
 // most terminals, and ctrl+j (a bare line feed) works everywhere.
-func Classify(k tea.KeyPressMsg, inputEmpty bool) Action {
-	switch k.String() {
+func Classify(k tea.KeyPressMsg, inputEmpty bool) (Action, int) {
+	switch s := k.String(); s {
 	case "enter":
-		return Send
+		return Send, 0
 	case "shift+enter", "ctrl+enter", "alt+enter", "ctrl+j":
-		return Newline
+		return Newline, 0
+	case "esc":
+		return StopTyping, 0
 	case "ctrl+c":
-		return Interrupt
+		return Interrupt, 0
 	case "ctrl+t":
-		return ShowTools
+		return ShowTools, 0
 	case "ctrl+o":
-		return ShowThinking
+		return ShowThinking, 0
 	case "ctrl+y":
-		return TrustPaste
-	case "ctrl+x":
-		return TogglePane
-	case "ctrl+/", "ctrl+_": // a terminal without the kitty protocol sends ctrl+/ as ctrl+_
-		return Help
+		return TrustPaste, 0
 	case "?":
 		if inputEmpty {
-			return Help
+			return Help, 0
 		}
 	case "ctrl+d":
 		if inputEmpty {
-			return EOF
+			return EOF, 0
+		}
+	default:
+		if n, ok := strings.CutPrefix(s, "alt+"); ok && digit(n) {
+			return Jump, int(n[0] - '1')
 		}
 	}
-	return PassThrough
+	return PassThrough, 0
 }
+
+// digit says s is one of 1 to 9.
+func digit(s string) bool { return len(s) == 1 && s[0] >= '1' && s[0] <= '9' }
+
+// MoveAction is what a key press does while moving.
+type MoveAction int
+
+const (
+	MoveNone      MoveAction = iota // nothing: a letter says "i to type"
+	MoveLeft                        // h, left: the column to the left
+	MoveRight                       // l, right: the column to the right
+	MoveUp                          // k, up
+	MoveDown                        // j, down
+	MovePageUp                      // pgup
+	MovePageDown                    // pgdown
+	MoveTop                         // g, home
+	MoveBottom                      // G, end
+	MoveEnter                       // enter: open, type, or act
+	MoveType                        // i: type in the conversation
+	MoveJump                        // 1 to 9, alt+1 to alt+9: that role
+	MoveEsc                         // esc: back out of what is open
+	MoveEnd                         // X on the conversation: end it, after asking
+	MoveTools                       // ctrl+t
+	MoveThinking                    // ctrl+o
+	MoveHelp                        // ?
+	MoveInterrupt                   // ctrl+c: stop the turn, or quit
+	MoveEOF                         // ctrl+d: quit
+)
+
+// Global says the key acts whichever column has the keys; the others
+// mean something in the list or the conversation, and give way to the
+// pane's own keys when the pane has them.
+func (a MoveAction) Global() bool {
+	switch a {
+	case MoveLeft, MoveRight, MoveType, MoveJump, MoveHelp, MoveInterrupt, MoveEOF:
+		return true
+	}
+	return false
+}
+
+// ClassifyMoving decides what a key press does while moving. It is
+// pure, and the index is set for MoveJump. Nothing here types.
+func ClassifyMoving(k tea.KeyPressMsg) (MoveAction, int) {
+	switch s := k.String(); s {
+	case "h", "left":
+		return MoveLeft, 0
+	case "l", "right":
+		return MoveRight, 0
+	case "k", "up":
+		return MoveUp, 0
+	case "j", "down":
+		return MoveDown, 0
+	case "pgup":
+		return MovePageUp, 0
+	case "pgdown":
+		return MovePageDown, 0
+	case "g", "home":
+		return MoveTop, 0
+	case "G", "end":
+		return MoveBottom, 0
+	case "enter":
+		return MoveEnter, 0
+	case "i":
+		return MoveType, 0
+	case "esc":
+		return MoveEsc, 0
+	case "X":
+		return MoveEnd, 0
+	case "ctrl+t":
+		return MoveTools, 0
+	case "ctrl+o":
+		return MoveThinking, 0
+	case "?":
+		return MoveHelp, 0
+	case "ctrl+c":
+		return MoveInterrupt, 0
+	case "ctrl+d":
+		return MoveEOF, 0
+	default:
+		n, _ := strings.CutPrefix(s, "alt+")
+		if digit(n) {
+			return MoveJump, int(n[0] - '1')
+		}
+	}
+	return MoveNone, 0
+}
+
+// printable says the key would type text: an unbound one says "i to
+// type" rather than doing nothing without a word.
+func printable(k tea.KeyPressMsg) bool { return k.Text != "" && k.Mod&^tea.ModShift == 0 }
 
 // ClassifyTranscript decides what a key press does in the transcript
 // view: Move, with the move, or one of ShowTools, ShowThinking, Help,
@@ -108,7 +203,7 @@ func ClassifyTranscript(k tea.KeyPressMsg, inputEmpty bool) (Action, core.Transc
 // closes it and then does what it does.
 func closesHelp(k tea.KeyPressMsg) bool {
 	switch k.String() {
-	case "esc", "?", "ctrl+/", "ctrl+_":
+	case "esc", "?", "q":
 		return true
 	}
 	return false
@@ -182,8 +277,6 @@ func ClassifyPane(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEnter
 	case "esc":
 		return core.PaneEsc
-	case "ctrl+x":
-		return core.PaneToggle
 	case "t":
 		return core.PaneTrust
 	case "y", "Y":
@@ -214,8 +307,6 @@ func ClassifyBoard(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEnter
 	case "esc":
 		return core.PaneEsc
-	case "ctrl+x":
-		return core.PaneToggle
 	case "b":
 		return core.PaneBoard
 	case "r":
@@ -251,91 +342,11 @@ func ClassifyBoardInput(k tea.KeyPressMsg) (core.PaneAction, string) {
 		return core.PaneEsc, ""
 	case "backspace", "ctrl+h":
 		return core.PaneBackspace, ""
-	case "ctrl+x":
-		return core.PaneToggle, ""
 	}
-	if k.Text != "" && k.Mod&^tea.ModShift == 0 {
+	if printable(k) {
 		return core.PaneChar, k.Text
 	}
 	return core.PaneOther, ""
-}
-
-// HubAction is what a key press does in hub mode, ahead of everything
-// else but the list of keys and a question being asked: moving between
-// roles and conversations. Index is set for HubIndex.
-type HubAction int
-
-const (
-	HubNone  HubAction = iota
-	HubNext            // ctrl+n: the next role
-	HubPrev            // ctrl+p: the previous role
-	HubIndex           // alt+1 to alt+9: that role
-	HubLast            // ctrl+l: the role before this one
-	HubList            // ctrl+g: the list of roles
-	HubEnd             // ctrl+s: end the conversation, after asking
-)
-
-// ClassifyHub decides whether a key press moves between conversations.
-// It is pure. These keys act even while a permission request waits: the
-// request stays until it is answered, and the sidebar says so.
-func ClassifyHub(k tea.KeyPressMsg) (HubAction, int) {
-	switch s := k.String(); s {
-	case "ctrl+n":
-		return HubNext, 0
-	case "ctrl+p":
-		return HubPrev, 0
-	case "ctrl+l":
-		return HubLast, 0
-	case "ctrl+g":
-		return HubList, 0
-	case "ctrl+s":
-		return HubEnd, 0
-	default:
-		if n, ok := strings.CutPrefix(s, "alt+"); ok && len(n) == 1 && n[0] >= '1' && n[0] <= '9' {
-			return HubIndex, int(n[0] - '1')
-		}
-	}
-	return HubNone, 0
-}
-
-// ListAction is what a key press does while the list of roles has the
-// keys.
-type ListAction int
-
-const (
-	ListNone ListAction = iota
-	ListUp
-	ListDown
-	ListOpen
-	ListBack
-	ListPane // ctrl+x: the keys go to the pane (the board)
-	ListHelp
-	ListInterrupt
-	ListEOF
-)
-
-// ClassifyList decides what a key press does in the list of roles. Every
-// other key is swallowed. It is pure.
-func ClassifyList(k tea.KeyPressMsg) ListAction {
-	switch k.String() {
-	case "up", "k", "shift+tab":
-		return ListUp
-	case "down", "j", "tab":
-		return ListDown
-	case "enter":
-		return ListOpen
-	case "esc":
-		return ListBack
-	case "ctrl+x":
-		return ListPane
-	case "?", "ctrl+/", "ctrl+_":
-		return ListHelp
-	case "ctrl+c":
-		return ListInterrupt
-	case "ctrl+d":
-		return ListEOF
-	}
-	return ListNone
 }
 
 // ClassifyEnd decides what a key press answers when the view asks

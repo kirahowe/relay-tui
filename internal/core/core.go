@@ -473,6 +473,24 @@ func (r *reducer) apply(e Event) {
 		}
 	case Tick:
 		// Changes nothing; the shell redraws the status line.
+	case Move:
+		// Against a single agent there are two columns, the conversation
+		// and the pane.
+		r.a.Moving = true
+		if (e.Delta > 0) != r.a.PaneFocus && e.Delta != 0 {
+			r.paneKey(PaneKey{At: e.At, Action: PaneToggle})
+		}
+	case Type:
+		if r.a.PaneFocus {
+			r.paneKey(PaneKey{At: e.At, Action: PaneToggle})
+		}
+		if !r.a.PaneFocus {
+			r.a.Moving = false
+		}
+	case StopTyping:
+		r.a.Moving = true
+	case Unbound:
+		s.Message = Message{Text: UnboundNote, At: e.At}
 	}
 }
 
