@@ -14,7 +14,8 @@ bin/relay-tui -- agentloop acp request.json
 ```
 
 With relay's hub, `--open ROLE` focuses that role at the start (see
-"Several conversations").
+"Several conversations"). `--state-dir DIR` says where to keep the saved
+view (see "Reopening where you left off").
 
 Everything after `--` is the agent's command. It runs in the current
 directory, which is also the session's working directory.
@@ -335,6 +336,41 @@ relay-tui tells relay the latest turn has been seen (`_relay/seen`) once
 the conversation is attached, on screen, scrolled to its end and idle,
 so the unread mark clears on every device.
 
+## Reopening where you left off
+
+Close relay-tui and open it again against the same agent, and it looks
+the way you left it. It keeps the role in focus, the list of roles and
+its cursor, whether the pane had the keys, the board or the workspace
+items, the selected card and whether it was open (with its line and
+column), and your unsent drafts with their pastes. With a single agent
+it keeps the parts that apply there. It does not keep scroll positions.
+
+The saved view goes in a file of relay-tui's own, one per agent command
+(everything after `--`), under `~/.local/state/relay-tui/`, or under
+`--state-dir DIR`. Each device keeps its own, so the laptop and the phone
+can look different. No environment variable chooses the path. The file
+is written atomically, readable only by you, at most every half second
+while the view changes, and again when relay-tui closes, so a crash or a
+kill loses little. It holds your drafts as plain text.
+
+Each part comes back once what it refers to has arrived: the focus, the
+list and the drafts when relay has sent the roster, the card when it has
+sent the board. Anything that has gone since falls back to the default.
+A removed role is not focused and its draft is dropped, with a note. An
+archived card is not selected. A role whose conversation has ended
+shows none, and opening the view opens no conversation. If you press a
+key before those arrive, what you did stands: the layout and the card
+are not put back over it, and only the drafts come back. `--open ROLE` wins over the saved focus.
+
+A restored paste is never more trusted than it was. One you trusted
+with Ctrl-Y comes back trusted, the rest untrusted, and anything about
+a paste that cannot be checked brings it back untrusted, or not at all.
+A damaged file, one for another command, one too large or of an unknown
+version means the defaults, and the status line says so. Nothing
+restored counts as sent or answered: no permission answer, no trust of
+a card or a document, no question waiting for y, and no queued message
+is saved.
+
 ## Pasting marks the conversation untrusted
 
 A pasted email or web page is text an outsider may have written, and
@@ -397,6 +433,14 @@ time and in order.
 `internal/agent` runs the agent process, and `internal/ui` is the Bubble
 Tea program. Both are thin code around the core that carries out its
 effects.
+
+The saved view follows the same split. `core.SaveHub` and
+`core.SaveSingle` derive it from state, and `core.RestoreHub` and
+`core.RestoreSingle` hand a loaded one to the reducers, which put it back
+part by part as the roster, the session and the board arrive.
+`internal/viewfile` encodes it, with a digest of the view and a seal on
+each trusted paste over its number and text, and does the file's IO in
+the background.
 
 Hub mode adds one level above the conversation. `core.Hub` holds the
 app, relay's roster as it last sent it, one `State` per conversation (marked `Shared`, so it
