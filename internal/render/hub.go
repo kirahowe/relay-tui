@@ -357,7 +357,7 @@ func HubInputWidth(h core.Hub, width int) int {
 	w := width
 	if HubWide(width) {
 		cw, _ := hubColumns(h, width)
-		return promptWidth(framed(cw))
+		return framed(cw) // the prompt mark is the text area's own
 	} else if h.List || h.Focus == "" {
 		return InputWidth(width)
 	}
@@ -548,7 +548,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	default:
 		if inPanel {
 			bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
-			inputAt, x = len(bottom), 2
+			inputAt = len(bottom)
 			bottom = append(bottom, prompt(strings.Split(input, "\n"))...)
 		} else {
 			inputAt = len(bottom)
@@ -651,12 +651,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 }
 
-// promptWidth is the input's width at a prompt width wide: the prompt
-// mark takes two columns.
-func promptWidth(width int) int { return max(width-2, 1) }
-
-// prompt is the input as drawn in a panel: a › in the accent colour, then
-// the text area's rows.
+// prompt is the input as drawn in a panel: the text area's rows, with
+// its own prompt mark (two columns) in the accent colour, rather than a
+// second mark beside it.
 func prompt(rows []string) []string {
 	out := make([]string, len(rows))
 	for i, r := range rows {
@@ -664,7 +661,7 @@ func prompt(rows []string) []string {
 		if i == 0 {
 			lead = styled(accent, "›") + " "
 		}
-		out[i] = lead + r
+		out[i] = lead + ansi.TruncateLeft(r, 2, "")
 	}
 	return out
 }

@@ -289,8 +289,9 @@ func TestHubInputWidthIsTheBoxDrawn(t *testing.T) {
 	h := hubFixture()
 	for _, w := range []int{30, 60, 71, 72, 99, 150, 158, 159, 200} {
 		iw := HubInputWidth(h, w)
-		line := strings.Repeat("x", iw)
-		got := ansi.Strip(HubView(h, line, "", t0, w, 20).Content)
+		// The text area draws its own prompt mark, two columns, first.
+		line := strings.Repeat("x", iw-2)
+		got := ansi.Strip(HubView(h, "› "+line, "", t0, w, 20).Content)
 		if !strings.Contains(got, line) {
 			t.Errorf("%d wide: a %d wide input line is cut:\n%s", w, iw, got)
 		}
@@ -485,18 +486,19 @@ func TestHubTruncatedReplayIsSaidAtTheTop(t *testing.T) {
 }
 
 // The cursor goes where the input's first character is drawn, in a panel
-// or not, with the pane beside the conversation or not.
+// or not, with the pane beside the conversation or not. The input starts
+// with the text area's own prompt mark, two columns, which is drawn once.
 func TestHubCursorIsOnTheInput(t *testing.T) {
 	h := hubFixture()
 	for _, w := range []int{30, 71, 72, 99, 150, 160, 200} {
 		for _, rows := range []int{12, 24} {
-			f := HubView(h, "Q", "", t0, w, rows)
+			f := HubView(h, "› Q", "", t0, w, rows)
 			if !f.Cursor {
 				t.Fatalf("%dx%d: no cursor", w, rows)
 			}
 			lines := strings.Split(ansi.Strip(f.Content), "\n")
 			row := []rune(lines[f.InputY])
-			if f.InputX >= len(row) || row[f.InputX] != 'Q' {
+			if f.InputX+2 >= len(row) || row[f.InputX+2] != 'Q' || row[f.InputX] != '›' || strings.Contains(lines[f.InputY], "› ›") {
 				t.Errorf("%dx%d: cursor at %d,%d is not on the input: %q", w, rows, f.InputX, f.InputY, lines[f.InputY])
 			}
 		}
