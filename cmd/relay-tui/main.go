@@ -1,8 +1,10 @@
 // Command relay-tui is a terminal chat client for an ACP agent:
 //
-//	relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]
+//	relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] [--state-dir DIR] -- COMMAND [ARGS...]
 //
-// It starts COMMAND as the agent, in the current directory. Exit status:
+// It starts COMMAND as the agent, in the current directory, and keeps
+// where the operator was (the saved view) in a file under DIR, by
+// default ~/.local/state/relay-tui, one per COMMAND. Exit status:
 // 0 after a normal quit, 1 when the agent fails to start or exits on its
 // own, 2 for a usage error.
 package main
@@ -12,24 +14,32 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/kirahowe/relay-tui/internal/agent"
 	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/ui"
+	"github.com/kirahowe/relay-tui/internal/viewfile"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }
+
+// saveEvery is how often, at most, the saved view is written while it
+// changes.
+const saveEvery = 500 * time.Millisecond
 
 func run(args []string) int {
 	fs := flag.NewFlagSet("relay-tui", flag.ContinueOnError)
 	logPath := fs.String("agent-log", "", "also write the agent's stderr to `FILE`")
 	title := fs.String("title", "", "name the session `TITLE` in the banner (default: the agent's title or name)")
 	open := fs.String("open", "", "with relay's hub, focus the role `ROLE` at the start (open or attach to its conversation)")
+	stateDir := fs.String("state-dir", "", "keep the saved view in `DIR` (default ~/.local/state/relay-tui)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]")
+		fmt.Fprintln(fs.Output(), "usage: relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] [--state-dir DIR] -- COMMAND [ARGS...]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -60,6 +70,21 @@ func run(args []string) int {
 		stderr = io.MultiWriter(tail, f)
 	}
 
+	// The default comes from the user database, not from $HOME: no
+	// environment variable chooses the path.
+	if *stateDir == "" {
+		u, err := user.Current()
+		if err != nil || u.HomeDir == "" {
+			fmt.Fprintln(os.Stderr, "relay-tui: no home directory for the saved view; pass --state-dir")
+			return 2
+		}
+		*stateDir = viewfile.DefaultDir(u.HomeDir)
+	}
+	view, note := viewfile.Load(*stateDir, command)
+	if note != "" {
+		fmt.Fprintln(stderr, "relay-tui:", note)
+	}
+
 	var p *tea.Program
 	started := make(chan struct{})
 	conn, err := agent.Start(command, dir, stderr, func(e core.Event) {
@@ -70,9 +95,17 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "relay-tui: starting the agent:", err)
 		return 1
 	}
-	p = tea.NewProgram(ui.New(conn, *title).Open(*open))
+	saver := viewfile.NewSaver(viewfile.Path(*stateDir, command), command, saveEvery, func(n string) {
+		fmt.Fprintln(stderr, "relay-tui:", n)
+	})
+	p = tea.NewProgram(ui.New(conn, *title).Open(*open).Restore(view, note).OnView(saver.Save))
 	close(started)
 	final, err := p.Run()
+	if m, ok := final.(ui.Model); ok {
+		saver.Close(m.SavedView())
+	} else {
+		saver.Close(view)
+	}
 	if err != nil {
 		conn.Shutdown()
 		fmt.Fprintln(os.Stderr, "relay-tui:", err)

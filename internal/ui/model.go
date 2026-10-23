@@ -5,6 +5,7 @@ package ui
 
 import (
 	"image/color"
+	"reflect"
 	"strings"
 	"time"
 
@@ -100,6 +101,12 @@ type Model struct {
 	hub     core.Hub
 	open    string
 	drafts  map[string]string
+	// inputRole is the role whose draft the input box holds.
+	inputRole string
+	// onView is told the saved view whenever it changes; seen is the
+	// last one it was told.
+	onView func(core.View)
+	seen   core.View
 }
 
 // New returns the model for a conversation with conn. title names the
@@ -130,6 +137,51 @@ func New(conn Conn, title string) Model {
 func (m Model) Open(role string) Model {
 	m.open = role
 	return m
+}
+
+// Restore gives the model the view saved when it last closed against
+// this agent, and a note to show about it ("" for none). The core puts
+// it back as what it refers to arrives.
+func (m Model) Restore(v core.View, note string) Model {
+	m.one = core.RestoreSingle(m.one, v)
+	if note != "" {
+		m.one.State.Message = core.Message{Text: note, At: time.Now()}
+	}
+	return m
+}
+
+// OnView makes the model tell f the saved view whenever it changes. f
+// must not block.
+func (m Model) OnView(f func(core.View)) Model {
+	m.onView = f
+	m.seen = m.SavedView()
+	return m
+}
+
+// SavedView is the view to save: where the operator is now.
+func (m Model) SavedView() core.View {
+	if m.hubMode {
+		drafts := make(map[string]string, len(m.drafts)+1)
+		for role, text := range m.drafts {
+			drafts[role] = text
+		}
+		if m.inputRole != "" {
+			drafts[m.inputRole] = m.input.Value()
+		}
+		return core.SaveHub(m.hub, drafts)
+	}
+	return core.SaveSingle(m.one, m.input.Value())
+}
+
+// tellView tells onView the saved view if it has changed.
+func (m *Model) tellView() {
+	if m.onView == nil {
+		return
+	}
+	if v := m.SavedView(); !reflect.DeepEqual(v, m.seen) {
+		m.seen = v
+		m.onView(v)
+	}
 }
 
 // Keeps reports, in hub mode, whether relay said it keeps the
@@ -171,11 +223,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if em, ok := msg.(EventMsg); ok {
 		if _, ok := em.Event.(core.HubConnected); ok && !m.hubMode {
 			m.hubMode, m.hub = true, core.NewHub(m.open)
+			m.hub = core.HubFromSingle(m.hub, m.one.Restore)
+			if msg := m.one.State.Message; msg.Text != "" && time.Since(msg.At) < core.MessageFor {
+				m.hub.Notice = msg.Text
+			}
 			m.input.SetWidth(render.HubInputWidth(m.hub, m.width()))
 		}
 	}
 	if m.hubMode {
-		return m.updateHub(msg)
+		next, cmd := m.updateHub(msg)
+		nm := next.(Model)
+		nm.tellView()
+		return nm, cmd
 	}
 	now := time.Now()
 	var ev core.Event
@@ -229,6 +288,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	cmds = append(cmds, m.screen(), m.print(now), m.tick(now), m.stop())
+	m.tellView()
 	return m, tea.Batch(cmds...)
 }
 
@@ -423,17 +483,23 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 	case core.InsertInput:
 		m.input.InsertString(f.Text)
 	case core.RestoreInput:
-		text := f.Text
-		if v := m.input.Value(); v != "" {
-			text += "\n" + v
-		}
-		m.input.SetValue(text)
+		m.input.SetValue(ahead(f.Text, m.input.Value()))
+	case core.RestoreDraft:
+		m.input.SetValue(ahead(f.Text, m.input.Value()))
 	case core.ReplaceInput:
 		m.input.SetValue(strings.Replace(m.input.Value(), f.Old, f.New, 1))
 	case core.Quit:
 		m.quitting = true // stop ends the program
 	}
 	return nil
+}
+
+// ahead is text put back ahead of what has been typed since.
+func ahead(text, typed string) string {
+	if typed != "" {
+		text += "\n" + typed
+	}
+	return text
 }
 
 // sessionEffect carries out an effect that is about one conversation, and

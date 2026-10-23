@@ -42,7 +42,6 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ticking = false
 		evs = []core.Event{core.Tick{At: time.Time(msg)}}
 	}
-	before := m.hub.Focus
 	for _, e := range evs {
 		var fx []core.Effect
 		m.hub, fx = core.ReduceHub(m.hub, e)
@@ -50,7 +49,7 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.hubEffect(f)
 		}
 	}
-	m.swapDraft(before)
+	m.swapDraft()
 	// The text area is the inside of the box drawn, whatever the layout is
 	// now: the pane beside it, the sidebar, a narrow screen.
 	m.input.SetWidth(render.HubInputWidth(m.hub, m.width()))
@@ -65,21 +64,22 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// swapDraft keeps what was typed for the role that was in focus, and
-// brings back what was typed for the one that is now.
-func (m *Model) swapDraft(before string) {
+// swapDraft keeps what was typed for the role whose draft the input
+// held, and brings back what was typed for the one in focus now.
+func (m *Model) swapDraft() {
 	after := m.hub.Focus
-	if before == after {
+	if m.inputRole == after {
 		return
 	}
 	if m.drafts == nil {
 		m.drafts = map[string]string{}
 	}
-	if before != "" {
-		m.drafts[before] = m.input.Value()
+	if m.inputRole != "" {
+		m.drafts[m.inputRole] = m.input.Value()
 	}
 	m.input.SetValue(m.drafts[after])
 	delete(m.drafts, after)
+	m.inputRole = after
 }
 
 // hubEffect carries out one effect of ReduceHub.
@@ -93,6 +93,16 @@ func (m *Model) hubEffect(f core.Effect) {
 		m.conn.End(f.Session)
 	case core.SendSeen:
 		m.conn.Seen(f.Session, f.Turn)
+	case core.RestoreDraft:
+		// The input holds inputRole's draft until swapDraft runs.
+		if f.Role == m.inputRole {
+			m.input.SetValue(ahead(f.Text, m.input.Value()))
+			return
+		}
+		if m.drafts == nil {
+			m.drafts = map[string]string{}
+		}
+		m.drafts[f.Role] = ahead(f.Text, m.drafts[f.Role])
 	default:
 		m.effect(f, time.Now())
 	}

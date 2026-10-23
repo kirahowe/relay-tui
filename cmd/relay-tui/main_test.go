@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,8 @@ import (
 
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
+
+	"github.com/kirahowe/relay-tui/internal/viewfile"
 )
 
 var relaytui, fakeAgent string
@@ -53,6 +56,10 @@ type session struct {
 
 func runPTY(t *testing.T, args ...string) *session {
 	t.Helper()
+	if !slices.Contains(args, "--state-dir") {
+		// Never the operator's own state directory.
+		args = append([]string{"--state-dir", t.TempDir()}, args...)
+	}
 	s := &session{t: t, cmd: exec.Command(relaytui, args...), emu: vt.NewEmulator(80, 24), done: make(chan error, 1)}
 	s.cmd.Dir = t.TempDir()
 	f, err := pty.StartWithSize(s.cmd, &pty.Winsize{Rows: 24, Cols: 80})
@@ -185,5 +192,44 @@ func TestUsage(t *testing.T) {
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
 		t.Fatalf("no command: %v, want exit 2", err)
+	}
+}
+
+// The saved view outlives a kill: the draft is written soon after it is
+// typed, to the --state-dir given, in a private file, and the next run
+// against the same agent puts it back.
+func TestPTYDraftSurvivesAKill(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	agent := []string{fakeAgent, script("simple.jsonl")}
+	s := runPTY(t, append([]string{"--state-dir", dir, "--"}, agent...)...)
+	s.waitScreen("ready")
+	s.keys("keep these words")
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if v, _ := viewfile.Load(dir, agent); len(v.Drafts) == 1 && v.Drafts[0].Text == "keep these words" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the draft was never saved")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if fi, err := os.Stat(viewfile.Path(dir, agent)); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("file: %v %v", fi, err)
+	}
+	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("dir: %v %v", fi, err)
+	}
+	_ = s.cmd.Process.Kill() // our own child, by PID
+	<-s.done
+	s.done <- nil
+
+	s = runPTY(t, append([]string{"--state-dir", dir, "--"}, agent...)...)
+	s.waitScreen("keep these words")
+	// Another agent command has a view of its own.
+	other := runPTY(t, "--state-dir", dir, "--", fakeAgent, "-log", filepath.Join(t.TempDir(), "log"), script("simple.jsonl"))
+	other.waitScreen("ready")
+	if strings.Contains(other.screen(), "keep these words") {
+		t.Fatal("another command got the draft")
 	}
 }
