@@ -350,11 +350,13 @@ func mangle(t *rapid.T, d Draft) Draft {
 		case 0:
 			p.Trusted = false
 		case 1:
-			p.ID = d.Pastes[rapid.IntRange(0, len(d.Pastes)-1).Draw(t, "dup")].ID
+			// A paste's trust is sealed to its number and text, so damage
+			// to either loses the trust (package viewfile tests the seal).
+			p.ID, p.Trusted = d.Pastes[rapid.IntRange(0, len(d.Pastes)-1).Draw(t, "dup")].ID, false
 		case 2:
-			p.ID = rapid.IntRange(-1, 0).Draw(t, "id")
+			p.ID, p.Trusted = rapid.IntRange(-1, 0).Draw(t, "id"), false
 		case 3:
-			p.Text += "\nmore"
+			p.Text, p.Trusted = p.Text+"\nmore", false
 		case 4:
 			q := *p
 			q.Trusted = !q.Trusted
