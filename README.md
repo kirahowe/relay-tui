@@ -420,8 +420,10 @@ key before those arrive, what you did stands: the layout and the card
 are not put back over it, and only the drafts come back. A saved draft
 goes ahead of anything you typed for that role meanwhile, and its
 pastes take the numbers after any you made, so neither is lost, even if
-you close relay-tui before it came back. `--open ROLE` wins over the
-saved focus.
+you close relay-tui before it came back. What you type and paste before
+relay-tui knows the agent is relay's hub becomes the draft of the first
+role in focus, pastes as trusted as you left them. `--open ROLE` wins
+over the saved focus.
 
 A restored paste is never more trusted than it was. One you trusted
 with Ctrl-Y comes back trusted, the rest untrusted, and anything about

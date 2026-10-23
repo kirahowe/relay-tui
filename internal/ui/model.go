@@ -223,7 +223,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if em, ok := msg.(EventMsg); ok {
 		if _, ok := em.Event.(core.HubConnected); ok && !m.hubMode {
 			m.hubMode, m.hub = true, core.NewHub(m.open)
-			m.hub = core.HubFromSingle(m.hub, m.one.Restore)
+			// What was typed and pasted so far is the hub's now, for the
+			// first role in focus.
+			m.hub = core.HubFromSingle(m.hub, m.one, m.input.Value())
+			m.input.Reset()
 			if msg := m.one.State.Message; msg.Text != "" && time.Since(msg.At) < core.MessageFor {
 				m.hub.Notice = msg.Text
 			}
@@ -489,13 +492,25 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 	case core.RestoreInput:
 		m.input.SetValue(ahead(f.Text, m.input.Value()))
 	case core.RestoreDraft:
-		m.input.SetValue(ahead(f.Text, m.input.Value()))
+		m.input.SetValue(placed(f, m.input.Value()))
 	case core.ReplaceInput:
 		m.input.SetValue(strings.Replace(m.input.Value(), f.Old, f.New, 1))
 	case core.Quit:
 		m.quitting = true // stop ends the program
 	}
 	return nil
+}
+
+// placed is a restored draft put in an input that holds typed: ahead of
+// it, or after it.
+func placed(f core.RestoreDraft, typed string) string {
+	if f.After && typed != "" {
+		return ahead(typed, f.Text)
+	}
+	if f.After {
+		return f.Text
+	}
+	return ahead(f.Text, typed)
 }
 
 // ahead is text put back ahead of what has been typed since.

@@ -75,8 +75,12 @@ type Restore struct {
 }
 
 // RestoreDraft asks the shell to put a saved draft's text in Role's
-// input, ahead of anything typed there since the start.
-type RestoreDraft struct{ Role, Text string }
+// input, ahead of anything typed there since the start, or, with After,
+// after what is there.
+type RestoreDraft struct {
+	Role, Text string
+	After      bool
+}
 
 func (RestoreDraft) effect() {}
 
@@ -113,6 +117,15 @@ func (rs *Restore) done() bool { return !rs.Layout && !rs.Board && !rs.Drafts }
 // named by --open wins over the saved focus, list and pane.
 func RestoreHub(h Hub, v View) Hub {
 	h.App = restoreItems(h.App, v)
+	// A draft with no role was typed before any role was in focus; it
+	// goes to the first one that is (see placeLoose).
+	for _, d := range v.Drafts {
+		if d.Role == "" {
+			if text, pastes, next := restoredDraft(d); strings.TrimSpace(text) != "" || len(pastes) > 0 {
+				h.Loose = &Draft{Text: text, Pastes: pastes, NextPaste: next}
+			}
+		}
+	}
 	h.Restore = &Restore{View: v, Layout: v.Hub != nil && h.Open == "", Board: v.Card != 0, Drafts: len(v.Drafts) > 0}
 	if h.Restore.done() {
 		h.Restore = nil
@@ -120,10 +133,28 @@ func RestoreHub(h Hub, v View) Hub {
 	return h
 }
 
-// HubFromSingle is the hub's restore when the agent turns out to be
-// relay's hub after the state against a single agent was given rs: as
-// RestoreHub, less the layout and the card if a key was pressed since.
-func HubFromSingle(h Hub, rs *Restore) Hub {
+// HubFromSingle is the hub's state when the agent turns out to be
+// relay's hub, after the client started as if against a single agent:
+// x is that state, and draft the text typed into its input meanwhile.
+// The restore x was given carries over, less the layout and the card if
+// a key was pressed since. What was typed and pasted carries over too,
+// pastes trusted or not exactly as they were, as a draft for the first
+// role in focus (Hub.Loose), after any saved one with no role.
+func HubFromSingle(h Hub, x Single, draft string) Hub {
+	h.App.PasteSeq = max(h.App.PasteSeq, x.App.PasteSeq)
+	h = hubRestore(h, x.Restore)
+	if pastes := referenced(x.State.Pastes, draft); strings.TrimSpace(draft) != "" || len(pastes) > 0 {
+		d := Draft{Text: draft, Pastes: pastes, NextPaste: x.State.NextPaste}
+		if l := h.Loose; l != nil {
+			text, ps, next := afterPastes(d.Text, d.Pastes, d.NextPaste, l.Pastes, l.NextPaste)
+			d = Draft{Text: aheadOf(l.Text, text), Pastes: append(slices.Clone(l.Pastes), ps...), NextPaste: max(next, l.NextPaste)}
+		}
+		h.Loose = &d
+	}
+	return h
+}
+
+func hubRestore(h Hub, rs *Restore) Hub {
 	if rs == nil {
 		return h
 	}
@@ -389,6 +420,9 @@ func carry(v View, rs *Restore) View {
 	}
 	if rs.Drafts {
 		for _, d := range rs.View.Drafts {
+			if d.Role == "" && v.Hub != nil {
+				continue // the hub holds it as Loose, which SaveHub saves
+			}
 			i := slices.IndexFunc(v.Drafts, func(x Draft) bool { return x.Role == d.Role })
 			if i < 0 {
 				v.Drafts = append(v.Drafts, d)
@@ -471,7 +505,31 @@ func SaveHub(h Hub, drafts map[string]string) View {
 		}
 		v.Drafts = append(v.Drafts, d)
 	}
+	if l := h.Loose; l != nil {
+		v.Drafts = append(v.Drafts, Draft{Text: l.Text, Pastes: l.Pastes, NextPaste: l.NextPaste})
+	}
 	return carry(v, h.Restore)
+}
+
+// placeLoose gives a draft typed before any role was in focus to the
+// first role that is: its pastes, numbered after the role's own, and its
+// text after what the role's input holds.
+func (r *hubReducer) placeLoose() {
+	h := &r.h
+	l := h.Loose
+	if l == nil || h.Focus == "" {
+		return
+	}
+	var s *State
+	if i := r.convIndex(h.Focus); i >= 0 {
+		s = &h.Convs[i].State
+	} else {
+		s = &r.blank(h.Focus).State
+	}
+	text, pastes, next := afterPastes(l.Text, l.Pastes, l.NextPaste, s.Pastes, s.NextPaste)
+	s.Pastes, s.NextPaste = append(slices.Clone(s.Pastes), pastes...), max(next, s.NextPaste)
+	h.Loose = nil
+	r.emit(RestoreDraft{Role: h.Focus, Text: text, After: true})
 }
 
 // SaveSingle is the saved view against a single agent. draft is the

@@ -125,6 +125,10 @@ type Hub struct {
 	Blanks   []Blank
 	// Restore is a saved view still on its way back (see view.go).
 	Restore *Restore
+	// Loose is a draft typed before any role was in focus: in the input
+	// before the client knew the agent was the hub, or saved so. It goes
+	// to the first role in focus.
+	Loose *Draft
 	// Exit is why the connection went away, once Gone.
 	Exit string
 	Gone bool
@@ -342,6 +346,7 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	before, view := h.onScreen(), h.view()
 	r.apply(e)
 	r.restoreHub(e.at())
+	r.placeLoose()
 	r.settleColumn()
 	r.adoptBlanks()
 	r.settle(before, e.at())

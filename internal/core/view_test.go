@@ -444,12 +444,12 @@ func TestHubFromSingleAfterAKey(t *testing.T) {
 	left, drafts := leftHub(t)
 	v := SaveHub(left, drafts)
 	x, _ := feedS(RestoreSingle(Single{}, v), ToggleHelp{At: t0})
-	h, fx := apply(t, HubFromSingle(NewHub(""), x.Restore), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
+	h, fx := apply(t, HubFromSingle(NewHub(""), x, ""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if h.Focus != "" || h.App.Board.Detail || len(effectsOf[RestoreDraft](fx)) != 2 {
 		t.Fatalf("focus %q board %+v %v", h.Focus, h.App.Board, fx)
 	}
-	h, _ = apply(t, HubFromSingle(NewHub(""), RestoreSingle(Single{}, v).Restore), HubConnected{At: t0},
+	h, _ = apply(t, HubFromSingle(NewHub(""), RestoreSingle(Single{}, v), ""), HubConnected{At: t0},
 		RosterUpdate{At: t0, Roles: viewRoster()})
 	if h.Focus != "mail" {
 		t.Fatalf("no key: focus %q", h.Focus)
@@ -506,7 +506,7 @@ func TestHubLayoutAloneSurvivesTheStart(t *testing.T) {
 	if x.Restore == nil || !x.Restore.Layout {
 		t.Fatalf("restore %+v", x.Restore)
 	}
-	h, _ := apply(t, HubFromSingle(NewHub(""), x.Restore), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
+	h, _ := apply(t, HubFromSingle(NewHub(""), x, ""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
 	if h.Focus != "mail" || h.List {
 		t.Fatalf("focus %q list %v", h.Focus, h.List)
 	}
