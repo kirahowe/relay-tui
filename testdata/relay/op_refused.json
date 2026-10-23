@@ -4,8 +4,7 @@
     "params" : {
       "card" : 3,
       "op" : "tick",
-      "item" : 9,
-      "sessionId" : "fixture-session"
+      "item" : 9
     }
   },
   "response" : {

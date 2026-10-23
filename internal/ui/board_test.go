@@ -26,7 +26,7 @@ func TestBoardSnapshot(t *testing.T) {
 			t.Errorf("%q not on the board:\n%s", want, scr)
 		}
 	}
-	if calls := h.extensionCalls("_relay/cards"); len(calls) != 1 || !strings.Contains(calls[0], `"sessionId":"fake-session"`) {
+	if calls := h.extensionCalls("_relay/cards"); len(calls) != 1 || calls[0] != `{}` {
 		t.Errorf("cards calls %q", calls)
 	}
 	// Switching away and back does not ask again.
@@ -61,7 +61,7 @@ func TestBoardOpRoundTripAndRefusal(t *testing.T) {
 	h.keys("x")
 	h.waitScreen("the answer", func(s string) bool { return strings.Contains(s, "✓ Import into the app") })
 	calls := h.extensionCalls("_relay/cards/op")
-	if len(calls) != 1 || calls[0] != `{"card":1851,"item":3,"op":"tick","sessionId":"fake-session"}` {
+	if len(calls) != 1 || calls[0] != `{"card":1851,"item":3,"op":"tick"}` {
 		t.Fatalf("op calls %q", calls)
 	}
 	// Unticking is refused; relay's words show and the item stays done.
@@ -85,7 +85,7 @@ func TestBoardEditAndNotifications(t *testing.T) {
 	h.keys(" (Q3)\r")
 	h.waitScreen("the new title", func(s string) bool { return strings.Contains(s, "Catch up monthly financials (Q3)") })
 	calls := h.extensionCalls("_relay/cards/op")
-	if len(calls) != 1 || calls[0] != `{"card":1840,"op":"retitle","seen":1842,"sessionId":"fake-session","text":"Catch up monthly financials (Q3)"}` {
+	if len(calls) != 1 || calls[0] != `{"card":1840,"op":"retitle","seen":1842,"text":"Catch up monthly financials (Q3)"}` {
 		t.Fatalf("op calls %q", calls)
 	}
 	// A card another process archives leaves the board.
@@ -153,7 +153,7 @@ func TestTrustingACardFromTheBoard(t *testing.T) {
 	h.keys("y")
 	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
 	calls := h.extensionCalls("_relay/cards/trust")
-	if len(calls) != 1 || calls[0] != `{"card":9,"rev":9,"sessionId":"fake-session","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
+	if len(calls) != 1 || calls[0] != `{"card":9,"rev":9,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
 		t.Fatalf("trust calls %q", calls)
 	}
 }

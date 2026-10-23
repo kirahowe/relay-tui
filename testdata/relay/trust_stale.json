@@ -4,8 +4,7 @@
     "params" : {
       "card" : 9,
       "rev" : 1,
-      "sha256" : "56a06d2311a594bc40ba39319e952433dff9a85e63af2d27a02d9b975c01afa3",
-      "sessionId" : "fixture-session"
+      "sha256" : "56a06d2311a594bc40ba39319e952433dff9a85e63af2d27a02d9b975c01afa3"
     }
   },
   "response" : {

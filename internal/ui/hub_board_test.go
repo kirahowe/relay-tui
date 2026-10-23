@@ -49,7 +49,7 @@ func TestHubBoardShowsBeforeAnyConversation(t *testing.T) {
 		}
 	}
 	calls := h.logged("cards ")
-	if len(calls) != 1 {
+	if len(calls) != 1 || calls[0] != "cards {}" {
 		t.Errorf("cards calls %q", calls)
 	}
 	if opened := append(h.logged("new "), h.logged("load ")...); len(opened) != 0 {
@@ -73,7 +73,7 @@ func TestHubBoardWorksWithNoConversationOpen(t *testing.T) {
 	h.waitScreen("item 2", func(string) bool { return h.emu.selected("Book the kennel") })
 	h.keys("x")
 	h.waitScreen("the tick", contains("✓ Book the kennel"))
-	if calls := h.logged("card-op "); len(calls) != 1 || calls[0] != `card-op {"card":14,"item":2,"op":"tick","sessionId":""}` {
+	if calls := h.logged("card-op "); len(calls) != 1 || calls[0] != `card-op {"card":14,"item":2,"op":"tick"}` {
 		t.Errorf("op calls %q", calls)
 	}
 	// A card archived elsewhere leaves the board, with nothing open.
@@ -116,7 +116,7 @@ func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
 	h.keys("y")
 	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
 	calls := h.logged("card-trust ")
-	if len(calls) != 1 || calls[0] != `card-trust {"card":9,"rev":9,"sessionId":"","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
+	if len(calls) != 1 || calls[0] != `card-trust {"card":9,"rev":9,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
 		t.Errorf("trust calls %q", calls)
 	}
 }

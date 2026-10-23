@@ -129,7 +129,7 @@ func TestRelayCardFixtures(t *testing.T) {
 	if cards.Request.Method != MethodCards {
 		t.Fatalf("cards fixture asks %q", cards.Request.Method)
 	}
-	if want, _ := json.Marshal(CardsParams("fixture-session")); !sameJSON(t, want, cards.Request.Params) {
+	if want, _ := json.Marshal(CardsParams()); !sameJSON(t, want, cards.Request.Params) {
 		t.Errorf("_relay/cards params %s, relay was sent %s", want, cards.Request.Params)
 	}
 	raw, err := cards.answer()
@@ -203,7 +203,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		}{{"trust_stale", 1}, {"trust", n.Rev}} {
 			var x exchange
 			readRelayFixture(t, c.name, &x)
-			want, _ := json.Marshal(CardTrustParams("fixture-session", note, c.rev, n.SHA256))
+			want, _ := json.Marshal(CardTrustParams(note, c.rev, n.SHA256))
 			if x.Request.Method != MethodCardTrust || !sameJSON(t, want, x.Request.Params) {
 				t.Errorf("%s: client would send %s %s, relay was sent %s %s", c.name, MethodCardTrust, want, x.Request.Method, x.Request.Params)
 			}
@@ -232,7 +232,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		t.Helper()
 		var x exchange
 		readRelayFixture(t, name, &x)
-		want, _ := json.Marshal(CardOpParams("fixture-session", checklist, core.CardOp{Op: "tick", Item: &item}))
+		want, _ := json.Marshal(CardOpParams(checklist, core.CardOp{Op: "tick", Item: &item}))
 		if x.Request.Method != MethodCardOp || !sameJSON(t, want, x.Request.Params) {
 			t.Errorf("%s: client would send %s %s, relay was sent %s %s", name, MethodCardOp, want, x.Request.Method, x.Request.Params)
 		}

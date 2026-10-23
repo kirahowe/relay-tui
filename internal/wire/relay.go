@@ -276,14 +276,14 @@ const (
 )
 
 // CardsParams is the parameters of _relay/cards: the active cards only.
-func CardsParams(session acp.SessionId) map[string]any {
-	return map[string]any{"sessionId": session}
-}
+// The board's methods are the connection's, so none names a session;
+// relay refuses a sessionId on them.
+func CardsParams() map[string]any { return map[string]any{} }
 
 // CardOpParams is the parameters of _relay/cards/op: the card and the
 // op's fields, leaving out the ones not set.
-func CardOpParams(session acp.SessionId, card int64, op core.CardOp) map[string]any {
-	m := map[string]any{"sessionId": session, "card": card, "op": op.Op}
+func CardOpParams(card int64, op core.CardOp) map[string]any {
+	m := map[string]any{"card": card, "op": op.Op}
 	if op.Item != nil {
 		m["item"] = *op.Item
 	}
@@ -443,8 +443,8 @@ var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // CardTrustParams is the parameters of _relay/cards/trust: the card, and
 // the rev and digest relay sent with the card the operator was shown.
-func CardTrustParams(session acp.SessionId, card, rev int64, sha string) map[string]any {
-	return map[string]any{"sessionId": session, "card": card, "rev": rev, "sha256": sha}
+func CardTrustParams(card, rev int64, sha string) map[string]any {
+	return map[string]any{"card": card, "rev": rev, "sha256": sha}
 }
 
 // CardTrustOutcome translates the answer to _relay/cards/trust on card

@@ -8,7 +8,9 @@ package fakehub
 // without answers the board's methods method-not-found. An op takes tick
 // and untick of a checklist item only. A trust takes the card's rev and
 // sha256, as relay does, and clears its outside text. Each call is logged
-// as "cards <params>", "card-op <params>" or "card-trust <params>". The
+// as "cards <params>", "card-op <params>" or "card-trust <params>". As
+// relay does, each refuses a parameter it does not take: the board is the
+// connection's, so a sessionId is refused. The
 // control file's "archive-card <id>" archives a card and notifies it.
 
 import (
@@ -109,13 +111,13 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 	}
 	switch method {
 	case "_relay/cards":
-		if err := strict(method, params, "archived", "sessionId"); err != nil {
+		if err := strict(method, params, "archived"); err != nil {
 			return nil, err
 		}
 		b.subscribed = true
 		return copyOf(map[string]any{"rev": b.rev, "cards": b.active()}), nil
 	case "_relay/cards/op":
-		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "seen", "sessionId"); err != nil {
+		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "seen"); err != nil {
 			return nil, err
 		}
 		c := b.card(num(params["card"]))
@@ -136,7 +138,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 		}
 		return nil, refused(fmt.Sprintf("Item %v is not on card %v.", params["item"], params["card"]))
 	default: // _relay/cards/trust
-		if err := strict(method, params, "card", "rev", "sha256", "sessionId"); err != nil {
+		if err := strict(method, params, "card", "rev", "sha256"); err != nil {
 			return nil, err
 		}
 		c := b.card(num(params["card"]))

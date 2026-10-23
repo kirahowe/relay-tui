@@ -4,8 +4,7 @@
     "params" : {
       "card" : 3,
       "op" : "tick",
-      "item" : 2,
-      "sessionId" : "fixture-session"
+      "item" : 2
     }
   },
   "response" : {
@@ -21,7 +20,7 @@
         "rev" : 12,
         "complete" : false,
         "id" : 3,
-        "addedAt" : "2026-10-23T15:52:44.432012Z",
+        "addedAt" : "2026-10-24T00:28:02.365415Z",
         "labels" : [ "private" ],
         "items" : [ {
           "text" : "Make a folder for the statements",

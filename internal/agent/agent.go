@@ -307,7 +307,7 @@ func (a *Agent) Trust(session, path, version, sha string) {
 // block.
 func (a *Agent) Cards() {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCards, wire.CardsParams(a.session))
+		raw, err := a.call(wire.MethodCards, wire.CardsParams())
 		a.emit(wire.Cards(raw, err, time.Now()))
 	})
 }
@@ -316,7 +316,7 @@ func (a *Agent) Cards() {
 // block.
 func (a *Agent) CardOp(card int64, op core.CardOp) {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCardOp, wire.CardOpParams(a.session, card, op))
+		raw, err := a.call(wire.MethodCardOp, wire.CardOpParams(card, op))
 		a.emit(wire.CardOpOutcome(card, raw, err, time.Now()))
 	})
 }
@@ -325,7 +325,7 @@ func (a *Agent) CardOp(card int64, op core.CardOp) {
 // was shown, and emits CardTrustDone. It does not block.
 func (a *Agent) CardTrust(card, rev int64, sha string) {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(a.session, card, rev, sha))
+		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(card, rev, sha))
 		a.emit(wire.CardTrustOutcome(card, raw, err, time.Now()))
 	})
 }
