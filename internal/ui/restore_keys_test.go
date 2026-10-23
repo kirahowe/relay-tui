@@ -63,3 +63,14 @@ func TestSavedDraftSurvivesTypingBeforeTheRestore(t *testing.T) {
 		t.Fatalf("hub: saved %+v", d)
 	}
 }
+
+// The model starts as if against a single agent; a saved hub layout
+// with nothing else in it still comes back once the agent is the hub.
+func TestSavedHubFocusComesBackAlone(t *testing.T) {
+	now := time.Now()
+	saved := core.View{Hub: &core.HubView{Focus: "mail", Cursor: "mail"}}
+	m := update(New(nopConn{}, "").Restore(saved, ""), ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
+	if m.hub.Focus != "mail" || m.hub.List {
+		t.Fatalf("focus %q list %v", m.hub.Focus, m.hub.List)
+	}
+}

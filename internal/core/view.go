@@ -134,11 +134,13 @@ func HubFromSingle(h Hub, rs *Restore) Hub {
 	return h
 }
 
-// RestoreSingle hands a saved view to the state against a single agent
-// at the start, as RestoreHub does.
+// RestoreSingle hands a saved view to the state at the start, as
+// RestoreHub does. Every client starts here, before it knows whether the
+// agent is relay's hub, so a hub's layout waits too: HubFromSingle takes
+// it over.
 func RestoreSingle(x Single, v View) Single {
 	x.App = restoreItems(x.App, v)
-	x.Restore = &Restore{View: v, Layout: v.PaneFocus, Board: v.Card != 0, Drafts: len(v.Drafts) > 0}
+	x.Restore = &Restore{View: v, Layout: v.PaneFocus || v.Hub != nil, Board: v.Card != 0, Drafts: len(v.Drafts) > 0}
 	if x.Restore.done() {
 		x.Restore = nil
 	}

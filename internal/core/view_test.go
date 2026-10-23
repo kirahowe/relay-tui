@@ -496,3 +496,23 @@ func TestCarryKeepsBothDrafts(t *testing.T) {
 		}
 	})
 }
+
+// A view with nothing but the hub's layout (a conversation in focus, an
+// empty board, no drafts) survives the start, which does not yet know
+// the agent is the hub.
+func TestHubLayoutAloneSurvivesTheStart(t *testing.T) {
+	v := View{Hub: &HubView{Focus: "mail", Cursor: "mail"}}
+	x := RestoreSingle(Single{}, v)
+	if x.Restore == nil || !x.Restore.Layout {
+		t.Fatalf("restore %+v", x.Restore)
+	}
+	h, _ := apply(t, HubFromSingle(NewHub(""), x.Restore), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
+	if h.Focus != "mail" || h.List {
+		t.Fatalf("focus %q list %v", h.Focus, h.List)
+	}
+	// Against a single agent the hub's part means nothing, and goes.
+	x, _ = feedS(x, Connected{At: t0})
+	if x.Restore != nil || x.App.PaneFocus {
+		t.Fatalf("single: %+v pane %v", x.Restore, x.App.PaneFocus)
+	}
+}
