@@ -43,7 +43,11 @@ func tintedHub() core.Hub {
 		core.Routed{Session: "s1", Event: core.ToolUpdated{At: t0, ID: "t1", Status: ptr(core.OK)}},
 		core.Routed{Session: "s1", Event: core.ToolUpdated{At: t0, ID: "t2", Status: ptr(core.OK)}},
 		core.Routed{Session: "s1", Event: core.TextChunk{At: t0, Text: " I put **This week** on your board."}},
-		core.Routed{Session: "s1", Event: core.CardsLoaded{At: t0, Rev: 15, Cards: weekBoard()}})
+		core.CardsLoaded{At: t0, Rev: 15, Cards: weekBoard()},
+		// The request in Mail brought the workspace items into view; the
+		// operator went back to the board.
+		core.PaneKey{At: t0, Action: core.PaneToggle}, core.PaneKey{At: t0, Action: core.PaneBoard},
+		core.PaneKey{At: t0, Action: core.PaneToggle})
 }
 
 // The look with the terminal's colours known: tints behind the role in
@@ -57,9 +61,8 @@ func TestTintedGolden(t *testing.T) {
 		h    core.Hub
 	}{
 		{"conversation", h},
-		{"board_focused", hubStep(h, core.Routed{Session: "s1", Event: core.PaneKey{At: t0, Action: core.PaneToggle}},
-			core.Routed{Session: "s1", Event: core.PaneKey{At: t0, Action: core.PaneDown}},
-			core.Routed{Session: "s1", Event: core.PaneKey{At: t0, Action: core.PaneDown}})},
+		{"board_focused", hubStep(h, core.PaneKey{At: t0, Action: core.PaneToggle},
+			core.PaneKey{At: t0, Action: core.PaneDown}, core.PaneKey{At: t0, Action: core.PaneDown})},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := HubView(c.h, "", "shift+enter for a new line", t0.Add(time.Minute), 170, 40)

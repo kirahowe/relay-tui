@@ -20,9 +20,9 @@ func (nopConn) Answer(core.AnswerPermission)             {}
 func (nopConn) Items(string)                             {}
 func (nopConn) Resolve(string, string)                   {}
 func (nopConn) Trust(string, string, string, string)     {}
-func (nopConn) Cards(string)                             {}
-func (nopConn) CardOp(string, int64, core.CardOp)        {}
-func (nopConn) CardTrust(string, int64, int64, string)   {}
+func (nopConn) Cards()                                   {}
+func (nopConn) CardOp(int64, core.CardOp)                {}
+func (nopConn) CardTrust(int64, int64, string)           {}
 func (nopConn) Attach(string, string)                    {}
 func (nopConn) End(string)                               {}
 func (nopConn) Seen(string, int)                         {}
@@ -145,7 +145,7 @@ func TestAskNeverTouchesTheInput(t *testing.T) {
 		model, _ = model.(Model).Update(EventMsg{Event: core.PermissionAsked{At: time.Now(), Permission: core.Permission{ID: 1,
 			Options: []core.PermOption{{ID: "a", Kind: core.AllowOnce}}}}})
 		for range rapid.IntRange(1, 20).Draw(t, "keys") {
-			if len(model.(Model).core.Asks) == 0 {
+			if len(model.(Model).one.Asks) == 0 {
 				break // a key answered it; the keys are the input's again
 			}
 			model, _ = model.(Model).Update(genKey(t))
@@ -166,12 +166,12 @@ func TestPaneFocusSwallowsKeys(t *testing.T) {
 		step(EventMsg{Event: core.ItemsLoaded{At: time.Now(), Items: []core.Item{{Kind: core.ShownItem, Ref: "shown:x", Title: "x"}}}})
 		step(tea.KeyPressMsg{Code: 'a', Text: "a"}) // something already typed
 		step(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-		if !model.(Model).core.Pane.Focus {
+		if !model.(Model).one.PaneFocus {
 			t.Fatal("ctrl+x did not focus the pane")
 		}
 		for range rapid.IntRange(1, 30).Draw(t, "keys") {
 			m := model.(Model)
-			if !m.core.Pane.Focus || m.core.Phase == core.Exited {
+			if !m.one.PaneFocus || m.one.Phase == core.Exited {
 				return
 			}
 			before := m.input.Value()

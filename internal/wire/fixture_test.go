@@ -99,7 +99,7 @@ func TestAgentloopRetryCountdown(t *testing.T) {
 		if line != 1 {
 			return
 		}
-		l := core.Status(s, t0.Add(6*time.Second))
+		l := core.Status(core.App{}, s, t0.Add(6*time.Second))
 		if l.Kind != core.StatusRetrying || l.RetryIn != 9*time.Second || l.Reason != "rate limit exceeded" {
 			t.Fatalf("status %+v", l)
 		}

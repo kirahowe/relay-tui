@@ -43,7 +43,7 @@ func TranscriptView(s core.State, now time.Time, width, height int) TranscriptFr
 // transcriptFooter is the view's status line. The labels lead it, as on
 // the inline status line, so contamination is never off screen.
 func transcriptFooter(s core.State, now time.Time, scroll, width int) string {
-	st := core.Status(s, now)
+	st := core.Status(core.App{}, s, now) // only its badges show
 	lead := " "
 	if s.Phase == core.Busy || s.Phase == core.Starting {
 		lead = spinner(now)

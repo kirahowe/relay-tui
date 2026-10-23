@@ -62,12 +62,12 @@ func sameJSON(t *testing.T, a, b []byte) bool {
 	return reflect.DeepEqual(x, y)
 }
 
-func paneText(s core.State) string {
-	return ansi.Strip(strings.Join(render.PaneLines(s, t0, 52, 60), "\n"))
+func paneText(s core.Single) string {
+	return ansi.Strip(strings.Join(render.PaneLines(s.App, s.State, t0, 52, 60), "\n"))
 }
 
 // paneRaw is the pane as drawn, styles and all, one line per row.
-func paneRaw(s core.State) []string { return render.PaneLines(s, t0, 52, 60) }
+func paneRaw(s core.Single) []string { return render.PaneLines(s.App, s.State, t0, 52, 60) }
 
 // warned says whether the drawn line holding part is in the warning
 // colour, which marks text from outside.
@@ -95,19 +95,19 @@ func lineWith(text, part string) string {
 	return ""
 }
 
-func cardByID(t *testing.T, s core.State, id int64) core.Card {
+func cardByID(t *testing.T, s core.Single, id int64) core.Card {
 	t.Helper()
-	for _, c := range s.Pane.Board.Cards {
+	for _, c := range s.Board.Cards {
 		if c.ID == id {
 			return c
 		}
 	}
-	t.Fatalf("card %d not on the board: %+v", id, s.Pane.Board.Cards)
+	t.Fatalf("card %d not on the board: %+v", id, s.Board.Cards)
 	return core.Card{}
 }
 
-func showCard(s core.State, id int64) core.State {
-	s.Pane.Board.SelID, s.Pane.Board.Detail, s.Pane.Board.Line, s.Pane.Board.Col = id, true, 0, 0
+func showCard(s core.Single, id int64) core.Single {
+	s.Board.SelID, s.Board.Detail, s.Board.Line, s.Board.Col = id, true, 0, 0
 	return s
 }
 
@@ -120,9 +120,8 @@ func noLiveLink(t *testing.T, where, text string) {
 
 func TestRelayCardFixtures(t *testing.T) {
 	const checklist, tracker, note = 3, 5, 9
-	s := core.State{Phase: core.Idle, Ready: true}
-	s.Pane.Focus = true
-	s.Pane.Board = core.Board{Asked: true}
+	s := core.Single{App: core.App{Live: true, PaneFocus: true, Board: core.Board{Asked: true}},
+		State: core.State{Phase: core.Idle, Ready: true}}
 
 	// The client asks for the board the way relay was asked.
 	var cards exchange
@@ -138,7 +137,7 @@ func TestRelayCardFixtures(t *testing.T) {
 	if loaded.Err != "" || loaded.Unavailable || len(loaded.Cards) != 3 {
 		t.Fatalf("%+v", loaded)
 	}
-	s, _ = core.Reduce(s, loaded)
+	s, _ = core.ReduceSingle(s, loaded)
 
 	t.Run("the snapshot", func(t *testing.T) {
 		cl, tr, n := cardByID(t, s, checklist), cardByID(t, s, tracker), cardByID(t, s, note)
@@ -221,7 +220,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		if done.Err != "" || done.Card == nil || done.Card.Labels.Contaminated || done.Card.SHA256 != "" || done.Card.Note.Outsider {
 			t.Fatalf("trust %+v", done)
 		}
-		after, _ := core.Reduce(s, done)
+		after, _ := core.ReduceSingle(s, done)
 		list := paneText(after)
 		if strings.Contains(list, "outside text") || warned(paneRaw(after), "From a web page") {
 			t.Errorf("the trusted note is still marked:\n%s", list)
@@ -246,7 +245,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		if done.Err != "" || done.Unchanged || done.Card == nil {
 			t.Fatalf("%+v", done)
 		}
-		s, _ = core.Reduce(s, done)
+		s, _ = core.ReduceSingle(s, done)
 		if cl := cardByID(t, s, checklist); cl.Done != 2 || !cl.Items[1].Done {
 			t.Errorf("checklist after the tick %+v", cl)
 		}
@@ -263,9 +262,9 @@ func TestRelayCardFixtures(t *testing.T) {
 		if done.Err != "" || !done.Unchanged {
 			t.Fatalf("%+v", done)
 		}
-		s, _ = core.Reduce(s, done)
-		if s.Pane.Board.Message != "Nothing to change." {
-			t.Errorf("message %q", s.Pane.Board.Message)
+		s, _ = core.ReduceSingle(s, done)
+		if s.Board.Message != "Nothing to change." {
+			t.Errorf("message %q", s.Board.Message)
 		}
 	})
 
@@ -275,7 +274,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		if done.Err != "Card 3 has no item 9." {
 			t.Fatalf("%+v", done)
 		}
-		s, _ = core.Reduce(s, done)
+		s, _ = core.ReduceSingle(s, done)
 		body := paneText(showCard(s, checklist))
 		if !strings.Contains(body, "Refused.") || !strings.Contains(body, "Card 3 has no item 9.") {
 			t.Errorf("the refusal does not show:\n%s", body)
@@ -295,13 +294,13 @@ func TestRelayCardFixtures(t *testing.T) {
 		if !ok || len(changed.Cards) != 1 {
 			t.Fatalf("%+v", changed)
 		}
-		s, _ = core.Reduce(s, changed)
+		s, _ = core.ReduceSingle(s, changed)
 		tr := cardByID(t, s, tracker)
-		if tr.Done != 4 || tr.CellState(2, 1) != core.CellDone || len(s.Pane.Board.Cards) != 3 {
+		if tr.Done != 4 || tr.CellState(2, 1) != core.CellDone || len(s.Board.Cards) != 3 {
 			t.Errorf("tracker after the change %+v", tr)
 		}
-		if s.Pane.Board.Rev != changed.Rev {
-			t.Errorf("board rev %d, notification %d", s.Pane.Board.Rev, changed.Rev)
+		if s.Board.Rev != changed.Rev {
+			t.Errorf("board rev %d, notification %d", s.Board.Rev, changed.Rev)
 		}
 		list := paneText(s)
 		if !strings.Contains(list, "4 of 12") {

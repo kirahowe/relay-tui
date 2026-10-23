@@ -55,7 +55,7 @@ func TestPageKeysGoToThePaneWhenItHasTheFocus(t *testing.T) {
 	}
 	// With the pane focused they are the pane's.
 	m = step(m, press(t, "ctrl+x"))
-	if !m.hub.Focused().State.Pane.Focus {
+	if !m.hub.App.PaneFocus {
 		t.Fatal("the pane did not take the focus")
 	}
 	m = step(m, press(t, "pgup"))

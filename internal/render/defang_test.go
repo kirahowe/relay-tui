@@ -121,7 +121,7 @@ func TestApprovalViewIsFaithful(t *testing.T) {
 			Options: []core.PermOption{{ID: "a", Name: val, Kind: core.AllowOnce}}}})
 		s, _ = core.Reduce(s, core.PermissionShowAll{At: t0})
 		width := rapid.IntRange(8, 80).Draw(t, "width")
-		f := View(s, "\u203a ", "", t0.Add(core.ArmDelay), width, 40)
+		f := View(core.Single{State: s}, "\u203a ", "", t0.Add(core.ArmDelay), width, 40)
 		var rows []string
 		rows = append(rows, strings.Split(f.Content, "\n")...)
 		rows = append(rows, Entries(nil, s.Entries[len(s.Entries)-1:], width, t0)...)

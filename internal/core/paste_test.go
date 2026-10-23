@@ -171,8 +171,8 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	}
 	before := input
 	apply(TrustPaste{At: t0, Draft: input})
-	if input != before || Status(s, t0).Message == "" || Status(s, t0.Add(time.Hour)).Message != "" {
-		t.Fatalf("no-op: input %q, message %q", input, Status(s, t0).Message)
+	if input != before || Status(App{}, s, t0).Message == "" || Status(App{}, s, t0.Add(time.Hour)).Message != "" {
+		t.Fatalf("no-op: input %q, message %q", input, Status(App{}, s, t0).Message)
 	}
 	// A paste whose placeholder was deleted is not the latest in the input.
 	s = idleState(true)

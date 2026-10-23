@@ -78,8 +78,12 @@ type Conv struct {
 	State    State
 }
 
-// Hub is the whole client state in hub mode.
+// Hub is the whole client state in hub mode: the app, which holds the
+// board, beside the roster and the conversations.
 type Hub struct {
+	// App is the connection's own state (see App): the board, there with
+	// or without a conversation, and the pane that shows it.
+	App App
 	// Open is the role named by --open, focused at the start.
 	Open string
 	// Connected says initialize has answered; Agent, Title and Version
@@ -332,10 +336,11 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	h.Ended = slices.Clone(h.Ended)
 	h.Blanks = slices.Clone(h.Blanks)
 	r := &hubReducer{h: h}
-	before := h.onScreen()
+	before, view := h.onScreen(), h.view()
 	r.apply(e)
 	r.adoptBlanks()
 	r.settle(before, e.at())
+	r.keepCardTrust(view)
 	r.markSeen(e.at())
 	return r.h, r.fx
 }
@@ -407,6 +412,29 @@ func (r *hubReducer) settle(before string, at time.Time) {
 	}
 }
 
+// hubView is what decides what the screen shows, apart from the pane.
+type hubView struct {
+	focus              string
+	list, help, endAsk bool
+}
+
+func (h Hub) view() hubView {
+	return hubView{focus: h.Focus, list: h.List, help: h.Help, endAsk: h.EndAsk}
+}
+
+// keepCardTrust drops a trust of a card that has not been sent when the
+// screen changed under it: another role came into focus, or the list,
+// the help or the end question covered it. The operator asks again on
+// purpose, so a y typed for something else cannot answer it. A doc's
+// trust goes the same way, with its conversation (Blurred).
+func (r *hubReducer) keepCardTrust(was hubView) {
+	b := &r.h.App.Board
+	if r.h.view() != was && b.Trust != nil && !b.Trust.Sent {
+		b.Trust = nil
+		b.Message, b.Failure = "Trust cancelled.", ""
+	}
+}
+
 type hubReducer struct {
 	h  Hub
 	fx []Effect
@@ -438,7 +466,7 @@ func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
-		ConversationEnded, CardsChanged, AgentExited, Viewport:
+		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited, Viewport:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -447,6 +475,10 @@ func (r *hubReducer) apply(e Event) {
 		h.Connected = true
 		h.Agent, h.Title, h.Version, h.Embedded = e.Agent, e.Title, e.Version, e.Embedded
 		h.KeepsKnown, h.Keeps = e.KeepsKnown, e.Keeps
+		// The board is the connection's: it is asked for now, before any
+		// conversation opens.
+		h.App.Live = true
+		r.withApp(func(rd *reducer) { rd.askCards() })
 		if h.Open != "" {
 			r.focus(h.Open, true, e.At)
 		}
@@ -454,9 +486,11 @@ func (r *hubReducer) apply(e Event) {
 		r.roster(e)
 	case Routed:
 		r.routed(e)
-	case CardsChanged:
-		for i := range h.Convs {
-			r.toConv(i, e, false)
+	case CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
+		r.toApp(e, false)
+	case PaneKey:
+		if !h.List {
+			r.toApp(e, true)
 		}
 	case Attached:
 		r.attached(e)
@@ -483,6 +517,7 @@ func (r *hubReducer) apply(e Event) {
 			return
 		}
 		h.Gone, h.Exit = true, e.Err
+		h.App.Live = false
 		for i := range h.Convs {
 			r.toConv(i, e, false)
 		}
@@ -552,7 +587,7 @@ func (r *hubReducer) apply(e Event) {
 		// No conversation yet: the paste waits in the role's draft.
 		b := r.blank(h.Focus)
 		var fx []Effect
-		b.State, fx = Reduce(b.State, e)
+		_, b.State, fx = reduce(h.App, b.State, e, true)
 		for _, f := range fx {
 			switch f.(type) {
 			case InsertInput, ReplaceInput:
@@ -590,20 +625,49 @@ func (r *hubReducer) toFocused(e Event) {
 	}
 }
 
-// toConv reduces one conversation and maps its effects. user says the
-// event came from the operator, so Quit means quit.
+// toConv reduces one conversation, with the app around it, and maps its
+// effects. user says the event came from the operator, so Quit means
+// quit.
 func (r *hubReducer) toConv(i int, e Event, user bool) {
+	shown := r.h.Focus != "" && i == r.convIndex(r.h.Focus)
 	c := &r.h.Convs[i]
 	var fx []Effect
-	c.State, fx = Reduce(c.State, e)
+	r.h.App, c.State, fx = reduce(r.h.App, c.State, e, shown)
 	for _, f := range fx {
 		r.mapEffect(*c, f, user)
+	}
+}
+
+// toApp applies an event about the connection's own state: the board,
+// or a key for the pane. The pane shows the conversation in focus beside
+// the board, so the event is reduced with that conversation when there
+// is one, and with none otherwise: the board works with no conversation
+// open.
+func (r *hubReducer) toApp(e Event, user bool) {
+	if i := r.convIndex(r.h.Focus); r.h.Focus != "" && i >= 0 {
+		r.toConv(i, e, user)
+		return
+	}
+	r.withApp(func(rd *reducer) { rd.apply(e) })
+}
+
+// withApp runs f on the app with no conversation, and maps its effects.
+func (r *hubReducer) withApp(f func(*reducer)) {
+	rd := &reducer{a: r.h.App, shown: true}
+	rd.a.Board.Cards = slices.Clone(rd.a.Board.Cards)
+	f(rd)
+	r.h.App = rd.a
+	for _, x := range rd.fx {
+		r.mapEffect(Conv{}, x, false)
 	}
 }
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
 	case AnswerPermission:
+		r.emit(f)
+	case RequestCards, SendCardOp, SendCardTrust:
+		// The board's calls are the connection's, about no conversation.
 		r.emit(f)
 	case InsertInput, RestoreInput, ReplaceInput:
 		if c.Role == r.h.Focus && c.Role != "" {
@@ -630,7 +694,7 @@ func oneLineText(s string) string { return strings.Join(strings.Fields(s), " ") 
 func (r *hubReducer) cancelAsks(i int) {
 	c := &r.h.Convs[i]
 	var fx []Effect
-	rd := &reducer{s: c.State}
+	rd := &reducer{s: c.State, a: r.h.App}
 	rd.cancelAsks()
 	c.State, fx = rd.s, rd.fx
 	for _, f := range fx {
@@ -720,6 +784,11 @@ func (r *hubReducer) focus(role string, force bool, at time.Time) {
 	h := &r.h
 	if h.Focus != role && h.Focus != "" {
 		h.Last = h.Focus
+	}
+	if h.Focus != role {
+		// The operator came to the role for its conversation: the keys go
+		// to it, not to the pane they left. The board keeps its place.
+		h.App.PaneFocus = false
 	}
 	h.Focus, h.Cursor, h.List = role, role, false
 	h.EndAsk, h.Ending = false, false
@@ -941,7 +1010,7 @@ func (r *hubReducer) markSeen(time.Time) {
 	}
 	c := &h.Convs[i]
 	rc := rl.Conv
-	if !c.Attached || !c.Loaded || h.Help || h.EndAsk || c.State.Pane.Focus ||
+	if !c.Attached || !c.Loaded || h.Help || h.EndAsk || h.App.PaneFocus ||
 		c.Session != rc.Session || c.State.Phase == Exited || c.State.Transcript.Scroll != 0 ||
 		!rc.Unread || rc.Turn != TurnIdle || rc.Turns <= c.SeenSent {
 		return

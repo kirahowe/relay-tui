@@ -935,14 +935,14 @@ func TestHubPastesAreAlwaysUntrustedOnArrival(t *testing.T) {
 
 func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
 	h, _ := apply(t, loadedHub(t), TrustPaste{At: t0.Add(time.Second), Draft: "typed only"})
-	st := Status(h.Convs[0].State, t0.Add(time.Second))
+	st := Status(h.App, h.Convs[0].State, t0.Add(time.Second))
 	if st.Message == "" {
 		t.Fatal("no word on the status line")
 	}
 	// Both modes: the same event does the same.
 	s, _ := Reduce(State{Phase: Idle}, TrustPaste{At: t0, Draft: ""})
-	if Status(s, t0).Message != st.Message {
-		t.Fatalf("single-session says %q", Status(s, t0).Message)
+	if Status(App{}, s, t0).Message != st.Message {
+		t.Fatalf("single-session says %q", Status(App{}, s, t0).Message)
 	}
 	// With no conversation the role's draft says it through the notice.
 	hb, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, TrustPaste{At: t0, Draft: ""})

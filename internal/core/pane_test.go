@@ -11,15 +11,7 @@ import (
 )
 
 // feed applies events in turn and returns the state and all the effects.
-func feed(s State, events ...Event) (State, []Effect) {
-	var all []Effect
-	for _, e := range events {
-		var fx []Effect
-		s, fx = Reduce(s, e)
-		all = append(all, fx...)
-	}
-	return s, all
-}
+func feed(s Single, events ...Event) (Single, []Effect) { return feedS(s, events...) }
 
 func effectsOf[T Effect](fx []Effect) []T {
 	var out []T
@@ -42,8 +34,8 @@ var trustable = Item{
 
 // focused is a connected session with relay's list loaded and the pane
 // focused on the first item.
-func focused(items ...Item) State {
-	s, _ := feed(State{}, Connected{At: t0}, ItemsLoaded{At: t0, Items: items}, key(t0, PaneToggle), key(t0, PaneBoard))
+func focused(items ...Item) Single {
+	s, _ := feed(Single{}, Connected{At: t0}, ItemsLoaded{At: t0, Items: items}, key(t0, PaneToggle), key(t0, PaneBoard))
 	return s
 }
 
@@ -84,10 +76,10 @@ func displayEvent(id, title string, labels Labels) ToolUpdated {
 }
 
 func TestDisplaysFillThePaneNewestFirst(t *testing.T) {
-	s := busyState()
+	s := busySingle()
 	var fx []Effect
 	s, fx = feed(s, displayEvent("a", "first", Labels{}), displayEvent("b", "second", Labels{Contaminated: true}))
-	items := PaneItems(s)
+	items := PaneItems(s.State)
 	if len(items) != 2 || items[0].Title != "second" || items[1].Title != "first" {
 		t.Fatalf("items %#v", items)
 	}
@@ -96,51 +88,51 @@ func TestDisplaysFillThePaneNewestFirst(t *testing.T) {
 	}
 	// The same display again replaces itself.
 	s, _ = feed(s, displayEvent("a", "first", Labels{}))
-	if len(PaneItems(s)) != 2 {
-		t.Errorf("a repeated display added an item: %#v", PaneItems(s))
+	if len(PaneItems(s.State)) != 2 {
+		t.Errorf("a repeated display added an item: %#v", PaneItems(s.State))
 	}
 }
 
 func TestRelayListIsAuthoritative(t *testing.T) {
-	s, fx := feed(State{}, Connected{At: t0})
+	s, fx := feed(Single{}, Connected{At: t0})
 	if len(effectsOf[RequestItems](fx)) != 1 {
 		t.Fatalf("no item request on connect: %#v", fx)
 	}
 	s, _ = feed(s, Submit{At: t0, Text: "go"}, displayEvent("a", "local", Labels{}))
 	s, _ = feed(s, ItemsLoaded{At: t0, Items: []Item{{Kind: ShownItem, Ref: "shown:r", Title: "from relay"}}})
-	if items := PaneItems(s); len(items) != 1 || items[0].Title != "from relay" {
+	if items := PaneItems(s.State); len(items) != 1 || items[0].Title != "from relay" {
 		t.Fatalf("items %#v", items)
 	}
 	// A failed call leaves the list alone.
 	s, _ = feed(s, ItemsLoaded{At: t0, Failed: true})
-	if len(PaneItems(s)) != 1 {
-		t.Fatalf("a failure changed the list: %#v", PaneItems(s))
+	if len(PaneItems(s.State)) != 1 {
+		t.Fatalf("a failure changed the list: %#v", PaneItems(s.State))
 	}
 }
 
 func TestPlainAgentFallsBackAndStopsAsking(t *testing.T) {
-	s, _ := feed(busyStateRaw(), ItemsLoaded{At: t0, Unavailable: true})
+	s, _ := feed(busySingleRaw(), ItemsLoaded{At: t0, Unavailable: true})
 	s, fx := feed(s, displayEvent("a", "local", Labels{}), TextChunk{At: t0, Text: "see [[fact:1]]\n\n"},
 		PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "t"}})
 	if n := len(effectsOf[RequestItems](fx)) + len(effectsOf[RequestResolve](fx)); n != 0 {
 		t.Errorf("%d relay requests after method-not-found", n)
 	}
-	items := PaneItems(s)
+	items := PaneItems(s.State)
 	if len(items) != 2 || items[0].Kind != ProposalItem || items[0].Status != StatusWaitingProposal || items[1].Title != "local" {
 		t.Fatalf("items %#v", items)
 	}
 	s, _ = feed(s, key(t0, PaneToggle)) // refused: a request waits
-	if s.Pane.Focus {
+	if s.PaneFocus {
 		t.Error("the pane took focus while a request waited")
 	}
 }
 
 // busyStateRaw is a busy session whose connect request has not been
 // answered yet.
-func busyStateRaw() State { return busyState() }
+func busySingleRaw() Single { return busySingle() }
 
 func TestCitationsAreResolvedOnce(t *testing.T) {
-	s := busyState()
+	s := busySingle()
 	var all []Effect
 	var fx []Effect
 	for _, chunk := range []string{"The hall [[fa", "ct:12]] seats 900, ", "[[fact:12]] and [[web:https://x.test/a]].\n\n", "More [[fact:12]]."} {
@@ -163,7 +155,7 @@ func TestCitationsAreResolvedOnce(t *testing.T) {
 	}
 	// Only the latest message's references are the current ones.
 	s, _ = feed(s, TextChunk{At: t0, MessageID: "m2", Text: "Now [[doc:b]]."})
-	if got := LatestRefs(s); !slices.Equal(got, []string{"[[doc:b]]"}) {
+	if got := LatestRefs(s.State); !slices.Equal(got, []string{"[[doc:b]]"}) {
 		t.Errorf("latest refs %q", got)
 	}
 }
@@ -172,7 +164,7 @@ func TestPermissionFlowStillGuardsApproval(t *testing.T) {
 	s := focused(trustable)
 	s, _ = feed(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send", Preview: "does X at https://send.example.net/a",
 		Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
-	if s.Pane.Focus {
+	if s.PaneFocus {
 		t.Error("the pane kept focus under a request")
 	}
 	// Keys for the pane do nothing while the request waits.
@@ -275,7 +267,7 @@ func TestTrustWithoutCanTrustShowsTheCommandOnly(t *testing.T) {
 }
 
 func TestTrustUnavailableWithoutRelay(t *testing.T) {
-	s := busyState()
+	s := busySingle()
 	s, _ = feed(s, ItemsLoaded{At: t0, Unavailable: true}, displayEvent("a", "x", Labels{Contaminated: true}), key(t0, PaneToggle), key(t0, PaneTrust))
 	if s.Pane.Trust != nil || s.Pane.Command != "" || !strings.Contains(s.Pane.Message, "relay chat") {
 		t.Fatalf("pane %+v", s.Pane)
@@ -298,20 +290,20 @@ func TestPaneNavigation(t *testing.T) {
 	a, b := trustable, trustable
 	b.Ref, b.Path, b.Title = "shown:b", "shown/b.md", "Second"
 	s := focused(a, b)
-	if SelectedIndex(s) != 0 {
+	if SelectedIndex(s.State) != 0 {
 		t.Fatal("not on the first item")
 	}
 	s, _ = feed(s, key(t0, PaneDown))
-	if SelectedIndex(s) != 1 {
-		t.Fatalf("down: %d", SelectedIndex(s))
+	if SelectedIndex(s.State) != 1 {
+		t.Fatalf("down: %d", SelectedIndex(s.State))
 	}
 	s, _ = feed(s, key(t0, PaneDown)) // clamped
-	if SelectedIndex(s) != 1 {
-		t.Fatalf("down past the end: %d", SelectedIndex(s))
+	if SelectedIndex(s.State) != 1 {
+		t.Fatalf("down past the end: %d", SelectedIndex(s.State))
 	}
 	// The selection follows its item when a new one arrives on top.
 	s, _ = feed(s, ItemsLoaded{At: t0, Items: []Item{{Kind: ShownItem, Ref: "shown:new"}, a, b}})
-	if i := SelectedIndex(s); i != 2 {
+	if i := SelectedIndex(s.State); i != 2 {
 		t.Fatalf("selection moved to %d", i)
 	}
 	// Enter opens, scroll is clamped to what the renderer says, esc goes back.
@@ -328,11 +320,11 @@ func TestPaneNavigation(t *testing.T) {
 		t.Fatalf("scroll %d", s.Pane.Scroll)
 	}
 	s, _ = feed(s, key(t0, PaneEsc))
-	if s.Pane.Detail || !s.Pane.Focus {
+	if s.Pane.Detail || !s.PaneFocus {
 		t.Fatalf("esc from detail: %+v", s.Pane)
 	}
 	s, _ = feed(s, key(t0, PaneEsc))
-	if s.Pane.Focus {
+	if s.PaneFocus {
 		t.Fatal("esc did not return focus")
 	}
 	// Keys do nothing while the pane is not focused.
@@ -364,7 +356,7 @@ func TestPaneKeysCannotApproveOrSend(t *testing.T) {
 			}
 			prev := s
 			var fx []Effect
-			s, fx = Reduce(s, e)
+			s, fx = ReduceSingle(s, e)
 			if len(answers(fx)) != 0 || len(effectsOf[SendPrompt](fx)) != 0 {
 				t.Fatalf("%T gave %#v", e, fx)
 			}
@@ -405,7 +397,7 @@ func TestDomainsOnlyGrow(t *testing.T) {
 				e = TrustDone{At: now, Path: trustable.Path}
 			}
 			before := s.Pane.Domains
-			s, _ = Reduce(s, e)
+			s, _ = ReduceSingle(s, e)
 			for _, d := range before {
 				if !slices.Contains(s.Pane.Domains, d) {
 					t.Fatalf("%q left the set after %T", d, e)
@@ -416,7 +408,7 @@ func TestDomainsOnlyGrow(t *testing.T) {
 }
 
 func TestShowAllCarriesThePreview(t *testing.T) {
-	s := busyState()
+	s := busySingle()
 	s, _ = feed(s, LabelsSeen{At: t0, Labels: Labels{Contaminated: true}},
 		PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "send", Input: `{"a":1}`, Preview: "will send x"}},
 		PermissionShowAll{At: t0})
@@ -428,7 +420,7 @@ func TestShowAllCarriesThePreview(t *testing.T) {
 
 func TestStatusCountsPaneItems(t *testing.T) {
 	s := focused(trustable, trustable)
-	if got := Status(s, t0).PaneItems; got != 2 {
+	if got := Status(s.App, s.State, t0).PaneItems; got != 2 {
 		t.Errorf("PaneItems %d", got)
 	}
 }
@@ -437,12 +429,12 @@ func TestStatusCountsPaneItems(t *testing.T) {
 // many displays arrive.
 func TestLocalItemsNewestFirst(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		s := busyState()
+		s := busySingle()
 		n := rapid.IntRange(0, 12).Draw(t, "n")
 		for i := range n {
-			s, _ = Reduce(s, displayEvent(fmt.Sprintf("c%d", i), fmt.Sprintf("title %d", i), Labels{}))
+			s, _ = ReduceSingle(s, displayEvent(fmt.Sprintf("c%d", i), fmt.Sprintf("title %d", i), Labels{}))
 		}
-		items := PaneItems(s)
+		items := PaneItems(s.State)
 		if len(items) != n {
 			t.Fatalf("%d items, want %d", len(items), n)
 		}

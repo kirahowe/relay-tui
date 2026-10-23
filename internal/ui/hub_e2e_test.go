@@ -368,6 +368,8 @@ func TestHubCancelsASlowTurn(t *testing.T) {
 	h.waitScreen("idle", contains("ready"))
 }
 
+// Against a hub with no board the pane falls back to the conversation's
+// items, as against a plain agent.
 func TestHubWorkspacePaneAndBoardWorkForTheFocusedConversation(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 24, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
@@ -377,7 +379,8 @@ func TestHubWorkspacePaneAndBoardWorkForTheFocusedConversation(t *testing.T) {
 	h.waitScreen("the board", contains("This agent has no board."))
 	h.keys("\x18")
 	h.waitScreen("the conversation", func(s string) bool { return !strings.Contains(s, "nothing yet") })
-	// The pane is the conversation's: another role's has its own.
+	// Moving to another role gives the keys to its conversation, and its
+	// pane lists its own items.
 	h.keys(ctrlN)
 	s := h.waitScreen("mail", contains("No conversation with Mail"))
 	if strings.Contains(s, "nothing yet") {

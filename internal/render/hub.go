@@ -40,11 +40,23 @@ func HubMainWidth(width int) int {
 // pane is not beside the conversation.
 func hubColumns(h core.Hub, width int) (conv, pane int) {
 	mw := HubMainWidth(width)
-	if h.Focused() != nil && Side(mw) {
+	if paneShown(h) && Side(mw) {
 		pane = PaneWidth(mw)
 		return mw - pane - 1, pane
 	}
 	return mw, 0
+}
+
+// paneShown says the workspace pane has something to show: the
+// conversation in focus, or the board, which needs no conversation.
+func paneShown(h core.Hub) bool { return h.Focused() != nil || !h.App.Board.Unavailable }
+
+// focusedChat is the conversation in focus, or none.
+func focusedChat(h core.Hub) core.State {
+	if c := h.Focused(); c != nil {
+		return c.State
+	}
+	return core.State{}
 }
 
 // HubFrame is the whole screen in hub mode. Max is how far the
@@ -431,10 +443,10 @@ func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, n
 	// With room for it, the workspace pane stands beside the conversation,
 	// as it does in the single-session view: a display or a held call is
 	// in front of the operator without a key.
-	if c := h.Focused(); c != nil && Side(width) {
+	if paneShown(h) && Side(width) {
 		mw := MainWidth(width)
 		f := hubMainAt(h, input, hint, now, mw, height, narrow, help, true)
-		pane, mx := paneRender(c.State, now, PaneWidth(width), height)
+		pane, mx := paneRender(h.App, focusedChat(h), now, PaneWidth(width), height)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, mw), "\n")
 		f.DetailMax = mx
 		return f
@@ -542,7 +554,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	if conv == nil {
 		status = styled(faint, truncate("  no conversation · type a message to start one · ? keys", width))
 	} else {
-		st := core.Status(s, now)
+		st := core.Status(h.App, s, now)
 		if role != nil { // the roster may not have come yet
 			st.Labels = st.Labels.Union(role.Labels)
 			if role.Conv != nil && role.Conv.Session == conv.Session {
@@ -563,8 +575,10 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	var lines []string
 	mx, detailMax := 0, 0
 	switch {
-	case s.Pane.Focus && conv != nil && len(s.Asks) == 0 && !beside:
-		lines, detailMax = paneRender(s, now, width, room)
+	case h.App.PaneFocus && len(s.Asks) == 0 && !beside:
+		// The pane covers the conversation, or the place of one: the board
+		// works with none open.
+		lines, detailMax = paneRender(h.App, s, now, width, room)
 	case conv == nil:
 		lines = []string{styled(faint, "No conversation with "+title+" yet.")}
 	default:
@@ -605,7 +619,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	return HubFrame{
 		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax,
-		Cursor: showInput && help == nil && !s.Pane.Focus && y >= 0, InputX: x, InputY: max(y, 0),
+		Cursor: showInput && help == nil && !h.App.PaneFocus && y >= 0, InputX: x, InputY: max(y, 0),
 		title: panelTitle, right: styled(faint, right),
 	}
 }
@@ -640,14 +654,14 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	if conv != nil {
 		s = conv.State
 	}
-	convKeys := !h.List && !s.Pane.Focus
+	convKeys := !h.List && !h.App.PaneFocus
 
 	f := hubConv(h, input, hint, now, framed(cw), mid-2, false, help, pw > 0, true)
 	main := panel(f.title, f.right, "", strings.Split(f.Content, "\n"), cw, mid, convKeys)
 	side := rolesPanel(h, now, sw, mid)
 	keys := ""
 	if pw > 0 {
-		pane, mx, pk := paneRenderKeys(s, now, pw, mid)
+		pane, mx, pk := paneRenderKeys(h.App, s, now, pw, mid)
 		for i := range main {
 			main[i] += " " + pane[i]
 		}
@@ -657,9 +671,9 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	switch {
 	case h.List:
 		keys = "enter open · ↑↓ move · esc back · ? keys"
-	case s.Pane.Focus && pw > 0:
+	case h.App.PaneFocus && pw > 0:
 	default:
-		keys = "enter send · " + PaneKey + " " + paneView(s) + " · ctrl+g roles · ctrl+t tools · ? keys"
+		keys = "enter send · " + PaneKey + " " + paneView(h.App) + " · ctrl+g roles · ctrl+t tools · ? keys"
 	}
 	rows := []string{topBar(h, now, width)}
 	for i := 0; i < mid; i++ {
@@ -676,8 +690,8 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 }
 
 // paneView names what ctrl+x shows: the board, or the workspace items.
-func paneView(s core.State) string {
-	if s.Pane.Board.Items {
+func paneView(a core.App) string {
+	if a.Board.Items {
 		return "workspace"
 	}
 	return "board"

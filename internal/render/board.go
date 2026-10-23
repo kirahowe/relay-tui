@@ -375,22 +375,22 @@ func cardName(b core.Board, id int64) string {
 }
 
 // boardParts lays out the board view.
-func boardParts(s core.State, now time.Time, width int) parts {
-	p := s.Pane
-	b := p.Board
+func boardParts(a core.App, s core.State, now time.Time, width int) parts {
+	b := a.Board
+	focus := a.PaneFocus
 	var pr parts
 	count := -1
 	if b.Loaded {
 		count = len(b.Cards)
 	}
-	pr.head = paneHead("Board", count, fmt.Sprintf("workspace %d", len(core.PaneItems(s))), p.Focus, width)
+	pr.head = paneHead("Board", count, fmt.Sprintf("workspace %d", len(core.PaneItems(s))), focus, width)
 	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 
 	c, sel := core.BoardCard(b)
 	switch {
 	case b.Unavailable:
 		pr.body = []string{styled(faint, "This agent has no board.")}
-	case !b.Loaded && (b.Asked || s.Phase == core.Starting):
+	case !b.Loaded && (b.Asked || !a.Live):
 		pr.body = []string{styled(faint, "loading…")}
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
@@ -400,7 +400,7 @@ func boardParts(s core.State, now time.Time, width int) parts {
 			pr.body, _, _ = cardPanel(b, b.Cards[i], width, true, false)
 		}
 	case b.Detail && sel >= 0:
-		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, p.Focus)
+		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, focus)
 	case len(b.Cards) == 0:
 		pr.body = []string{styled(faint, "no cards")}
 	default:
@@ -408,7 +408,7 @@ func boardParts(s core.State, now time.Time, width int) parts {
 			if i > 0 {
 				pr.body = append(pr.body, "")
 			}
-			lines, _, _ := cardPanel(b, x, width, false, p.Focus && i == sel)
+			lines, _, _ := cardPanel(b, x, width, false, focus && i == sel)
 			if i == sel {
 				pr.selA, pr.selB = len(pr.body), len(pr.body)+len(lines)
 			}
@@ -417,7 +417,7 @@ func boardParts(s core.State, now time.Time, width int) parts {
 	}
 
 	switch {
-	case !p.Focus:
+	case !focus:
 		pr.keys = PaneKey + " to focus, then b for the workspace"
 	case b.Input != nil:
 		in := b.Input

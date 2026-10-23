@@ -32,11 +32,13 @@
 //	start <role>                 a conversation opens from elsewhere
 //	end <role>                   the conversation ends elsewhere
 //	finish <role>                a "slow" turn ends
+//	archive-card <id>            another process archived the card
 //
 // Everything the client does is logged, one line each: "new <role>
 // attached=<bool>", "load <session>", "prompt <session> <json text>",
 // "cancel <session>", "seen <session> <turn>", "end <session>",
-// "permission <session> <outcome json>", "roles".
+// "permission <session> <outcome json>", "roles", and the board's calls
+// (see board.go).
 package fakehub
 
 import (
@@ -46,6 +48,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +62,9 @@ type Config struct {
 	// Embedded plays relay with no service running: initialize says
 	// "relay/keeps": false.
 	Embedded bool `json:"embedded"`
+	// Cards is the board, as wire forms (see board.go). Without it the
+	// board's methods are not found.
+	Cards []json.RawMessage `json:"cards"`
 }
 
 // RoleConfig is one role.
@@ -128,12 +134,19 @@ type Hub struct {
 	// lag is how long after a prompt's answer the roster says the turn
 	// ended, as relay's does.
 	lag time.Duration
+	// board is relay's board, or nil for none.
+	board *board
 }
 
 // New returns a hub with the config's roles. log receives one line per
 // client action.
 func New(cfg Config, log io.Writer) *Hub {
 	h := &Hub{log: log, unbusy: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond}
+	b, err := newBoard(cfg.Cards)
+	if err != nil {
+		fmt.Fprintf(log, "config: cards: %v\n", err)
+	}
+	h.board = b
 	for _, rc := range cfg.Roles {
 		r := &role{RoleConfig: rc}
 		if rc.Live != nil {
@@ -492,6 +505,9 @@ func (h *Hub) askPermission(ctx context.Context, c *conv, name string) (string, 
 
 // HandleExtensionMethod answers the hub's extension methods.
 func (h *Hub) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {
+	if slices.Contains(boardMethods, method) {
+		return h.boardMethod(method, params)
+	}
 	var p struct {
 		SessionID string `json:"sessionId"`
 		Turn      int    `json:"turn"`
@@ -579,6 +595,10 @@ func (h *Hub) control(ctx context.Context, line string) {
 		return
 	}
 	cmd, id := fields[0], fields[1]
+	if cmd == "archive-card" {
+		h.archiveCard(ctx, id)
+		return
+	}
 	h.mu.Lock()
 	r := h.role(id)
 	h.mu.Unlock()

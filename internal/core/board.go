@@ -287,11 +287,7 @@ func (b *Board) put(c Card) bool {
 		if i >= 0 {
 			b.Cards = slices.Delete(b.Cards, i, i+1)
 		}
-		b.Gone = maps.Clone(b.Gone) // the old state may share the map
-		if b.Gone == nil {
-			b.Gone = map[int64]int64{}
-		}
-		b.Gone[c.ID] = c.Rev
+		b.leftBy(c.ID, c.Rev)
 	case i >= 0:
 		changed := b.Cards[i].Rev != c.Rev
 		b.Cards[i] = c
@@ -303,10 +299,23 @@ func (b *Board) put(c Card) bool {
 	return false
 }
 
+// leftBy notes that card id had left the board by rev, so a copy of it
+// no newer than that is not taken.
+func (b *Board) leftBy(id, rev int64) {
+	if b.Gone[id] >= rev {
+		return
+	}
+	b.Gone = maps.Clone(b.Gone) // the old state may share the map
+	if b.Gone == nil {
+		b.Gone = map[int64]int64{}
+	}
+	b.Gone[id] = rev
+}
+
 // keepBoardSelection keeps the selected card selected, and closes what
 // belonged to a card that left the board.
 func (r *reducer) keepBoardSelection() {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	if slices.ContainsFunc(b.Cards, func(c Card) bool { return c.ID == b.SelID }) {
 		return
 	}
@@ -367,7 +376,7 @@ func (c Card) lineElems() []CardElem {
 // x never acts on a line the operator did not choose without them being
 // told.
 func (r *reducer) reanchor(a boardAnchor, was bool) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	c, i := BoardCard(*b)
 	if !was || !b.Detail || i < 0 || c.ID != a.card {
 		return
@@ -401,7 +410,7 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 }
 
 func (r *reducer) board(e Event) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	anchor, anchored := anchorOf(*b)
 	defer func() { r.reanchor(anchor, anchored) }()
 	defer r.keepTrust()
@@ -439,6 +448,11 @@ func (r *reducer) board(e Event) {
 			for _, c := range held {
 				if c.Rev > e.Rev || slices.ContainsFunc(b.Cards, func(x Card) bool { return x.ID == c.ID }) {
 					b.put(c)
+				} else {
+					// Left out of the board as it stood at e.Rev, a card held
+					// from before then has left it, archived by then: no copy
+					// as old as that may bring it back.
+					b.leftBy(c.ID, e.Rev)
 				}
 			}
 			b.Rev = max(b.Rev, e.Rev)
@@ -500,7 +514,7 @@ func (r *reducer) board(e Event) {
 // card as now held, so the operator, who has just read why relay refused,
 // can send it again on purpose; Was is cleared so Enter always sends.
 func (r *reducer) reopen(in BoardInput) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	if b.Input != nil || b.Confirm != 0 {
 		return
 	}
@@ -520,7 +534,7 @@ func (r *reducer) reopen(in BoardInput) {
 // relay for the board if it has not answered yet.
 func (r *reducer) toggleBoard() {
 	p := &r.s.Pane
-	b := &p.Board
+	b := &r.a.Board
 	p.Detail, p.Scroll = false, 0
 	b.Items = !b.Items
 	b.Input, b.Confirm = nil, 0
@@ -531,8 +545,8 @@ func (r *reducer) toggleBoard() {
 // board has loaded, and the operator is neither working in the pane nor
 // owed an answer on a proposal the items view shows.
 func (r *reducer) mayShowBoard() bool {
-	p := r.s.Pane
-	if !p.Board.Loaded || !p.Board.Items || p.Focus || p.Trust != nil {
+	b := r.a.Board
+	if !b.Loaded || !b.Items || r.a.PaneFocus || r.s.Pane.Trust != nil {
 		return false
 	}
 	return !slices.ContainsFunc(PaneItems(r.s), func(it Item) bool {
@@ -540,12 +554,13 @@ func (r *reducer) mayShowBoard() bool {
 	})
 }
 
-// askCards asks relay for the board once the session exists, open or not,
-// so the pane can count the cards and relay sends the changes after. It
-// asks again only after a failure or a refresh.
+// askCards asks relay for the board once the connection can take it,
+// whether the pane shows the board or not, so the pane can count the
+// cards and relay sends the changes after. It asks again only after a
+// failure or a refresh.
 func (r *reducer) askCards() {
-	b := &r.s.Pane.Board
-	if !b.Asked && !b.Unavailable && r.s.Phase != Starting && r.s.Phase != Exited {
+	b := &r.a.Board
+	if !b.Asked && !b.Unavailable && r.a.Live {
 		b.Asked = true
 		r.emit(RequestCards{})
 	}
@@ -567,8 +582,7 @@ func nextCell(st string) string {
 
 // boardKey handles a key while the pane shows the board.
 func (r *reducer) boardKey(e PaneKey) {
-	p := &r.s.Pane
-	b := &p.Board
+	b := &r.a.Board
 	if in := b.Input; in != nil {
 		r.inputKey(e, in)
 		return
@@ -633,7 +647,7 @@ func (r *reducer) boardKey(e PaneKey) {
 		if b.Detail {
 			b.Detail = false
 		} else {
-			p.Focus = false
+			r.a.PaneFocus = false
 		}
 	case PaneMark:
 		if i >= 0 && b.Detail {
@@ -666,11 +680,11 @@ func (r *reducer) boardKey(e PaneKey) {
 // TrustSince is when a trust question that has not been answered was
 // asked, a doc's or a card's, and false when none waits. The shell keeps
 // drawing until y is armed, so the operator sees it arm.
-func TrustSince(s State) (time.Time, bool) {
+func TrustSince(a App, s State) (time.Time, bool) {
 	if t := s.Pane.Trust; t != nil && !t.Sent {
 		return t.Since, true
 	}
-	if t := s.Pane.Board.Trust; t != nil && !t.Sent {
+	if t := a.Board.Trust; t != nil && !t.Sent {
 		return t.Since, true
 	}
 	return time.Time{}, false
@@ -679,7 +693,7 @@ func TrustSince(s State) (time.Time, bool) {
 // startCardTrust asks the operator to trust card c, or says why it
 // cannot be.
 func (r *reducer) startCardTrust(at time.Time, c Card) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	switch {
 	case !c.Labels.Contaminated:
 		b.Message = "Nothing to trust: this card has no outside text."
@@ -695,7 +709,7 @@ func (r *reducer) startCardTrust(at time.Time, c Card) {
 // the board: the operator vouches for what they were shown, and only
 // that.
 func (r *reducer) keepTrust() {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	t := b.Trust
 	if t == nil || t.Sent {
 		return
@@ -717,7 +731,7 @@ const busyNotice = "Still sending the last change; that key was not sent."
 
 // busy says an op is on its way, and says so.
 func (r *reducer) busy() bool {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	if b.Sending != 0 {
 		b.Message = busyNotice
 		return true
@@ -726,7 +740,7 @@ func (r *reducer) busy() bool {
 }
 
 func (r *reducer) sendOp(card int64, op CardOp) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	if r.busy() {
 		return
 	}
@@ -737,7 +751,7 @@ func (r *reducer) sendOp(card int64, op CardOp) {
 // mark ticks or unticks the selected checklist item, or moves the
 // selected tracker cell on: open, done, skip, open.
 func (r *reducer) mark(c Card) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	line := BoardLine(*b, c)
 	switch {
 	case c.Kind == CardChecklist && line > 0:
@@ -758,7 +772,7 @@ func (r *reducer) mark(c Card) {
 }
 
 func (r *reducer) startAdd(c Card, column bool) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	var op, prompt string
 	switch {
 	case c.Kind == CardChecklist && !column:
@@ -786,7 +800,7 @@ func (r *reducer) startAdd(c Card, column bool) {
 // operator sends is the operator's, so it starts empty rather than make
 // vouching for outside text one key away.
 func (r *reducer) startEdit(c Card, column bool) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	line := 0
 	if b.Detail {
 		line = BoardLine(*b, c)
@@ -830,7 +844,7 @@ func (r *reducer) startEdit(c Card, column bool) {
 
 // inputKey types into the one-line input, sends it, or cancels it.
 func (r *reducer) inputKey(e PaneKey, in *BoardInput) {
-	b := &r.s.Pane.Board
+	b := &r.a.Board
 	switch e.Action {
 	case PaneChar:
 		t := typed(e.Text)

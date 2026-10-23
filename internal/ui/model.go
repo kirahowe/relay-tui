@@ -28,11 +28,12 @@ type Conn interface {
 	Items(session string)
 	Resolve(session, ref string)
 	Trust(session, path, version, sha string)
-	// Cards and CardOp call relay's board methods; their answers, and
+	// Cards, CardOp and CardTrust call relay's board methods, which are
+	// the connection's and about no conversation; their answers, and
 	// relay's notifications of changed cards, come back as events.
-	Cards(session string)
-	CardOp(session string, card int64, op core.CardOp)
-	CardTrust(session string, card, rev int64, sha string)
+	Cards()
+	CardOp(card int64, op core.CardOp)
+	CardTrust(card, rev int64, sha string)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as
@@ -64,7 +65,8 @@ const tickEvery = 100 * time.Millisecond
 const readyDelay = 50 * time.Millisecond
 
 type Model struct {
-	core  core.State
+	// one is the state against a single agent; hub, against relay's hub.
+	one   core.Single
 	input textarea.Model
 	caps  Caps
 	// termBg and termFg are the terminal's own colours, once it says;
@@ -120,7 +122,7 @@ func New(conn Conn, title string) Model {
 	ta.MaxContentHeight = 1 << 20 // the box scrolls past MaxHeight, without a cap
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 	ta.Focus()
-	return Model{input: ta, conn: conn, core: core.State{Title: title}}
+	return Model{input: ta, conn: conn, one: core.Single{State: core.State{Title: title}}}
 }
 
 // Open makes the model focus the role at the start, when the agent turns
@@ -145,7 +147,7 @@ func (m Model) Died() (bool, string) {
 	if m.hubMode {
 		return m.died, m.hub.Exit
 	}
-	return m.died, m.core.Exit
+	return m.died, m.one.State.Exit
 }
 
 // Init does nothing: the first size message starts the ticks.
@@ -194,7 +196,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ev, cmd = m.key(msg, now)
 		cmds = append(cmds, cmd)
 	case tea.MouseWheelMsg:
-		if m.core.Transcript.Open {
+		if m.one.State.Transcript.Open {
 			ev = m.wheel(msg, now)
 		}
 	case tea.PasteMsg:
@@ -216,14 +218,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if ev != nil {
 		var fx []core.Effect
-		m.core, fx = core.Reduce(m.core, ev)
+		m.one, fx = core.ReduceSingle(m.one, ev)
 		for _, f := range fx {
 			cmds = append(cmds, m.effect(f, now))
 		}
 	}
-	if len(m.core.Asks) > 0 || m.core.TooSmall {
-		if f := m.frame(now); f.TooSmall != m.core.TooSmall {
-			m.core, _ = core.Reduce(m.core, core.Viewport{At: now, TooSmall: f.TooSmall})
+	if len(m.one.State.Asks) > 0 || m.one.State.TooSmall {
+		if f := m.frame(now); f.TooSmall != m.one.State.TooSmall {
+			m.one, _ = core.ReduceSingle(m.one, core.Viewport{At: now, TooSmall: f.TooSmall})
 		}
 	}
 	cmds = append(cmds, m.screen(), m.print(now), m.tick(now), m.stop())
@@ -248,7 +250,7 @@ func (m *Model) stop() tea.Cmd {
 // and no print is in flight, and back when it closes. Leaving, it waits
 // readyDelay for the inline frame to be drawn before anything prints.
 func (m *Model) screen() tea.Cmd {
-	switch open := m.core.Transcript.Open && len(m.core.Asks) == 0; {
+	switch open := m.one.State.Transcript.Open && len(m.one.State.Asks) == 0; {
 	case open && !m.alt && !m.printing:
 		m.alt = true
 	case !open && m.alt:
@@ -273,21 +275,21 @@ func (m *Model) wheel(w tea.MouseWheelMsg, now time.Time) core.Event {
 
 // key turns a key press into an event, or passes it to the input box.
 func (m *Model) key(k tea.KeyPressMsg, now time.Time) (core.Event, tea.Cmd) {
-	if len(m.core.Asks) > 0 {
+	if len(m.one.State.Asks) > 0 {
 		return askKey(ClassifyAsk(k), now), nil
 	}
 	empty := m.input.Value() == ""
-	if m.core.Help {
-		m.core, _ = core.Reduce(m.core, core.ToggleHelp{At: now})
+	if m.one.State.Help {
+		m.one, _ = core.ReduceSingle(m.one, core.ToggleHelp{At: now})
 		if closesHelp(k) {
 			return nil, nil
 		}
 	}
-	if m.core.Transcript.Open {
+	if m.one.State.Transcript.Open {
 		return m.transcriptKey(k, empty, now), nil
 	}
-	if m.core.Pane.Focus {
-		return paneEvent(m.core, k, empty, now, func() int { return m.frame(now).DetailMax }), nil
+	if m.one.App.PaneFocus {
+		return paneEvent(m.one.App, m.one.State, k, empty, now, func() int { return m.frame(now).DetailMax }), nil
 	}
 	switch Classify(k, empty) {
 	case Send:
@@ -301,7 +303,7 @@ func (m *Model) key(k tea.KeyPressMsg, now time.Time) (core.Event, tea.Cmd) {
 		m.input.InsertString("\n")
 		return nil, nil
 	case Interrupt:
-		if m.core.Phase == core.Idle && !empty {
+		if m.one.State.Phase == core.Idle && !empty {
 			m.input.Reset() // like a shell: Ctrl-C clears the line
 		}
 		return core.Interrupt{At: now, InputEmpty: empty}, nil
@@ -339,7 +341,7 @@ func (m *Model) transcriptKey(k tea.KeyPressMsg, empty bool, now time.Time) core
 	case Help:
 		return core.ToggleHelp{At: now}
 	case Interrupt:
-		if m.core.Phase == core.Busy {
+		if m.one.State.Phase == core.Busy {
 			return core.Interrupt{At: now, InputEmpty: true}
 		}
 		return core.TranscriptKey{At: now, Action: core.TranscriptClose}
@@ -352,7 +354,7 @@ func (m *Model) transcriptKey(k tea.KeyPressMsg, empty bool, now time.Time) core
 // paneKey is the event for a key pressed while the workspace pane has
 // focus. The input box never sees it. Ctrl-C still stops a running turn
 // and, otherwise, leaves the pane; Ctrl-D quits only from an empty input.
-func paneEvent(st core.State, k tea.KeyPressMsg, empty bool, now time.Time, detailMax func() int) core.Event {
+func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, empty bool, now time.Time, detailMax func() int) core.Event {
 	switch k.String() {
 	case "ctrl+c":
 		if st.Phase == core.Busy {
@@ -365,15 +367,14 @@ func paneEvent(st core.State, k tea.KeyPressMsg, empty bool, now time.Time, deta
 		}
 		return nil
 	}
-	if b := st.Pane.Board; !b.Items {
+	if b := a.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
 			return core.PaneKey{At: now, Action: a, Text: text}
 		}
 		return core.PaneKey{At: now, Action: ClassifyBoard(k)}
 	}
-	a := ClassifyPane(k)
-	e := core.PaneKey{At: now, Action: a}
+	e := core.PaneKey{At: now, Action: ClassifyPane(k)}
 	if st.Pane.Detail {
 		e.Max = detailMax()
 	}
@@ -411,6 +412,12 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 		return nil
 	}
 	switch f := f.(type) {
+	case core.RequestCards:
+		m.conn.Cards()
+	case core.SendCardOp:
+		m.conn.CardOp(f.Card, f.Op)
+	case core.SendCardTrust:
+		m.conn.CardTrust(f.Card, f.Rev, f.SHA256)
 	case core.AnswerPermission:
 		m.conn.Answer(f)
 	case core.InsertInput:
@@ -443,12 +450,6 @@ func (m *Model) sessionEffect(session string, f core.Effect) bool {
 		m.conn.Resolve(session, f.Ref)
 	case core.SendTrust:
 		m.conn.Trust(session, f.Path, f.Version, f.SHA256)
-	case core.RequestCards:
-		m.conn.Cards(session)
-	case core.SendCardOp:
-		m.conn.CardOp(session, f.Card, f.Op)
-	case core.SendCardTrust:
-		m.conn.CardTrust(session, f.Card, f.Rev, f.SHA256)
 	default:
 		return false
 	}
@@ -464,14 +465,14 @@ func (m *Model) sessionEffect(session string, f core.Effect) bool {
 // the top row and ends one row short of the bottom, and a print scrolls
 // it down there.
 func (m *Model) print(now time.Time) tea.Cmd {
-	if !m.core.Ready || m.printing || m.alt || m.back || m.core.Transcript.Open {
+	if !m.one.State.Ready || m.printing || m.alt || m.back || m.one.State.Transcript.Open {
 		return nil
 	}
 	f := m.frame(now)
 	lines := f.Print
 	if len(lines) > 0 {
-		m.core, _ = core.Reduce(m.core, core.Printed{At: now, Upto: f.PrintTo})
-		if m.core.Printed != f.PrintTo {
+		m.one, _ = core.ReduceSingle(m.one, core.Printed{At: now, Upto: f.PrintTo})
+		if m.one.State.Printed != f.PrintTo {
 			lines = nil // the core refused it; printing would duplicate lines
 		}
 	}
@@ -494,7 +495,7 @@ func (m *Model) print(now time.Time) tea.Cmd {
 // tick keeps the status line moving while the agent works, and stops when
 // it is idle, so an idle screen is never redrawn.
 func (m *Model) tick(now time.Time) tea.Cmd {
-	if m.ticking || (m.core.Phase != core.Busy && m.core.Phase != core.Starting && !m.trustArming(now)) {
+	if m.ticking || (m.one.State.Phase != core.Busy && m.one.State.Phase != core.Starting && !m.trustArming(now)) {
 		return nil
 	}
 	m.ticking = true
@@ -504,7 +505,7 @@ func (m *Model) tick(now time.Time) tea.Cmd {
 // trustArming says a trust confirmation is waiting out its delay, so the
 // pane must redraw when it arms.
 func (m *Model) trustArming(now time.Time) bool {
-	since, ok := core.TrustSince(m.core)
+	since, ok := core.TrustSince(m.one.App, m.one.State)
 	return ok && now.Sub(since) < core.ArmDelay+tickEvery
 }
 
@@ -514,11 +515,11 @@ func (m *Model) trustArming(now time.Time) bool {
 func (m Model) width() int { return max(m.w-1, 1) }
 
 func (m Model) frame(now time.Time) render.Frame {
-	return render.View(m.core, m.input.View(), NewlineHint(m.caps), now, m.width(), max(m.h, 2))
+	return render.View(m.one, m.input.View(), NewlineHint(m.caps), now, m.width(), max(m.h, 2))
 }
 
 func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
-	return render.TranscriptView(m.core, now, m.width(), max(m.h, 2))
+	return render.TranscriptView(m.one.State, now, m.width(), max(m.h, 2))
 }
 
 func (m Model) View() tea.View {
@@ -533,7 +534,7 @@ func (m Model) View() tea.View {
 	}
 	f := m.frame(time.Now())
 	v := tea.NewView(f.Content)
-	if c := m.input.Cursor(); c != nil && len(m.core.Asks) == 0 && !m.core.Pane.Focus && !m.core.Help {
+	if c := m.input.Cursor(); c != nil && len(m.one.State.Asks) == 0 && !m.one.App.PaneFocus && !m.one.State.Help {
 		c.Position.X += f.InputX
 		c.Position.Y += f.InputY
 		v.Cursor = c

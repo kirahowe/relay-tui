@@ -291,7 +291,7 @@ func TestStatusAsking(t *testing.T) {
 	s := busyState()
 	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1}})
 	s, _ = Reduce(s, LabelsSeen{At: t0, Labels: Labels{Private: true, Contaminated: true}})
-	l := Status(s, t0.Add(time.Minute))
+	l := Status(App{}, s, t0.Add(time.Minute))
 	if l.Kind != StatusAsking || l.Quiet != 0 || l.Asks != 1 || l.Labels != (Labels{Private: true, Contaminated: true}) {
 		t.Fatalf("%+v", l)
 	}

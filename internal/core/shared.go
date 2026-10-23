@@ -87,7 +87,6 @@ func (r *reducer) shared(e Event) {
 			s.Phase = Idle
 			s.Embedded = e.Embedded
 			r.refresh()
-			r.askCards()
 			r.sendQueue(e.At)
 		}
 	case Settled:

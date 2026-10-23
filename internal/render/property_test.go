@@ -211,7 +211,7 @@ func TestWidthBound(t *testing.T) {
 			s, _ = core.Reduce(s, core.Usage{At: t0, Used: rapid.Uint64().Draw(t, "used"), Size: rapid.Uint64().Draw(t, "size")})
 		}
 		input := truncate("› "+oneLine(text), InputWidth(width))
-		f := View(s, input, text, now, width, height)
+		f := View(core.Single{State: s}, input, text, now, width, height)
 		view := strings.Split(f.Content, "\n")
 		checkWidth(t, "view", view, width)
 		if len(view) != max(height-1, 1) {
@@ -390,7 +390,7 @@ func TestFramePrintsTranscriptOnce(t *testing.T) {
 			}
 			height := rapid.IntRange(1, 30).Draw(t, "height")
 			input := strings.Repeat("› x\n", rapid.IntRange(0, 6).Draw(t, "inputRows")) + "› x"
-			f := View(s, input, "", t0, width, height)
+			f := View(core.Single{State: s}, input, "", t0, width, height)
 			printed = append(printed, f.Print...)
 			s, _ = core.Reduce(s, core.Printed{At: t0, Upto: f.PrintTo})
 			if s.Printed != f.PrintTo {

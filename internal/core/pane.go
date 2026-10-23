@@ -116,7 +116,9 @@ type TrustPrompt struct {
 	Sent  bool
 }
 
-// Pane is the workspace pane's state.
+// Pane is a conversation's part of the workspace pane: its items, and
+// where the operator is among them. The board, which view the pane shows
+// and whether it has the keys are the app's (App).
 type Pane struct {
 	// Relay says relay answered _relay/items: Server is then the whole
 	// list. Unavailable says it did not, so the pane falls back to Local,
@@ -130,7 +132,6 @@ type Pane struct {
 	// or trusted in this run, sorted. It only grows.
 	Domains []string
 
-	Focus  bool // keys go to the pane; on a narrow screen it is on screen
 	Detail bool // the selected item fills the pane
 	Sel    int
 	SelKey string
@@ -142,8 +143,6 @@ type Pane struct {
 	Command string
 	// Failure is an error relay gave, shown escaped.
 	Failure string
-	// Board is the board view.
-	Board Board
 }
 
 // PaneItems is the items the pane lists, newest first.
@@ -424,10 +423,10 @@ func (r *reducer) proposalAsked(pm Permission) {
 // just put there, unless the operator is working in the pane.
 func (r *reducer) showItems() {
 	p := &r.s.Pane
-	if p.Focus || p.Board.Items {
+	if !r.shown || r.a.PaneFocus || r.a.Board.Items {
 		return
 	}
-	p.Board.Items, p.Detail, p.Scroll = true, false, 0
+	r.a.Board.Items, p.Detail, p.Scroll = true, false, 0
 }
 
 // proposalAnswered sets the status of the proposal for request id.
@@ -543,16 +542,22 @@ func (r *reducer) paneKey(e PaneKey) {
 		}
 		p.Trust, p.Message, p.Failure, p.Command = nil, "", "", ""
 		// An open input stays, so ctrl+x away and back keeps what was typed.
-		p.Board.Confirm, p.Board.Message, p.Board.Failure = 0, "", ""
-		p.Focus = !p.Focus
-		if p.Focus {
+		// A trust of a card not yet sent goes, as a doc's does: the operator
+		// asks again on purpose.
+		b := &r.a.Board
+		b.Confirm, b.Message, b.Failure = 0, "", ""
+		if b.Trust != nil && !b.Trust.Sent {
+			b.Trust = nil
+		}
+		r.a.PaneFocus = !r.a.PaneFocus
+		if r.a.PaneFocus {
 			r.selectIndex(max(SelectedIndex(*s), 0))
 		} else {
 			p.Detail, p.Scroll = false, 0
 		}
 		return
 	}
-	if !p.Focus || len(s.Asks) > 0 {
+	if !r.a.PaneFocus || len(s.Asks) > 0 {
 		return
 	}
 	if t := p.Trust; t != nil {
@@ -569,7 +574,7 @@ func (r *reducer) paneKey(e PaneKey) {
 		}
 		return
 	}
-	if !p.Board.Items {
+	if !r.a.Board.Items {
 		r.boardKey(e)
 		return
 	}
@@ -606,7 +611,7 @@ func (r *reducer) paneKey(e PaneKey) {
 		if p.Detail {
 			p.Detail, p.Scroll = false, 0
 		} else {
-			p.Focus = false
+			r.a.PaneFocus = false
 		}
 	case PaneTrust:
 		r.startTrust(e.At, i)

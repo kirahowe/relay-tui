@@ -302,33 +302,31 @@ func (a *Agent) Trust(session, path, version, sha string) {
 	})
 }
 
-// Cards asks relay for the board and emits CardsLoaded. It does not
+// Cards asks relay for the board and emits CardsLoaded. The board is the
+// connection's, so the answer is about no conversation. It does not
 // block.
-func (a *Agent) Cards(session string) {
-	id := a.sid(session)
+func (a *Agent) Cards() {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCards, wire.CardsParams(id))
-		a.emit(a.route(id, wire.Cards(raw, err, time.Now())))
+		raw, err := a.call(wire.MethodCards, wire.CardsParams(a.session))
+		a.emit(wire.Cards(raw, err, time.Now()))
 	})
 }
 
 // CardOp sends relay an op on a card and emits CardOpDone. It does not
 // block.
-func (a *Agent) CardOp(session string, card int64, op core.CardOp) {
-	id := a.sid(session)
+func (a *Agent) CardOp(card int64, op core.CardOp) {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCardOp, wire.CardOpParams(id, card, op))
-		a.emit(a.route(id, wire.CardOpOutcome(card, raw, err, time.Now())))
+		raw, err := a.call(wire.MethodCardOp, wire.CardOpParams(a.session, card, op))
+		a.emit(wire.CardOpOutcome(card, raw, err, time.Now()))
 	})
 }
 
 // CardTrust asks relay to trust a card at the rev and digest the operator
 // was shown, and emits CardTrustDone. It does not block.
-func (a *Agent) CardTrust(session string, card, rev int64, sha string) {
-	id := a.sid(session)
+func (a *Agent) CardTrust(card, rev int64, sha string) {
 	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(id, card, rev, sha))
-		a.emit(a.route(id, wire.CardTrustOutcome(card, raw, err, time.Now())))
+		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(a.session, card, rev, sha))
+		a.emit(wire.CardTrustOutcome(card, raw, err, time.Now()))
 	})
 }
 

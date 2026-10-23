@@ -25,7 +25,7 @@ func TestStatusTotal(t *testing.T) {
 		now := laterThan(t, steps)
 		for i, st := range steps {
 			s := st.after
-			l := Status(s, now)
+			l := Status(App{}, s, now)
 			if (l.Kind == StatusIdle) != (s.Phase == Idle) {
 				t.Fatalf("step %d: kind %v in phase %v", i, l.Kind, s.Phase)
 			}
@@ -52,10 +52,10 @@ func TestElapsedMonotonic(t *testing.T) {
 		steps := genSession(t)
 		s := final(steps)
 		now := laterThan(t, steps)
-		prev := Status(s, now)
+		prev := Status(App{}, s, now)
 		for range 20 {
 			now = now.Add(time.Duration(rapid.IntRange(0, 20000).Draw(t, "stepMs")) * time.Millisecond)
-			l := Status(s, now)
+			l := Status(App{}, s, now)
 			if l.Elapsed < prev.Elapsed || l.Quiet < prev.Quiet {
 				t.Fatalf("at %v: %+v after %+v", now, l, prev)
 			}
@@ -69,29 +69,29 @@ func TestStatusPrecedence(t *testing.T) {
 	running := Running
 	s := busy()
 	s, _ = Reduce(s, ThoughtChunk{At: t0, Text: "hm"})
-	if k := Status(s, t0).Kind; k != StatusThinking {
+	if k := Status(App{}, s, t0).Kind; k != StatusThinking {
 		t.Fatalf("kind %v, want thinking", k)
 	}
 	s, _ = Reduce(s, ToolStarted{At: t0, ID: "c1", Title: "echo"})
-	if k := Status(s, t0).Kind; k != StatusWaiting {
+	if k := Status(App{}, s, t0).Kind; k != StatusWaiting {
 		t.Fatalf("kind %v, want waiting for a pending tool", k)
 	}
 	s, _ = Reduce(s, ToolUpdated{At: t0, ID: "c1", Status: &running})
-	if l := Status(s, t0); l.Kind != StatusRunning || l.Tool != "echo" {
+	if l := Status(App{}, s, t0); l.Kind != StatusRunning || l.Tool != "echo" {
 		t.Fatalf("%+v, want running echo", l)
 	}
 	s, _ = Reduce(s, Notice{At: t0, Severity: "warning", Title: "rate limited", RetryAt: &retryAt})
-	if l := Status(s, t0.Add(time.Second)); l.Kind != StatusRetrying || l.RetryIn != 9*time.Second {
+	if l := Status(App{}, s, t0.Add(time.Second)); l.Kind != StatusRetrying || l.RetryIn != 9*time.Second {
 		t.Fatalf("%+v, want retrying in 9s", l)
 	}
-	if k := Status(s, retryAt).Kind; k != StatusRunning {
+	if k := Status(App{}, s, retryAt).Kind; k != StatusRunning {
 		t.Fatalf("kind %v once the retry time has passed", k)
 	}
 	s, _ = Reduce(s, Interrupt{At: t0})
-	if k := Status(s, t0).Kind; k != StatusCancelling {
+	if k := Status(App{}, s, t0).Kind; k != StatusCancelling {
 		t.Fatalf("kind %v, want cancelling", k)
 	}
-	if l := Status(s, t0.Add(QuietAfter)); l.Quiet != QuietAfter {
+	if l := Status(App{}, s, t0.Add(QuietAfter)); l.Quiet != QuietAfter {
 		t.Fatalf("quiet %v", l.Quiet)
 	}
 }

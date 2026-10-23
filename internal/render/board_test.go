@@ -34,24 +34,24 @@ var (
 		Text: "Card 1870: Moves (kanban) [[card:1870]]\nTodo: pack\nDone: book van"}
 )
 
-func boardState(focus bool, cards ...core.Card) core.State {
-	s := core.State{Phase: core.Idle, Ready: true}
-	s.Pane.Focus = focus
-	s.Pane.Board = core.Board{Asked: true, Loaded: true, Rev: 1900, Cards: cards}
+func boardState(focus bool, cards ...core.Card) core.Single {
+	s := core.Single{App: core.App{Live: true}, State: core.State{Phase: core.Idle, Ready: true}}
+	s.PaneFocus = focus
+	s.Board = core.Board{Asked: true, Loaded: true, Rev: 1900, Cards: cards}
 	if len(cards) > 0 {
-		s.Pane.Board.SelID = cards[0].ID
+		s.Board.SelID = cards[0].ID
 	}
 	return s
 }
 
-func detail(s core.State, id int64, line, col int) core.State {
-	s.Pane.Board.SelID, s.Pane.Board.Detail, s.Pane.Board.Line, s.Pane.Board.Col = id, true, line, col
+func detail(s core.Single, id int64, line, col int) core.Single {
+	s.Board.SelID, s.Board.Detail, s.Board.Line, s.Board.Col = id, true, line, col
 	return s
 }
 
 func TestBoardGolden(t *testing.T) {
 	all := boardState(true, cardTracker, cardChecklist, cardNote, cardUnknown)
-	cases := map[string]core.State{
+	cases := map[string]core.Single{
 		"list":      all,
 		"tracker":   detail(all, 1840, 1, 2),
 		"checklist": detail(all, 1851, 2, 0),
@@ -59,23 +59,23 @@ func TestBoardGolden(t *testing.T) {
 		"unknown":   detail(all, 1870, 0, 0),
 	}
 	sending := detail(all, 1851, 1, 0)
-	sending.Pane.Board.Sending = 1851
+	sending.Board.Sending = 1851
 	cases["sending"] = sending
 	refused := detail(all, 1851, 1, 0)
-	refused.Pane.Board.Message, refused.Pane.Board.Failure = "Refused.", "Item 9 is not on card 1851."
+	refused.Board.Message, refused.Board.Failure = "Refused.", "Item 9 is not on card 1851."
 	cases["refused"] = refused
 	input := detail(all, 1851, 3, 0)
-	input.Pane.Board.Input = &core.BoardInput{Card: 1851, Op: core.CardOp{Op: "edit"}, Prompt: "item 3", Text: "Import"}
+	input.Board.Input = &core.BoardInput{Card: 1851, Op: core.CardOp{Op: "edit"}, Prompt: "item 3", Text: "Import"}
 	cases["input"] = input
 	confirm := all
-	confirm.Pane.Board.Confirm = 1840
+	confirm.Board.Confirm = 1840
 	cases["confirm"] = confirm
 	none := boardState(true)
-	none.Pane.Board.Unavailable, none.Pane.Board.Loaded = true, false
+	none.Board.Unavailable, none.Board.Loaded = true, false
 	cases["no_board"] = none
 	for name, s := range cases {
 		t.Run(name, func(t *testing.T) {
-			goldenLines(t, PaneLines(s, t0, 44, 26))
+			goldenLines(t, PaneLines(s.App, s.State, t0, 44, 26))
 		})
 	}
 }
@@ -98,7 +98,8 @@ func TestWideTrackerWraps(t *testing.T) {
 	for i := range 24 {
 		c.Columns = append(c.Columns, core.CardElem{ID: i + 1, CardText: ct("M" + string(rune('a'+i)))})
 	}
-	lines := PaneLines(detail(boardState(true, c), c.ID, 1, 23), t0, 40, 30)
+	s := detail(boardState(true, c), c.ID, 1, 23)
+	lines := PaneLines(s.App, s.State, t0, 40, 30)
 	for _, l := range lines {
 		if ansi.StringWidth(l) > 40 {
 			t.Fatalf("line %q too wide", l)
@@ -120,8 +121,8 @@ func TestOutsiderTextIsMarked(t *testing.T) {
 		c.Title = core.CardText{Text: text, Outsider: true}
 		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
 		w := rapid.IntRange(30, 70).Draw(t, "width")
-		for _, s := range []core.State{boardState(true, c), detail(boardState(true, c), c.ID, 1, 0)} {
-			lines := PaneLines(s, t0, w, 30)
+		for _, s := range []core.Single{boardState(true, c), detail(boardState(true, c), c.ID, 1, 0)} {
+			lines := PaneLines(s.App, s.State, t0, w, 30)
 			plain := ansi.Strip(strings.Join(lines, "\n"))
 			if !strings.Contains(plain, "outside text") {
 				t.Fatalf("the footer does not say so:\n%s", plain)
@@ -183,7 +184,7 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 			cards = append(cards, genBoardCard(t, int64(i+1)))
 		}
 		s := boardState(rapid.Bool().Draw(t, "focus"), cards...)
-		b := &s.Pane.Board
+		b := &s.Board
 		if len(cards) > 0 {
 			b.SelID = rapid.Int64Range(0, int64(len(cards))).Draw(t, "sel")
 			b.Detail = rapid.Bool().Draw(t, "detail")
@@ -196,7 +197,7 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 		b.Unavailable = rapid.IntRange(0, 9).Draw(t, "unavailable") == 0
 		w := rapid.IntRange(1, 70).Draw(t, "width")
 		h := rapid.IntRange(0, 40).Draw(t, "height")
-		lines := PaneLines(s, t0, w, h)
+		lines := PaneLines(s.App, s.State, t0, w, h)
 		if len(lines) != h {
 			t.Fatalf("%d lines, want %d", len(lines), h)
 		}
@@ -224,26 +225,26 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 // list and in each card, and no r where it would do nothing.
 func TestBoardHintsNameTheKeys(t *testing.T) {
 	all := boardState(true, cardTracker, cardChecklist, cardNote)
-	views := map[string]core.State{
+	views := map[string]core.Single{
 		"list":      all,
 		"tracker":   detail(all, 1840, 1, 0),
 		"checklist": detail(all, 1851, 1, 0),
 		"note":      detail(all, 1860, 0, 0),
 	}
 	for name, s := range views {
-		foot := strings.Join(PaneLines(s, t0, 200, 26), " ")
+		foot := strings.Join(PaneLines(s.App, s.State, t0, 200, 26), " ")
 		for _, want := range []string{"r reload", "b workspace", "X archive"} {
 			if !strings.Contains(ansi.Strip(foot), want) {
 				t.Errorf("%s: no %q in %q", name, want, ansi.Strip(foot))
 			}
 		}
 	}
-	if foot := ansi.Strip(strings.Join(PaneLines(all, t0, 200, 26), " ")); !strings.Contains(foot, "e retitle") {
+	if foot := ansi.Strip(strings.Join(PaneLines(all.App, all.State, t0, 200, 26), " ")); !strings.Contains(foot, "e retitle") {
 		t.Errorf("list: no e retitle in %q", foot)
 	}
 	none := boardState(true)
-	none.Pane.Board.Unavailable, none.Pane.Board.Loaded = true, false
-	if foot := ansi.Strip(strings.Join(PaneLines(none, t0, 200, 26), " ")); strings.Contains(foot, "r reload") {
+	none.Board.Unavailable, none.Board.Loaded = true, false
+	if foot := ansi.Strip(strings.Join(PaneLines(none.App, none.State, t0, 200, 26), " ")); strings.Contains(foot, "r reload") {
 		t.Errorf("no board offers r: %q", foot)
 	}
 }

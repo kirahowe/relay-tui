@@ -123,8 +123,17 @@ func TestTheBoardIsTheDefaultAndACardAddedInATurnShows(t *testing.T) {
 	}
 }
 
+// A plain ACP agent answers _relay/cards method-not-found: the pane falls
+// back to the conversation's items, and the chat works as ever.
 func TestBoardWithoutRelay(t *testing.T) {
 	h := start(t, "simple.jsonl", 140, 30)
+	h.waitScreen("the items", func(s string) bool { return strings.Contains(s, "Workspace 0") })
+	if calls := h.extensionCalls("_relay/cards"); len(calls) != 1 {
+		t.Errorf("cards calls %q", calls)
+	}
+	h.keys("hi\r")
+	h.waitIdle()
+	h.waitScreen("the reply", func(s string) bool { return strings.Contains(s, "Hello there.") })
 	h.keys(ctrlX)
 	h.keys("b")
 	h.waitScreen("no board", func(s string) bool { return strings.Contains(s, "This agent has no board.") })

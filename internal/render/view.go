@@ -48,7 +48,8 @@ type Frame struct {
 //
 // With s.Help the list of keys takes the transcript's place, unless a
 // permission request waits.
-func View(s core.State, input, hint string, now time.Time, width, height int) Frame {
+func View(x core.Single, input, hint string, now time.Time, width, height int) Frame {
+	a, s := x.App, x.State
 	help := func(w int) func(room int) []string {
 		if !s.Help || len(s.Asks) > 0 {
 			return nil
@@ -56,33 +57,33 @@ func View(s core.State, input, hint string, now time.Time, width, height int) Fr
 		return func(room int) []string { return HelpLines(w, room) }
 	}
 	if Side(width) {
-		f := view(s, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
+		f := view(a, s, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
 		rows := max(height-1, 1)
-		pane, mx := paneRender(s, now, PaneWidth(width), rows)
+		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
 		f.DetailMax = mx
 		return f
 	}
 	if h := help(width); h != nil {
-		return view(s, input, hint, now, width, height, h, true)
+		return view(a, s, input, hint, now, width, height, h, true)
 	}
-	if s.Pane.Focus {
+	if a.PaneFocus {
 		mx := 0
-		f := view(s, input, hint, now, width, height, func(room int) []string {
+		f := view(a, s, input, hint, now, width, height, func(room int) []string {
 			var lines []string
-			lines, mx = paneRender(s, now, width, room)
+			lines, mx = paneRender(a, s, now, width, room)
 			return lines
 		}, true)
 		f.DetailMax = mx
 		return f
 	}
-	return view(s, input, hint, now, width, height, nil, true)
+	return view(a, s, input, hint, now, width, height, nil, true)
 }
 
 // view lays out the frame at width. over, when set, draws the rows
 // the transcript would have had; paneHint says the status line names the
 // pane's key.
-func view(s core.State, input, hint string, now time.Time, width, height int, over func(room int) []string, paneHint bool) Frame {
+func view(a core.App, s core.State, input, hint string, now time.Time, width, height int, over func(room int) []string, paneHint bool) Frame {
 	lines, at := transcript(s, width, now)
 
 	var bottom []string
@@ -114,7 +115,7 @@ func view(s core.State, input, hint string, now time.Time, width, height int, ov
 		}
 		bottom = append(bottom, box("", inputLines, width)...)
 	}
-	st := core.Status(s, now)
+	st := core.Status(a, s, now)
 	st.PaneHint = paneHint && st.PaneItems > 0 // with nothing to see, the status line stays as it was
 	bottom = append(bottom, StatusText(st, hint, now, width))
 

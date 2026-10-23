@@ -115,7 +115,7 @@ func (r *reducer) pasted(e Pasted) {
 // inputInPlay says the input box has the keys.
 func (r *reducer) inputInPlay() bool {
 	s := &r.s
-	return !(s.Phase == Exited || len(s.Asks) > 0 || s.Pane.Focus || (s.Transcript.Open && !s.Shared))
+	return !(s.Phase == Exited || len(s.Asks) > 0 || r.a.PaneFocus || (s.Transcript.Open && !s.Shared))
 }
 
 // trustPaste marks the latest paste still in the draft as trusted and has

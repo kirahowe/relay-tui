@@ -303,7 +303,8 @@ type State struct {
 	NextPaste int
 	// Message is a word for the status line that shows for a few seconds.
 	Message Message
-	// Pane is the workspace pane.
+	// Pane is the conversation's part of the workspace pane: its items.
+	// The board, and whether the pane has the keys, are the app's.
 	Pane Pane
 	// Transcript is the full-screen view; Help says the list of keys
 	// shows.
@@ -318,30 +319,13 @@ type State struct {
 	Shared bool
 }
 
-// Reduce applies one event. It never mutates s's slices in place, so a
-// caller may keep the old state.
-func Reduce(s State, e Event) (State, []Effect) {
-	s.Entries = append([]Entry(nil), s.Entries...)
-	for i := range s.Entries {
-		if !s.Entries[i].Final { // a final entry's calls never change
-			s.Entries[i].Calls = append([]Call(nil), s.Entries[i].Calls...)
-		}
-	}
-	s.Queue = append([]string(nil), s.Queue...)
-	s.Asks = append([]Permission(nil), s.Asks...)
-	s.Pastes = append([]Paste(nil), s.Pastes...)
-	s.Pane.Server = append([]Item(nil), s.Pane.Server...)
-	s.Pane.Local = append([]Item(nil), s.Pane.Local...)
-	s.Pane.Cites = append([]Citation(nil), s.Pane.Cites...)
-	s.Pane.Board.Cards = append([]Card(nil), s.Pane.Board.Cards...)
-	r := &reducer{s: s}
-	r.apply(e)
-	return r.s, r.fx
-}
-
+// reducer applies an event to a conversation, s, and the app around it,
+// a. shown says the conversation is on screen (see reduce).
 type reducer struct {
-	s  State
-	fx []Effect
+	s     State
+	a     App
+	shown bool
+	fx    []Effect
 }
 
 func (r *reducer) emit(e Effect) { r.fx = append(r.fx, e) }
@@ -356,6 +340,8 @@ func (r *reducer) apply(e Event) {
 			s.Agent = e.Agent
 			r.add(banner(s.Title, e))
 			r.refresh()
+			// The session exists, so the board can be asked for.
+			r.a.Live = true
 			r.askCards()
 			r.sendQueue(e.At)
 		}
@@ -419,6 +405,7 @@ func (r *reducer) apply(e Event) {
 			r.endTurn(e.At, false, "error: "+e.Message)
 		}
 	case AgentExited:
+		r.a.Live = false
 		if s.Phase != Exited {
 			r.cancelAsks()
 			r.closeAll()

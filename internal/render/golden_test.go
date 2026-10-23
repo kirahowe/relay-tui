@@ -138,7 +138,7 @@ func TestViewGolden(t *testing.T) {
 	for name, s := range cases {
 		t.Run(name, func(t *testing.T) {
 			for _, w := range []int{60, 40} {
-				f := View(s, input, "ctrl+j for a new line", now, w, 16)
+				f := View(core.Single{State: s}, input, "ctrl+j for a new line", now, w, 16)
 				t.Run(strconv.Itoa(w), func(t *testing.T) { requireGolden(t, f.Content) })
 			}
 		})
@@ -178,11 +178,11 @@ func scrollback(events []core.Event, width int) string {
 	var out []string
 	for _, e := range events {
 		s, _ = core.Reduce(s, e)
-		f := View(s, "› ", "", t0, width, 24)
+		f := View(core.Single{State: s}, "› ", "", t0, width, 24)
 		out = append(out, f.Print...)
 		s, _ = core.Reduce(s, core.Printed{At: t0, Upto: f.PrintTo})
 	}
-	return strings.Join(out, "\n") + "\n" + strings.Repeat("~", 20) + "\n" + View(s, "› ", "", t0, width, 24).Content
+	return strings.Join(out, "\n") + "\n" + strings.Repeat("~", 20) + "\n" + View(core.Single{State: s}, "› ", "", t0, width, 24).Content
 }
 
 func TestBannerGolden(t *testing.T) {
@@ -226,7 +226,7 @@ func TestPermissionGolden(t *testing.T) {
 			s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
 			s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: p})
 			for _, w := range []int{60, 30} {
-				f := View(s, "› ", "", t0.Add(time.Second), w, 24)
+				f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), w, 24)
 				t.Run(strconv.Itoa(w), func(t *testing.T) { requireGolden(t, f.Content) })
 			}
 		})
@@ -281,7 +281,7 @@ func TestTranscriptGolden(t *testing.T) {
 	}
 	t.Run("inline_help", func(t *testing.T) {
 		s.Transcript, s.Help = core.Transcript{}, true
-		requireGolden(t, View(s, "› ", "ctrl+j for a new line", t0, 60, 18).Content)
+		requireGolden(t, View(core.Single{State: s}, "› ", "ctrl+j for a new line", t0, 60, 18).Content)
 	})
 }
 

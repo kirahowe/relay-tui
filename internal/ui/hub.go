@@ -173,7 +173,7 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 	// Scrolling is never the request's: a long one is read by scrolling to
 	// what `v` put in the transcript. Only the approval keys are its. The
 	// workspace pane, when it has the focus, scrolls itself with these.
-	if !st.Pane.Focus {
+	if !m.hub.App.PaneFocus {
 		switch k.String() {
 		case "pgup":
 			return one(m.scroll(core.TranscriptPageUp, now))
@@ -188,8 +188,8 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 		return nil, nil
 	}
 	empty := m.input.Value() == ""
-	if st.Pane.Focus {
-		if e := paneEvent(st, k, empty, now, func() int { return m.hubFrame(now).DetailMax }); e != nil {
+	if m.hub.App.PaneFocus {
+		if e := paneEvent(m.hub.App, st, k, empty, now, func() int { return m.hubFrame(now).DetailMax }); e != nil {
 			return one(e)
 		}
 		return nil, nil
@@ -267,15 +267,16 @@ func (m *Model) hubTick(now time.Time) tea.Cmd {
 		return nil
 	}
 	busy := false
+	st := m.focusedState()
 	if c := m.hub.Focused(); c != nil && !m.hub.List {
-		st := c.State
 		busy = st.Phase == core.Busy || st.Phase == core.Starting
 		if r := m.hub.RoleByID(m.hub.Focus); r != nil && r.Conv != nil && r.Conv.Turn == core.TurnRunning {
 			busy = true
 		}
-		if since, ok := core.TrustSince(st); ok && now.Sub(since) < core.ArmDelay+tickEvery {
-			busy = true
-		}
+	}
+	// A card's trust arms with no conversation open, too.
+	if since, ok := core.TrustSince(m.hub.App, st); ok && now.Sub(since) < core.ArmDelay+tickEvery {
+		busy = true
 	}
 	if !busy {
 		return nil

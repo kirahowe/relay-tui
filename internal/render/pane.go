@@ -355,18 +355,18 @@ type parts struct {
 	keys string
 }
 
-func paneParts(s core.State, now time.Time, width int) parts {
+func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 	p := s.Pane
-	if !p.Board.Items {
-		return boardParts(s, now, width)
+	if !a.Board.Items {
+		return boardParts(a, s, now, width)
 	}
 	items := core.PaneItems(s)
 	var pr parts
 	other := ""
-	if hasBoard(p.Board) {
-		other = fmt.Sprintf("board %d", len(p.Board.Cards))
+	if hasBoard(a.Board) {
+		other = fmt.Sprintf("board %d", len(a.Board.Cards))
 	}
-	pr.head = paneHead("Workspace", len(items), other, p.Focus, width)
+	pr.head = paneHead("Workspace", len(items), other, a.PaneFocus, width)
 
 	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 	sel := core.SelectedIndex(s)
@@ -395,7 +395,7 @@ func paneParts(s core.State, now time.Time, width int) parts {
 			if i == sel {
 				pr.selA = len(pr.body)
 			}
-			pr.body = append(pr.body, listBlock(s, it, p.Focus && i == sel, width)...)
+			pr.body = append(pr.body, listBlock(s, it, a.PaneFocus && i == sel, width)...)
 			if i == sel {
 				pr.selB = len(pr.body)
 			}
@@ -410,9 +410,9 @@ func paneParts(s core.State, now time.Time, width int) parts {
 			}
 		}
 		switch {
-		case p.Focus:
+		case a.PaneFocus:
 			pr.keys = "↑↓ select · enter open · t trust · b board · esc back"
-		case hasBoard(p.Board):
+		case hasBoard(a.Board):
 			pr.keys = PaneKey + " to focus, then b for the board"
 		default:
 			pr.keys = PaneKey + " to focus"
@@ -569,8 +569,8 @@ func trustBody(s core.State, width int) []string {
 // paneRender draws the pane exactly height lines tall and no wider than
 // width, and says how far its detail view can scroll. Its key hints are
 // its last rows.
-func paneRender(s core.State, now time.Time, width, height int) ([]string, int) {
-	pr := paneParts(s, now, max(width, 1))
+func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]string, int) {
+	pr := paneParts(a, s, now, max(width, 1))
 	if pr.keys != "" {
 		pr.foot = append(pr.foot, wrap(styleKeys(pr.keys), max(width, 1))...)
 	}
@@ -579,8 +579,8 @@ func paneRender(s core.State, now time.Time, width, height int) ([]string, int) 
 
 // paneRenderKeys draws the pane without its key hints, and gives them
 // back for the screen's row of hints.
-func paneRenderKeys(s core.State, now time.Time, width, height int) ([]string, int, string) {
-	pr := paneParts(s, now, max(width, 1))
+func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) ([]string, int, string) {
+	pr := paneParts(a, s, now, max(width, 1))
 	lines, mx := paneDraw(s, pr, width, height)
 	return lines, mx, pr.keys
 }
@@ -635,7 +635,7 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 }
 
 // PaneLines is the pane drawn at width and height.
-func PaneLines(s core.State, now time.Time, width, height int) []string {
-	lines, _ := paneRender(s, now, width, height)
+func PaneLines(a core.App, s core.State, now time.Time, width, height int) []string {
+	lines, _ := paneRender(a, s, now, width, height)
 	return lines
 }

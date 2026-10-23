@@ -74,19 +74,19 @@ func TestTranscriptScrollStaysInRange(t *testing.T) {
 // A paste that goes nowhere is dropped whole, and nothing is left behind
 // for a later one to inherit.
 func TestDroppedPasteLeavesNothing(t *testing.T) {
-	cases := map[string]func(State) State{
-		"transcript": func(s State) State { s, _ = Reduce(s, ShowTools{At: t0}); return s },
-		"pane":       func(s State) State { s.Pane.Focus = true; return s },
-		"request": func(s State) State {
-			s, _ = Reduce(s, Submit{At: t0, Text: "a"})
-			s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Options: []PermOption{{ID: "allow", Kind: AllowOnce}}}})
+	cases := map[string]func(Single) Single{
+		"transcript": func(s Single) Single { s, _ = ReduceSingle(s, ShowTools{At: t0}); return s },
+		"pane":       func(s Single) Single { s.PaneFocus = true; return s },
+		"request": func(s Single) Single {
+			s, _ = ReduceSingle(s, Submit{At: t0, Text: "a"})
+			s, _ = ReduceSingle(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Options: []PermOption{{ID: "allow", Kind: AllowOnce}}}})
 			return s
 		},
 	}
 	for name, away := range cases {
-		s, _ := run(Connected{At: t0, Embedded: true})
+		s, _ := feedS(Single{}, Connected{At: t0, Embedded: true})
 		s = away(s)
-		s, fx := Reduce(s, Pasted{At: t0, Text: "dropped"})
+		s, fx := ReduceSingle(s, Pasted{At: t0, Text: "dropped"})
 		if len(s.Pastes) != 0 || len(fx) != 0 {
 			t.Errorf("%s: pastes %v, effects %+v", name, s.Pastes, fx)
 		}

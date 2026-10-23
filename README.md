@@ -165,9 +165,12 @@ trust.
 relay keeps cards: small structured things you work through over days,
 such as a checklist or a tracker of accounts by month. Roles make them.
 The pane shows the board unless something else has come up; b in the
-focused pane switches to it. relay-tui asks relay for the board with `_relay/cards` once the session
-starts, so the pane's header can count the cards from either view
-("board (2) · workspace (0)"). After that relay sends
+focused pane switches to it. The board belongs to the connection, not to
+a conversation: relay-tui asks relay for it with `_relay/cards` once the
+connection is up (against relay's hub, right after `initialize`; against
+a single agent, once its session exists), so the board is there before
+any conversation opens, and the pane's header can count the cards from
+either view ("board (2) · workspace (0)"). After that relay sends
 `_relay/cards/changed` whenever a card changes, here, in a terminal or by
 a role, and the board redraws from what relay sent. An archived card
 leaves the board. Against an agent without relay the board says "This
@@ -212,7 +215,8 @@ Keys on the board:
   relay-tui sends relay the card's rev and the digest relay sent with it
   (`_relay/cards/trust`), so a card that changed in the meantime is not
   trusted. If the card changes while you are being asked, the question
-  closes. relay takes trust only from `relay chat`, which runs with
+  closes, as it does when you leave it: ctrl+x, another role, the list of
+  roles or the list of keys. relay takes trust only from `relay chat`, which runs with
   approvals. Elsewhere the pane names the `relay trust card <id>` command
   to run in a terminal.
 - r asks relay for the board again; b goes back to the workspace items. An agent with
@@ -314,9 +318,14 @@ Keys, besides the usual ones:
   not (relay says so in `initialize`), the view says "relay service not
   running: conversations end when you close this" all the time.
 
-The workspace pane (ctrl+x) and the board (b) belong to the conversation
-in focus. In hub mode the pane covers the conversation rather than
-standing beside it.
+The board is the same whichever role is in focus, with the same card
+selected, and it shows with no conversation open: beside the roles on a
+wide screen, or, once ctrl+x gives the pane the keys, in the
+conversation's place. Its ops and trust work from a role that has no
+conversation, and open none. The workspace items in the pane are the
+focused conversation's own. Moving to another role gives the keys back to
+its conversation. Only the conversation on screen can bring its items
+into view; a display in another one waits there until you look.
 
 relay-tui tells relay the latest turn has been seen (`_relay/seen`) once
 the conversation is attached, on screen, scrolled to its end and idle,
@@ -369,8 +378,13 @@ random sessions. `internal/wire` turns ACP messages into those events, and
 the terminal's own colours and tints blended from them (see The look).
 The terminal's colours are its one input that is not part of the state.
 
-The pane follows the same split. `core` holds its state, the trust
-rules and the board's cards, `wire` reads relay's `_meta`, its
+The client's state comes in two parts. `core.App` is one per
+connection: relay's board, which view the pane shows and whether it has
+the keys. `core.State` is one per conversation: its transcript, input,
+pastes, permission requests and its own pane items. Against a single
+agent `core.Single` holds the app and the one conversation, and
+`core.ReduceSingle` applies an event to both. The pane follows the same
+split. `core` holds its state, the trust rules and the board's cards, `wire` reads relay's `_meta`, its
 `_relay/items`, `_relay/resolve`, `_relay/trust`, `_relay/cards` and
 `_relay/cards/op` answers and its `_relay/cards/changed` notifications,
 and `render` draws it all. The `agent` package makes the calls one at a
@@ -380,13 +394,15 @@ time and in order.
 Tea program. Both are thin code around the core that carries out its
 effects.
 
-Hub mode adds one level above `Reduce`. `core.Hub` holds relay's roster
-as it last sent it, one `State` per conversation (marked `Shared`, so it
+Hub mode adds one level above the conversation. `core.Hub` holds the
+app, relay's roster as it last sent it, one `State` per conversation (marked `Shared`, so it
 takes updates in any phase, since a replay has no end marker and another
 device may be driving the turn) and which role is in focus.
-`core.ReduceHub` hands events for one conversation to `Reduce` and wraps
-the effects with the session they belong to. Every event from the agent
-carries its session id (`core.Routed`). `render.HubView` draws the whole
+`core.ReduceHub` reduces events for one conversation together with the
+app and wraps the effects with the session they belong to. Every event
+from the agent about a conversation carries its session id
+(`core.Routed`); the board's answers and notifications carry none and go
+to the app. `render.HubView` draws the whole
 screen from the hub alone, and the roster is replaced whole each time
 relay sends it, so applying one twice changes nothing.
 

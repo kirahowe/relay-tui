@@ -459,7 +459,7 @@ func TestFailureRestoresQueue(t *testing.T) {
 func TestQueuedTurnStartsWhenThePreviousEnds(t *testing.T) {
 	end := t0.Add(time.Minute)
 	s, _ := run(Connected{At: t0}, Submit{At: t0, Text: "a"}, Submit{At: t0, Text: "b"}, PromptDone{At: end, Stop: EndTurn})
-	if l := Status(s, end.Add(time.Second)); l.Elapsed != time.Second {
+	if l := Status(App{}, s, end.Add(time.Second)); l.Elapsed != time.Second {
 		t.Fatalf("elapsed %v, want 1s", l.Elapsed)
 	}
 }
@@ -575,7 +575,7 @@ func TestSpendIsLastReported(t *testing.T) {
 				last = u.Cost
 			}
 		}
-		got := Status(final(steps), t0).Spend
+		got := Status(App{}, final(steps), t0).Spend
 		if (got == nil) != (last == nil) || (got != nil && *got != *last) {
 			t.Fatalf("spend %v, last reported %v", got, last)
 		}
@@ -593,7 +593,7 @@ func TestContextShare(t *testing.T) {
 				last = &u
 			}
 		}
-		l := Status(final(steps), t0)
+		l := Status(App{}, final(steps), t0)
 		if last == nil || last.Size == 0 {
 			if l.HasContext {
 				t.Fatalf("context shown with no window size: %+v", l)

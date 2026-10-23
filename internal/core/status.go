@@ -56,12 +56,12 @@ type StatusLine struct {
 	NoClock bool
 }
 
-// Status describes s at time now.
-func Status(s State, now time.Time) StatusLine {
+// Status describes conversation s, in app a, at time now.
+func Status(a App, s State, now time.Time) StatusLine {
 	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend, Labels: s.Labels, Asks: len(s.Asks),
 		PaneView: "workspace", PaneItems: len(PaneItems(s))}
-	if !s.Pane.Board.Items {
-		l.PaneView, l.PaneItems = "board", len(s.Pane.Board.Cards)
+	if !a.Board.Items {
+		l.PaneView, l.PaneItems = "board", len(a.Board.Cards)
 	}
 	if u := s.Usage; u != nil && u.Size > 0 {
 		l.HasContext = true

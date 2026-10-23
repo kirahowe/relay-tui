@@ -182,12 +182,15 @@ func parityState() core.State {
 			{Kind: core.Note, Text: "[max tokens]", Final: true},
 		},
 		Pane: core.Pane{Local: []core.Item{{Kind: core.ShownItem, CallID: "1", Title: "Venues near the hall", Text: "body",
-			Labels: core.Labels{Contaminated: true}}}, Board: core.Board{Items: true}},
+			Labels: core.Labels{Contaminated: true}}}},
 	}
 }
 
+// parityApp is an app whose pane shows the conversation's items.
+var parityApp = core.App{Live: true, Board: core.Board{Items: true}}
+
 func hubOf(st core.State) core.Hub {
-	return core.Hub{Connected: true, Focus: "clerk", RosterLoaded: true,
+	return core.Hub{App: parityApp, Connected: true, Focus: "clerk", RosterLoaded: true,
 		Roles: []core.Role{{ID: "clerk", Title: "Clerk"}},
 		Convs: []core.Conv{{Role: "clerk", Session: "s", Attached: true, State: st}}}
 }
@@ -216,7 +219,7 @@ func TestHubConversationShowsWhatTheInlineViewShows(t *testing.T) {
 func TestHubShowsTheDisplayBesideTheConversation(t *testing.T) {
 	st := parityState()
 	st.Entries = st.Entries[:5]
-	inline := ansi.Strip(View(st, "", "", t0, 159, 50).Content)
+	inline := ansi.Strip(View(core.Single{App: parityApp, State: st}, "", "", t0, 159, 50).Content)
 	hub := ansi.Strip(HubView(hubOf(st), "", "", t0, 159, 50).Content)
 	for _, want := range []string{"Venues near the hall", "untrusted"} {
 		if !strings.Contains(inline, want) {
@@ -350,12 +353,12 @@ func TestInlineLongRequestTitleIsBounded(t *testing.T) {
 	s, _ = core.Reduce(s, core.Submit{At: t0, Text: "go"})
 	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: "send_mail", Title: title, Input: `{"a":1}`,
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
-	f := View(s, "› ", "", t0.Add(time.Second), 39, 16)
+	f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 39, 16)
 	got := ansi.Strip(f.Content)
 	if f.TooSmall || !strings.Contains(got, "Allow (y)") || !strings.Contains(got, "Reject (n)") || !strings.Contains(got, "permission needed") {
 		t.Errorf("a 500 character title pushed the request off the screen:\n%s", got)
 	}
-	if f := View(s, "› ", "", t0.Add(time.Second), 39, 5); !f.TooSmall || !strings.Contains(ansi.Strip(f.Content), "too small") {
+	if f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 39, 5); !f.TooSmall || !strings.Contains(ansi.Strip(f.Content), "too small") {
 		t.Errorf("no word that the window is too small:\n%s", ansi.Strip(f.Content))
 	}
 	// v puts the whole title in the transcript.
@@ -496,6 +499,34 @@ func TestHubCursorIsOnTheInput(t *testing.T) {
 			if f.InputX >= len(row) || row[f.InputX] != 'Q' {
 				t.Errorf("%dx%d: cursor at %d,%d is not on the input: %q", w, rows, f.InputX, f.InputY, lines[f.InputY])
 			}
+		}
+	}
+}
+
+// The board shows with no conversation open: beside the list on a wide
+// screen, and in the conversation's place once the pane has the keys.
+func TestHubShowsTheBoardWithNoConversation(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0, Agent: "relay"},
+		core.RosterUpdate{At: t0, Roles: rosterFixture()},
+		core.CardsLoaded{At: t0, Rev: 15, Cards: weekBoard()})
+	if len(h.Convs) != 0 {
+		t.Fatalf("%d conversations", len(h.Convs))
+	}
+	wide := ansi.Strip(HubView(h, "", "", t0, 170, 40).Content)
+	for _, want := range []string{"Board 3", "This week", "Trip prep", "Monthly bills"} {
+		if !strings.Contains(wide, want) {
+			t.Errorf("the board lacks %q with no conversation:\n%s", want, wide)
+		}
+	}
+	// Garden planner has no conversation; the pane takes its place where
+	// it cannot stand beside it.
+	focused := hubStep(h, core.FocusIndex{At: t0, Index: 2}, core.PaneKey{At: t0, Action: core.PaneToggle},
+		core.PaneKey{At: t0, Action: core.PaneDown})
+	for _, w := range []int{60, 100, 170} {
+		got := ansi.Strip(HubView(focused, "", "", t0, w, 40).Content)
+		if !strings.Contains(got, "Trip prep") || !strings.Contains(got, "x tick") && !strings.Contains(got, "enter open") ||
+			w < 170 && strings.Contains(got, "No conversation with") {
+			t.Errorf("%d wide: the board is not in front of the operator:\n%s", w, got)
 		}
 	}
 }
