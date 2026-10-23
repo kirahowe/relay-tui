@@ -104,6 +104,10 @@ type Hub struct {
 	// is the screen.
 	Focus, Last, Cursor string
 	List                bool
+	// PaneFromList says the list gave the pane the keys (ctrl+x), so
+	// leaving the pane gives them back to the list, not to a
+	// conversation. With no role in focus that is the only way in.
+	PaneFromList bool
 	// EndAsk says the operator is being asked to confirm ending Focus's
 	// conversation. Ending says the request is out.
 	EndAsk, Ending bool
@@ -147,6 +151,10 @@ type Blank struct {
 func NewHub(open string) Hub {
 	return Hub{Open: open, List: open == ""}
 }
+
+// PaneShown says the workspace pane has something to show: the
+// conversation in focus, or the board, which needs no conversation.
+func (h Hub) PaneShown() bool { return h.Focused() != nil || !h.App.Board.Unavailable }
 
 // RoleByID is the role with this id, or nil.
 func (h Hub) RoleByID(id string) *Role {
@@ -338,6 +346,7 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	r := &hubReducer{h: h}
 	before, view := h.onScreen(), h.view()
 	r.apply(e)
+	r.backToList()
 	r.adoptBlanks()
 	r.settle(before, e.at())
 	r.keepCardTrust(view)
@@ -489,9 +498,11 @@ func (r *hubReducer) apply(e Event) {
 	case CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
 		r.toApp(e, false)
 	case PaneKey:
-		if !h.List {
-			r.toApp(e, true)
+		if h.List {
+			r.listToPane(e)
+			return
 		}
+		r.toApp(e, true)
 	case Attached:
 		r.attached(e)
 	case Replayed:
@@ -534,6 +545,12 @@ func (r *hubReducer) apply(e Event) {
 			r.focus(h.Last, false, e.At)
 		}
 	case ToggleList:
+		if h.PaneFromList {
+			// Back to the list the pane was opened from, where it was.
+			h.PaneFromList, h.App.PaneFocus, h.List = false, false, true
+			r.clampCursor()
+			return
+		}
 		if h.List {
 			if h.Focus != "" {
 				h.List = false
@@ -612,6 +629,35 @@ func (r *hubReducer) apply(e Event) {
 		r.emit(Quit{}) // detach only; see interrupt
 	default:
 		r.toFocused(e)
+	}
+}
+
+// listToPane gives the pane the keys from the list: ctrl+x there opens
+// the board (or the items), with or without a role in focus.
+func (r *hubReducer) listToPane(e PaneKey) {
+	h := &r.h
+	if e.Action != PaneToggle || !h.PaneShown() {
+		return
+	}
+	if !h.App.PaneFocus {
+		r.toApp(e, true) // as ctrl+x from a conversation: what was unsent goes
+	}
+	if h.App.PaneFocus {
+		h.List, h.PaneFromList = false, true
+	}
+}
+
+// backToList gives the keys back to the list once the pane it opened
+// lets them go (esc, ctrl+x).
+func (r *hubReducer) backToList() {
+	h := &r.h
+	if h.PaneFromList && !h.App.PaneFocus {
+		h.PaneFromList = false
+		if c := h.Focused(); c != nil && len(c.State.Asks) > 0 {
+			return // a request took the keys: they stay with it, not the list
+		}
+		h.List = true
+		r.clampCursor()
 	}
 }
 
@@ -789,6 +835,10 @@ func (r *hubReducer) focus(role string, force bool, at time.Time) {
 		// The operator came to the role for its conversation: the keys go
 		// to it, not to the pane they left. The board keeps its place.
 		h.App.PaneFocus = false
+	}
+	if h.PaneFromList {
+		// The keys go to the conversation; leaving the pane goes there too.
+		h.PaneFromList, h.App.PaneFocus = false, false
 	}
 	h.Focus, h.Cursor, h.List = role, role, false
 	h.EndAsk, h.Ending = false, false

@@ -305,7 +305,7 @@ Keys, besides the usual ones:
 - alt+1 to alt+9, that role
 - ctrl+l, the role you were in before
 - ctrl+g, the list of roles: up and down move, enter opens, esc goes
-  back
+  back, and ctrl+x gives the board the keys
 - ctrl+s, end this conversation. The view asks first; y ends it, n
   keeps it. relay cancels a running turn before it ends.
 - page up and page down, or the mouse wheel, scroll; ctrl+t and ctrl+o
@@ -322,7 +322,11 @@ The board is the same whichever role is in focus, with the same card
 selected, and it shows with no conversation open: beside the roles on a
 wide screen, or, once ctrl+x gives the pane the keys, in the
 conversation's place. Its ops and trust work from a role that has no
-conversation, and open none. The workspace items in the pane are the
+conversation, and open none. With no role in focus the list has the
+keys, and ctrl+x there gives them to the board; esc or ctrl+x on the
+board gives them back to the list, with the cursor where it was. On a
+narrow screen, where the list is the screen, the board takes its place
+until then. The workspace items in the pane are the
 focused conversation's own. Moving to another role gives the keys back to
 its conversation. Only the conversation on screen can bring its items
 into view; a display in another one waits there until you look.

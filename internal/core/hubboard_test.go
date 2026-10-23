@@ -194,3 +194,72 @@ func TestHubOnlyTheConversationOnScreenMovesThePane(t *testing.T) {
 		t.Fatal("the conversation on screen did not bring its items into view")
 	}
 }
+
+// With no role in focus the list has the keys, and ctrl+x hands them to
+// the board: card ops work with no role focused at all, and esc or
+// ctrl+x gives the keys back to the list, where the cursor was.
+func TestHubListHandsTheKeysToTheBoard(t *testing.T) {
+	h, _ := apply(t, boardHub(t), ListMove{At: t0, Delta: 1})
+	if !h.List || h.Focus != "" || h.Cursor != "mail" {
+		t.Fatalf("start: list %v focus %q cursor %q", h.List, h.Focus, h.Cursor)
+	}
+	h, fx := apply(t, h, PaneKey{At: t0, Action: PaneToggle})
+	if h.List || !h.App.PaneFocus || !h.PaneFromList || h.Focus != "" || len(fx) != 0 {
+		t.Fatalf("ctrl+x: list %v pane %v from list %v focus %q effects %v", h.List, h.App.PaneFocus, h.PaneFromList, h.Focus, fx)
+	}
+	h, fx = apply(t, h, PaneKey{At: t0, Action: PaneEnter}, PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneMark})
+	ops := effectsOf[SendCardOp](fx)
+	if len(ops) != 1 || ops[0].Card != 10 || ops[0].Op.Op != "tick" || *ops[0].Op.Item != 1 {
+		t.Fatalf("tick: %v", fx)
+	}
+	if len(attachesIn(fx)) != 0 || len(h.Convs) != 0 || len(effectsOf[ForSession](fx)) != 0 {
+		t.Fatalf("an op opened or named a conversation: %v", fx)
+	}
+	// esc closes the card, then gives the keys back to the list.
+	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneEsc})
+	if h.List || !h.App.PaneFocus {
+		t.Fatal("the first esc left the pane")
+	}
+	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneEsc})
+	if !h.List || h.App.PaneFocus || h.PaneFromList || h.Cursor != "mail" {
+		t.Fatalf("esc: list %v pane %v cursor %q", h.List, h.App.PaneFocus, h.Cursor)
+	}
+	// ctrl+x there and back, and ctrl+g from the board, end on the list too.
+	for name, back := range map[string]Event{"ctrl+x": PaneKey{At: t0, Action: PaneToggle}, "ctrl+g": ToggleList{At: t0}} {
+		g, _ := apply(t, h, PaneKey{At: t0, Action: PaneToggle}, back)
+		if !g.List || g.App.PaneFocus || g.PaneFromList || g.Cursor != "mail" {
+			t.Errorf("%s: list %v pane %v cursor %q", name, g.List, g.App.PaneFocus, g.Cursor)
+		}
+	}
+	// Opening a role from the board gives the keys to its conversation.
+	g, _ := apply(t, h, PaneKey{At: t0, Action: PaneToggle}, FocusIndex{At: t0, Index: 1})
+	if g.List || g.App.PaneFocus || g.PaneFromList || g.Focus != "mail" {
+		t.Errorf("alt+2: list %v pane %v focus %q", g.List, g.App.PaneFocus, g.Focus)
+	}
+}
+
+// With no board and no conversation there is nothing for ctrl+x to show,
+// so the list keeps the keys.
+func TestHubListKeepsTheKeysWithNoPaneToShow(t *testing.T) {
+	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}},
+		CardsLoaded{At: t0, Unavailable: true})
+	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneToggle})
+	if !h.List || h.App.PaneFocus {
+		t.Fatalf("list %v pane %v", h.List, h.App.PaneFocus)
+	}
+}
+
+// A role in focus, the list over it, ctrl+x: the board has the keys.
+// A permission request in the focused conversation takes them, and they
+// stay with the request rather than going back to the list.
+func TestHubRequestTakesTheKeysFromTheBoardOpenedFromTheList(t *testing.T) {
+	h, _ := apply(t, boardHub(t), FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"},
+		ToggleList{At: t0}, PaneKey{At: t0, Action: PaneToggle})
+	if h.List || !h.App.PaneFocus || !h.PaneFromList || h.Focus != "dev" {
+		t.Fatalf("list %v pane %v focus %q", h.List, h.App.PaneFocus, h.Focus)
+	}
+	h, _ = apply(t, h, routed("s1", PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send"}}))
+	if h.List || h.App.PaneFocus || h.PaneFromList || h.onScreen() != "s1" {
+		t.Fatalf("list %v pane %v on screen %q", h.List, h.App.PaneFocus, h.onScreen())
+	}
+}

@@ -308,6 +308,7 @@ const (
 	ListDown
 	ListOpen
 	ListBack
+	ListPane // ctrl+x: the keys go to the pane (the board)
 	ListHelp
 	ListInterrupt
 	ListEOF
@@ -325,6 +326,8 @@ func ClassifyList(k tea.KeyPressMsg) ListAction {
 		return ListOpen
 	case "esc":
 		return ListBack
+	case "ctrl+x":
+		return ListPane
 	case "?", "ctrl+/", "ctrl+_":
 		return ListHelp
 	case "ctrl+c":

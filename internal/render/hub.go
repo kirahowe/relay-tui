@@ -47,9 +47,9 @@ func hubColumns(h core.Hub, width int) (conv, pane int) {
 	return mw, 0
 }
 
-// paneShown says the workspace pane has something to show: the
-// conversation in focus, or the board, which needs no conversation.
-func paneShown(h core.Hub) bool { return h.Focused() != nil || !h.App.Board.Unavailable }
+// paneShown says the workspace pane has something to show (see
+// core.Hub.PaneShown).
+func paneShown(h core.Hub) bool { return h.PaneShown() }
 
 // focusedChat is the conversation in focus, or none.
 func focusedChat(h core.Hub) core.State {
@@ -101,6 +101,7 @@ var ListKeys = []KeyHelp{
 	{[]string{"up", "down", "k", "j"}, "move"},
 	{[]string{"enter"}, "open the role's conversation"},
 	{[]string{"esc", "ctrl+g"}, "back to the conversation"},
+	{[]string{"ctrl+x"}, "the board (esc or ctrl+x back to the list)"},
 	{[]string{"alt+1"}, "role 1 (alt+2 for 2, up to 9)"},
 	{[]string{"ctrl+c"}, "quit"},
 	{[]string{"?"}, "these keys"},
@@ -401,6 +402,9 @@ func hubFrame(h core.Hub, input, hint string, now time.Time, width, height int, 
 	if wide {
 		return panels(h, input, hint, now, width, height, help)
 	}
+	if !h.List && h.Focus == "" && h.App.PaneFocus {
+		return paneScreen(h, now, width, height)
+	}
 	if h.List || h.Focus == "" {
 		lines := listScreen(h, now, width, height)
 		if help != nil {
@@ -410,6 +414,23 @@ func hubFrame(h core.Hub, input, hint string, now time.Time, width, height int, 
 		return HubFrame{Content: strings.Join(lines, "\n")}
 	}
 	return hubMain(h, input, hint, now, width, height, true, help)
+}
+
+// paneScreen is the narrow screen's pane with no role in focus: the
+// list gave it the keys, and it takes the list's place.
+func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
+	head := styled(faint, "‹ "+PaneKey+" roles")
+	if e := elsewhere(h); e != "" {
+		head += "  " + e
+	}
+	lines := []string{truncate(head, width)}
+	var foot []string
+	if h.Notice != "" {
+		foot = append(foot, styled(faint, truncate("! "+oneLine(h.Notice), width)))
+	}
+	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
+	lines = append(append(lines, pane...), foot...)
+	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx}
 }
 
 // elsewhere summarises the other roles that want the operator, for the
@@ -522,6 +543,8 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		bottom = append(bottom, box("end conversation", wrap(ask, InputWidth(width)), width)...)
 	case len(s.Asks) > 0:
 		bottom = append(bottom, permissionBox(s, now, width, height-1-len(bottom)-2)...)
+	case h.Focus == "":
+		// No role in focus, so nothing to type into.
 	default:
 		if inPanel {
 			bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
@@ -551,7 +574,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		return HubFrame{Content: strings.Join(lines[:height], "\n"), TooSmall: true, title: panelTitle}
 	}
 	var status string
-	if conv == nil {
+	if h.Focus == "" {
+		status = styled(faint, truncate("  no role in focus · ctrl+g roles · ? keys", width))
+	} else if conv == nil {
 		status = styled(faint, truncate("  no conversation · type a message to start one · ? keys", width))
 	} else {
 		st := core.Status(h.App, s, now)
@@ -579,6 +604,8 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		// The pane covers the conversation, or the place of one: the board
 		// works with none open.
 		lines, detailMax = paneRender(h.App, s, now, width, room)
+	case h.Focus == "":
+		lines = []string{styled(faint, "No role in focus. Pick one from the roles.")}
 	case conv == nil:
 		lines = []string{styled(faint, "No conversation with "+title+" yet.")}
 	default:
@@ -669,9 +696,13 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 		keys = pk
 	}
 	switch {
+	case h.List && paneShown(h):
+		keys = "enter open · ↑↓ move · " + PaneKey + " " + paneView(h.App) + " · esc back · ? keys"
 	case h.List:
 		keys = "enter open · ↑↓ move · esc back · ? keys"
 	case h.App.PaneFocus && pw > 0:
+	case h.App.PaneFocus:
+		keys = "" // the pane, in the conversation's place, lists its own
 	default:
 		keys = "enter send · " + PaneKey + " " + paneView(h.App) + " · ctrl+g roles · ctrl+t tools · ? keys"
 	}

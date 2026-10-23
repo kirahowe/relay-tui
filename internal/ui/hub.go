@@ -160,6 +160,8 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 			return one(core.ListOpen{At: now})
 		case ListBack:
 			return one(core.ToggleList{At: now})
+		case ListPane:
+			return one(core.PaneKey{At: now, Action: core.PaneToggle})
 		case ListHelp:
 			return one(core.ToggleHelp{At: now})
 		case ListInterrupt:

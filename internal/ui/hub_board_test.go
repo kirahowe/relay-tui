@@ -120,3 +120,44 @@ func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
 		t.Errorf("trust calls %q", calls)
 	}
 }
+
+// With no role in focus, ctrl+x from the list gives the board the keys:
+// a card is ticked with no role focused, and esc goes back to the list.
+func TestHubListHandsTheKeysToTheBoard(t *testing.T) {
+	h := startHub(t, boardRoles(), 170, 40, "")
+	h.waitScreen("the board beside the list", contains("ctrl+x board"))
+	h.keys(ctrlX)
+	h.waitScreen("the pane has the keys", contains("↑↓ select"))
+	h.keys("\r")
+	h.waitScreen("the checklist", contains("x tick"))
+	h.keys("jj")
+	h.waitScreen("item 2", func(string) bool { return h.emu.selected("Book the kennel") })
+	h.keys("x")
+	h.waitScreen("the tick", contains("✓ Book the kennel"))
+	if calls := h.logged("card-op "); len(calls) != 1 || calls[0] != `card-op {"card":14,"item":2,"op":"tick"}` {
+		t.Errorf("op calls %q", calls)
+	}
+	h.keys("\x1b")
+	h.waitScreen("the list of cards", contains("enter open"))
+	h.keys("\x1b")
+	h.waitScreen("the list has the keys", contains("ctrl+x board"))
+	h.keys("j\r") // the list moves and opens: the keys are the list's
+	h.waitScreen("mail", contains("No conversation with Mail"))
+	if opened := append(h.logged("new "), h.logged("load ")...); len(opened) != 0 {
+		t.Errorf("a conversation was opened: %q", opened)
+	}
+}
+
+// On a narrow screen the list is the screen, so the board opened from it
+// takes its place, and esc brings the list back.
+func TestHubNarrowListOpensTheBoardInItsPlace(t *testing.T) {
+	h := startHub(t, boardRoles(), 60, 24, "")
+	h.waitScreen("the list", contains("News"))
+	h.keys(ctrlX)
+	s := h.waitScreen("the board", contains("Trip prep"))
+	if strings.Contains(s, "News") {
+		t.Errorf("the list is still on screen:\n%s", s)
+	}
+	h.keys("\x1b")
+	h.waitScreen("the list again", contains("News"))
+}
