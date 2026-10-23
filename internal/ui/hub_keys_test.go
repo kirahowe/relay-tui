@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/kirahowe/acp-tui/internal/render"
+	"github.com/kirahowe/relay-tui/internal/render"
 )
 
 // Every key the hub's list of keys names does something there.

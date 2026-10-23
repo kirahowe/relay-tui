@@ -11,8 +11,8 @@ import (
 
 	"github.com/charmbracelet/x/exp/golden"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/wire"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/wire"
 )
 
 var t0 = time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)

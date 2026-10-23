@@ -10,7 +10,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 var parser = goldmark.DefaultParser()

@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // The board view of the workspace pane draws the cards relay sent. relay

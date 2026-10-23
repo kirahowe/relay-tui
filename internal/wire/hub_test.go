@@ -6,7 +6,7 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 func TestUserMessageChunkIsAnEvent(t *testing.T) {

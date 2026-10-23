@@ -9,8 +9,8 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/strictjson"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
 // Replay decodes a recorded stream, one JSON object per line: session

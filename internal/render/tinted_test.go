@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 func txtc(s string, out bool) core.CardText { return core.CardText{Text: s, Outsider: out} }

@@ -11,8 +11,8 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/render"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/render"
 )
 
 // The files in testdata/relay are what relay acp really said about a

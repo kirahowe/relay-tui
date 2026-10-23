@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // Hub mode draws the whole screen, from the hub's state alone: a sidebar

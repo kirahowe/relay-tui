@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/render"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/render"
 )
 
 // Hub mode: the agent is relay's hub, and the program is the hub's whole

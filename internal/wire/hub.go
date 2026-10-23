@@ -8,8 +8,8 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/strictjson"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
 // What relay's hub adds to ACP (see relay's wire contract, section 4).

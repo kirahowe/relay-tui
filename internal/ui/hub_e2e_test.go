@@ -16,10 +16,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kirahowe/acp-tui/internal/agent"
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/fakehub"
-	"github.com/kirahowe/acp-tui/internal/ui"
+	"github.com/kirahowe/relay-tui/internal/agent"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/fakehub"
+	"github.com/kirahowe/relay-tui/internal/ui"
 )
 
 type hubHarness struct {

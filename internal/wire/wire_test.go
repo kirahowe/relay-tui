@@ -11,7 +11,7 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // genValue is a small arbitrary JSON value, biased towards the shapes ACP

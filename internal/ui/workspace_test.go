@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 const ctrlX = "\x18"

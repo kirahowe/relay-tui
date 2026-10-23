@@ -1,4 +1,4 @@
-// Command fakeagent is a scripted ACP agent for acp-tui's tests:
+// Command fakeagent is a scripted ACP agent for relay-tui's tests:
 //
 //	fakeagent [-log FILE] [-title TITLE] [-model MODEL] [-embedded] SCRIPT
 //
@@ -15,7 +15,7 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"github.com/caelis-labs/acp-go-sdk/transport/stdio"
 
-	"github.com/kirahowe/acp-tui/internal/fakeagent"
+	"github.com/kirahowe/relay-tui/internal/fakeagent"
 )
 
 func main() {

@@ -1,7 +1,7 @@
 .PHONY: build check update
 
 build:
-	go build -o bin/acp-tui ./cmd/acp-tui
+	go build -o bin/relay-tui ./cmd/relay-tui
 
 check:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }

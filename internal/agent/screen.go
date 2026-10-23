@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/kirahowe/acp-tui/internal/wire"
+	"github.com/kirahowe/relay-tui/internal/wire"
 )
 
 // maxLine is the longest line the SDK takes by default (10 MiB). A longer
@@ -46,7 +46,7 @@ func (s *screened) Read(p []byte) (int, error) {
 		out, err := wire.Screen(line)
 		if err != nil {
 			n := s.dropped.Add(1)
-			fmt.Fprintf(s.log, "acp-tui: dropped a line from the agent that is not strict JSON (%d so far): %v\n", n, err)
+			fmt.Fprintf(s.log, "relay-tui: dropped a line from the agent that is not strict JSON (%d so far): %v\n", n, err)
 			continue
 		}
 		s.pending = append(append(s.pending[:0:0], out...), '\n')
@@ -56,7 +56,7 @@ func (s *screened) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// lockedWriter lets the agent's stderr and acp-tui's own notes about the
+// lockedWriter lets the agent's stderr and relay-tui's own notes about the
 // agent share one writer.
 type lockedWriter struct {
 	mu sync.Mutex

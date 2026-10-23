@@ -1,4 +1,4 @@
-module github.com/kirahowe/acp-tui
+module github.com/kirahowe/relay-tui
 
 go 1.27.2
 

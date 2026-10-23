@@ -9,7 +9,7 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // trackerWire is the wire form in relay's brief.

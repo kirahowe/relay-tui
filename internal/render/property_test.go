@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 var wordGen = rapid.StringMatching(`[a-z0-9]{1,8}`)

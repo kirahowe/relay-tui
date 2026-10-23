@@ -1,6 +1,6 @@
-// Command acp-tui is a terminal chat client for an ACP agent:
+// Command relay-tui is a terminal chat client for an ACP agent:
 //
-//	acp-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]
+//	relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]
 //
 // It starts COMMAND as the agent, in the current directory. Exit status:
 // 0 after a normal quit, 1 when the agent fails to start or exits on its
@@ -16,20 +16,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kirahowe/acp-tui/internal/agent"
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/ui"
+	"github.com/kirahowe/relay-tui/internal/agent"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/ui"
 )
 
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(args []string) int {
-	fs := flag.NewFlagSet("acp-tui", flag.ContinueOnError)
+	fs := flag.NewFlagSet("relay-tui", flag.ContinueOnError)
 	logPath := fs.String("agent-log", "", "also write the agent's stderr to `FILE`")
 	title := fs.String("title", "", "name the session `TITLE` in the banner (default: the agent's title or name)")
 	open := fs.String("open", "", "with relay's hub, focus the role `ROLE` at the start (open or attach to its conversation)")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: acp-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]")
+		fmt.Fprintln(fs.Output(), "usage: relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] -- COMMAND [ARGS...]")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -42,7 +42,7 @@ func run(args []string) int {
 	}
 	dir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "acp-tui:", err)
+		fmt.Fprintln(os.Stderr, "relay-tui:", err)
 		return 1
 	}
 
@@ -53,7 +53,7 @@ func run(args []string) int {
 	if *logPath != "" {
 		f, err := os.Create(*logPath)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "acp-tui:", err)
+			fmt.Fprintln(os.Stderr, "relay-tui:", err)
 			return 1
 		}
 		defer f.Close()
@@ -67,7 +67,7 @@ func run(args []string) int {
 		p.Send(ui.EventMsg{Event: e})
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "acp-tui: starting the agent:", err)
+		fmt.Fprintln(os.Stderr, "relay-tui: starting the agent:", err)
 		return 1
 	}
 	p = tea.NewProgram(ui.New(conn, *title).Open(*open))
@@ -75,19 +75,19 @@ func run(args []string) int {
 	final, err := p.Run()
 	if err != nil {
 		conn.Shutdown()
-		fmt.Fprintln(os.Stderr, "acp-tui:", err)
+		fmt.Fprintln(os.Stderr, "relay-tui:", err)
 		return 1
 	}
 	if died, why := final.(ui.Model).Died(); died {
-		fmt.Fprintln(os.Stderr, "acp-tui: the agent exited:", why)
+		fmt.Fprintln(os.Stderr, "relay-tui: the agent exited:", why)
 		os.Stderr.Write(tail.bytes())
 		return 1
 	}
 	if known, keeps := final.(ui.Model).Keeps(); known {
 		if keeps {
-			fmt.Fprintln(os.Stderr, "acp-tui: conversations keep running in the relay service")
+			fmt.Fprintln(os.Stderr, "relay-tui: conversations keep running in the relay service")
 		} else {
-			fmt.Fprintln(os.Stderr, "acp-tui: relay service not running: the conversations ended")
+			fmt.Fprintln(os.Stderr, "relay-tui: relay service not running: the conversations ended")
 		}
 	}
 	return 0

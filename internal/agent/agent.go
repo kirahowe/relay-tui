@@ -16,8 +16,8 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"github.com/caelis-labs/acp-go-sdk/transport/stdio"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/wire"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/wire"
 )
 
 // ShutdownGrace is how long the agent gets to exit after its stdin closes
@@ -58,7 +58,7 @@ func Start(command []string, dir string, stderr io.Writer, emit func(core.Event)
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	// acp-tui's notes about the agent go where its stderr goes, never to
+	// relay-tui's notes about the agent go where its stderr goes, never to
 	// the screen.
 	log := &lockedWriter{w: stderr}
 	process, err := stdio.Start(context.Background(), stdio.Command{
@@ -102,7 +102,7 @@ func (a *Agent) handshake(dir string) error {
 	init, err := a.proc.Connection.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion:    acp.ProtocolVersion(acp.ProtocolVersionNumber),
 		ClientCapabilities: wire.Capabilities(),
-		ClientInfo:         &acp.Implementation{Name: "acp-tui", Version: "0"},
+		ClientInfo:         &acp.Implementation{Name: "relay-tui", Version: "0"},
 	})
 	if err != nil {
 		return err

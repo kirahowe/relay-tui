@@ -14,11 +14,11 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/strictjson"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
-// Capabilities is what acp-tui tells the agent it supports: notices, and
+// Capabilities is what relay-tui tells the agent it supports: notices, and
 // no file system or terminal access.
 func Capabilities() acp.ClientCapabilities {
 	return acp.ClientCapabilities{

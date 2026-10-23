@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 func ct(s string) core.CardText { return core.CardText{Text: s, Rev: 1} }

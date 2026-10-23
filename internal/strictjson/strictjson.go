@@ -1,5 +1,5 @@
-// Package strictjson is the one way acp-tui reads JSON that another
-// process wrote: the dialect relay, agentloop and acp-tui share (relay#58).
+// Package strictjson is the one way relay-tui reads JSON that another
+// process wrote: the dialect relay, agentloop and relay-tui share (relay#58).
 //
 // The dialect is RFC 8259 JSON in valid UTF-8, one value and only
 // whitespace after it, no duplicate member names at any depth (compared

@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 var (

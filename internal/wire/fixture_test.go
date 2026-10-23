@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 var t0 = time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)

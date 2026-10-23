@@ -96,7 +96,7 @@ const ArmDelay = 600 * time.Millisecond
 
 // onceOptions keeps the options that last for this one call. The person
 // is never offered an allow_always or reject_always, nor a kind this
-// client does not know: acp-tui does not grant standing permission.
+// client does not know: relay-tui does not grant standing permission.
 func onceOptions(opts []PermOption) []PermOption {
 	var out []PermOption
 	for _, o := range opts {

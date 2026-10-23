@@ -12,12 +12,12 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/jsoncases"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/jsoncases"
 )
 
 // The shared table (relay#58) through the real reader: the screen, then
-// the SDK's connection and acp-tui's client. Only the accepted lines whose
+// the SDK's connection and relay-tui's client. Only the accepted lines whose
 // exact method is _relay/cards/changed reach the board; the capitalised
 // and folded ones, which encoding/json v1 alone would read as that method,
 // do not. Every rejected line is dropped, counted and logged.
@@ -122,7 +122,7 @@ func TestScreenedPassesLines(t *testing.T) {
 
 // relay#52: the permission prompt shows the tool's input with its numbers
 // as written. The SDK decodes rawInput into any, rounding each number
-// through a float64, so acp-tui reads it from the request's own params.
+// through a float64, so relay-tui reads it from the request's own params.
 func TestPermissionShowsTheInputAsWritten(t *testing.T) {
 	asked := make(chan core.PermissionAsked, 8)
 	a := &Agent{emit: func(e core.Event) {

@@ -7,7 +7,7 @@ import (
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
-	"github.com/kirahowe/acp-tui/internal/strictjson"
+	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
 // envelope mirrors the SDK's JSON-RPC message, which it decodes with
@@ -63,7 +63,7 @@ func Screen(line []byte) ([]byte, error) {
 		targets = []any{&envelope[*acp.RequestPermissionRequest, json.RawMessage]{}}
 	case m.Method == nil && m.Result != nil:
 		// A response does not say which request it answers; read it as
-		// each answer acp-tui waits for. An extension's answer is raw,
+		// each answer relay-tui waits for. An extension's answer is raw,
 		// and wire reads it strictly itself.
 		targets = []any{
 			&envelope[json.RawMessage, *acp.InitializeResponse]{},

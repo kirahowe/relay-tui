@@ -9,7 +9,7 @@ import (
 
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/jsoncases"
+	"github.com/kirahowe/relay-tui/internal/jsoncases"
 )
 
 func TestSharedTable(t *testing.T) {

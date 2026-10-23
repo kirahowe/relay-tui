@@ -20,16 +20,16 @@ import (
 	"github.com/creack/pty"
 )
 
-var acptui, fakeAgent string
+var relaytui, fakeAgent string
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "acp-tui-pty")
+	dir, err := os.MkdirTemp("", "relay-tui-pty")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	acptui, fakeAgent = filepath.Join(dir, "acp-tui"), filepath.Join(dir, "fakeagent")
-	for bin, pkg := range map[string]string{acptui: ".", fakeAgent: "../fakeagent"} {
+	relaytui, fakeAgent = filepath.Join(dir, "relay-tui"), filepath.Join(dir, "fakeagent")
+	for bin, pkg := range map[string]string{relaytui: ".", fakeAgent: "../fakeagent"} {
 		if out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "building %s: %v\n%s", pkg, err, out)
 			os.Exit(1)
@@ -40,20 +40,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// session is acp-tui running on a pty, its output fed to an emulator.
+// session is relay-tui running on a pty, its output fed to an emulator.
 type session struct {
 	t    *testing.T
 	cmd  *exec.Cmd
 	pty  *os.File
 	mu   sync.Mutex // guards emu's screen and raw
 	emu  *vt.Emulator
-	raw  bytes.Buffer // everything acp-tui wrote
+	raw  bytes.Buffer // everything relay-tui wrote
 	done chan error
 }
 
 func runPTY(t *testing.T, args ...string) *session {
 	t.Helper()
-	s := &session{t: t, cmd: exec.Command(acptui, args...), emu: vt.NewEmulator(80, 24), done: make(chan error, 1)}
+	s := &session{t: t, cmd: exec.Command(relaytui, args...), emu: vt.NewEmulator(80, 24), done: make(chan error, 1)}
 	s.cmd.Dir = t.TempDir()
 	f, err := pty.StartWithSize(s.cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
@@ -109,7 +109,7 @@ func (s *session) waitScreen(text string) {
 	}
 }
 
-// exit waits for acp-tui to exit and returns its exit code.
+// exit waits for relay-tui to exit and returns its exit code.
 func (s *session) exit() int {
 	s.t.Helper()
 	select {
@@ -124,7 +124,7 @@ func (s *session) exit() int {
 		}
 		return 0
 	case <-time.After(8 * time.Second):
-		s.t.Fatalf("acp-tui did not exit; screen:\n%s", s.screen())
+		s.t.Fatalf("relay-tui did not exit; screen:\n%s", s.screen())
 		return -1
 	}
 }
@@ -153,7 +153,7 @@ func TestPTYReplyThenCtrlD(t *testing.T) {
 }
 
 // Ctrl-C is a key in raw mode, not a signal: it cancels the turn and
-// acp-tui keeps running.
+// relay-tui keeps running.
 func TestPTYCtrlCCancels(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "agent.log")
 	s := runPTY(t, "--", fakeAgent, "-log", log, script("cancel.jsonl"))
@@ -181,7 +181,7 @@ func TestPTYAgentExitsOnItsOwn(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	err := exec.Command(acptui).Run()
+	err := exec.Command(relaytui).Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
 		t.Fatalf("no command: %v, want exit 2", err)

@@ -1,4 +1,4 @@
-// Command fakehub is a stand-in for relay's hub, for acp-tui's tests:
+// Command fakehub is a stand-in for relay's hub, for relay-tui's tests:
 //
 //	fakehub [-log FILE] [-control FILE] CONFIG
 //
@@ -15,7 +15,7 @@ import (
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"github.com/caelis-labs/acp-go-sdk/transport/stdio"
 
-	"github.com/kirahowe/acp-tui/internal/fakehub"
+	"github.com/kirahowe/relay-tui/internal/fakehub"
 )
 
 func main() {

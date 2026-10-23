@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // Frame is the live part of the screen, below the scrollback.

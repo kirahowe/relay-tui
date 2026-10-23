@@ -1,6 +1,6 @@
-# acp-tui
+# relay-tui
 
-acp-tui is a terminal chat client for agents that speak the
+relay-tui is a terminal chat client for agents that speak the
 [Agent Client Protocol](https://agentclientprotocol.com). It starts the agent
 as a child process, streams its replies into the terminal's own scrollback,
 and keeps a status line that shows how long the agent has been working and
@@ -10,7 +10,7 @@ how long it has been silent.
 
 ```sh
 make build
-bin/acp-tui -- agentloop acp request.json
+bin/relay-tui -- agentloop acp request.json
 ```
 
 With relay's hub, `--open ROLE` focuses that role at the start (see
@@ -19,7 +19,7 @@ With relay's hub, `--open ROLE` focuses that role at the start (see
 Everything after `--` is the agent's command. It runs in the current
 directory, which is also the session's working directory.
 
-When the session starts, acp-tui prints a banner with the agent's name and
+When the session starts, relay-tui prints a banner with the agent's name and
 version, and the model if the agent names one in its session options. The
 banner's title is `--title` if given, otherwise the title the agent reports
 about itself, otherwise its name. The input sits in a box at the bottom,
@@ -51,9 +51,9 @@ what the agent writes meanwhile is printed when you leave. A permission
 request closes the transcript, so the request is always on screen, and
 the session's labels lead its footer as they lead the status line.
 
-The agent's stderr would garble the screen, so acp-tui keeps the last
+The agent's stderr would garble the screen, so relay-tui keeps the last
 64 KiB and prints them if the agent exits on its own. `--agent-log FILE`
-writes all of it to a file. acp-tui's own notes about the connection,
+writes all of it to a file. relay-tui's own notes about the connection,
 such as a line it dropped as unreadable, go to the same place.
 
 When the agent asks permission for a tool call, the request replaces the
@@ -61,7 +61,7 @@ input box. It shows the tool's name and its input, indented and cut to ten
 lines, and the options the agent offered. Keys: `y` picks the first
 allow_once option, `n` the first reject_once, up/down and enter pick between
 them (the highlight starts on a reject, so a bare enter refuses). Options
-of any other kind, such as allow_always, are not offered: acp-tui never
+of any other kind, such as allow_always, are not offered: relay-tui never
 grants standing permission. `v`
 puts the whole input into the transcript, and Esc or Ctrl-C answers
 cancelled. Keys that would approve do nothing for the first 600 ms, so a
@@ -72,7 +72,7 @@ queue and are answered in order; ending the turn cancels the rest.
 Nothing the agent wrote in a request is dropped. Control characters, bidi
 and other format characters, and any other code point that does not print
 show as `\uXXXX` escapes, so the input reads back as JSON to exactly what
-will run. Numbers show as the agent wrote them: acp-tui reads the input
+will run. Numbers show as the agent wrote them: relay-tui reads the input
 from the request's own params, not from the ACP SDK's decoding, which
 would round `9007199254740993` to `9007199254740992`. Wrapping adds
 line breaks; nothing is cut except in the collapsed box, where `v`
@@ -87,8 +87,8 @@ accumulate during a session.
 
 ## The look
 
-Colours come from the terminal's own palette, so acp-tui follows a light
-theme as well as a dark one. At startup acp-tui asks the terminal for its
+Colours come from the terminal's own palette, so relay-tui follows a light
+theme as well as a dark one. At startup relay-tui asks the terminal for its
 background and text colours and blends its tints from them: the bar
 behind a selection, the block behind your own messages, a key chip, a
 label pill. A terminal that does not answer gets reverse video for a
@@ -96,11 +96,11 @@ selection and no tints. Your messages are then drawn in boxes.
 
 While the session is contaminated, URLs in what the agent writes (replies,
 notices, tool names, arguments and output) show defanged, as
-`hxxps://host[.]tld/path`, so a click cannot carry data out. acp-tui never
+`hxxps://host[.]tld/path`, so a click cannot carry data out. relay-tui never
 writes OSC 8 hyperlinks. The request box shows its input exactly, but
 with its URLs defanged once the session is contaminated: a click on one,
 to look at it, would send what it carries before you approve anything.
-A paste while a request waits is dropped. acp-tui never sends
+A paste while a request waits is dropped. relay-tui never sends
 `resource_link` blocks.
 
 ## The workspace pane
@@ -149,15 +149,15 @@ and you answer it as before: the pane only highlights the waiting
 proposal and shows its preview, here and in the request box. It adds no
 second way to approve.
 
-Trusting needs relay chat, which lets acp-tui ask relay to do it. Press t
+Trusting needs relay chat, which lets relay-tui ask relay to do it. Press t
 on a contaminated shown item. The pane shows the text that would be
 trusted, with its path, version and hash, and says "Trust this? It clears
 contaminated from what it says now." After a short delay, y confirms;
-any other key cancels. acp-tui then sends relay the version and hash it
+any other key cancels. relay-tui then sends relay the version and hash it
 listed, so a document that changed in between is refused. Where relay does
 not take trust from this client, the pane shows the `relay trust` command
 to run in a terminal and does nothing else. Against an agent without relay
-the pane lists the displays and requests acp-tui saw itself, and offers no
+the pane lists the displays and requests relay-tui saw itself, and offers no
 trust.
 
 ## The board
@@ -165,7 +165,7 @@ trust.
 relay keeps cards: small structured things you work through over days,
 such as a checklist or a tracker of accounts by month. Roles make them.
 The pane shows the board unless something else has come up; b in the
-focused pane switches to it. acp-tui asks relay for the board with `_relay/cards` once the session
+focused pane switches to it. relay-tui asks relay for the board with `_relay/cards` once the session
 starts, so the pane's header can count the cards from either view
 ("board (2) · workspace (0)"). After that relay sends
 `_relay/cards/changed` whenever a card changes, here, in a terminal or by
@@ -187,7 +187,7 @@ text for a done item and ○ for an open one. The list shows the first six
 items. A tracker is a grid: the column names across the top, then one row
 per line, with ● for done, × for skipped and ○ for open. A note keeps the
 line breaks it was written with. A `#` heading and `**bold**` are bold,
-and a list line's marker is faint. A card of a kind acp-tui does not know
+and a list line's marker is faint. A card of a kind relay-tui does not know
 shows the text form relay sends with every card.
 
 Keys on the board:
@@ -209,7 +209,7 @@ Keys on the board:
 - t trusts the selected card when it holds outside text. The pane shows
   the whole card and asks "Trust …? It clears outside text from what it
   says now." After a short delay, y confirms, and any other key cancels.
-  acp-tui sends relay the card's rev and the digest relay sent with it
+  relay-tui sends relay the card's rev and the digest relay sent with it
   (`_relay/cards/trust`), so a card that changed in the meantime is not
   trusted. If the card changes while you are being asked, the question
   closes. relay takes trust only from `relay chat`, which runs with
@@ -220,13 +220,13 @@ Keys on the board:
 
 Adding and editing use a one-line input at the foot of the pane: Enter
 sends, Esc cancels. An edit starts from the current text, unless that text
-came from outside. What you send counts as your own text, so acp-tui
+came from outside. What you send counts as your own text, so relay-tui
 does not offer outside words for you to send back unchanged. Every edit carries the
 revision you were looking at when you opened it, so relay refuses it if
 someone changed that text in the meantime. A paste into the input goes
 nowhere, as anywhere else in the pane.
 
-acp-tui never changes a card itself. Each key sends relay an op with
+relay-tui never changes a card itself. Each key sends relay an op with
 `_relay/cards/op` and waits for the card relay sends back. Until then the
 card is marked `sending…`, and a key for another op is dropped with a
 note saying so. When relay refuses an op, the pane shows "Refused." with
@@ -238,17 +238,17 @@ the pane with ctrl+x keeps an open input as it was.
 
 Card text is shown as relay sent it. relay has already made hidden
 characters visible and defanged links in text from outside, which it
-marks as such. acp-tui shows that text in the warning colour, and the
+marks as such. relay-tui shows that text in the warning colour, and the
 bottom border of a card that holds any says `outside text`. Links are
-never clickable, and acp-tui fetches nothing.
+never clickable, and relay-tui fetches nothing.
 
 ## Several conversations (relay's hub)
 
-When the agent is relay's hub, acp-tui shows every role at once. It knows
+When the agent is relay's hub, relay-tui shows every role at once. It knows
 this from `_meta["relay/hub"]` in the answer to `initialize`. Against any
 other agent nothing here applies, and the client works as described
 above. `relay chat [role]` runs it as
-`acp-tui [--open ROLE] -- relay acp --approvals`.
+`relay-tui [--open ROLE] -- relay acp --approvals`.
 
 The whole screen is drawn on the alternate screen, from state. On a
 screen 73 columns or wider it is drawn as panels, each in a frame with
@@ -259,7 +259,7 @@ A top row names relay, the role in focus and what the other roles want.
 A bottom row lists the keys for whatever has them, each key in the
 accent colour. On a narrower one you see either
 the list of roles or the conversation, as on a phone: the conversation's
-first row says `ctrl+g roles`. Without `--open` acp-tui starts on the
+first row says `ctrl+g roles`. Without `--open` relay-tui starts on the
 list.
 
 If relay had to drop the oldest history from a replay, the conversation
@@ -270,7 +270,7 @@ attached with its history: relay replays what was said, including your
 own prompts (shown in their boxes), and prompts sent from another device
 arrive as they happen. A role with none shows "No conversation"; typing
 a message, or pressing enter on an empty input, starts one. Moving
-between roles never starts a conversation. Closing acp-tui does not end
+between roles never starts a conversation. Closing relay-tui does not end
 a conversation when relay runs as a service. Every role keeps its own
 unsent text while you are elsewhere.
 
@@ -310,7 +310,7 @@ Keys, besides the usual ones:
   and otherwise clears the input or quits. Quitting only detaches: it
   answers no permission request, in any conversation (relay holds an
   unanswered one and tells you), and the conversations keep running.
-  When relay runs as a service, acp-tui says so as it exits. When it does
+  When relay runs as a service, relay-tui says so as it exits. When it does
   not (relay says so in `initialize`), the view says "relay service not
   running: conversations end when you close this" all the time.
 
@@ -318,14 +318,14 @@ The workspace pane (ctrl+x) and the board (b) belong to the conversation
 in focus. In hub mode the pane covers the conversation rather than
 standing beside it.
 
-acp-tui tells relay the latest turn has been seen (`_relay/seen`) once
+relay-tui tells relay the latest turn has been seen (`_relay/seen`) once
 the conversation is attached, on screen, scrolled to its end and idle,
 so the unread mark clears on every device.
 
 ## Pasting marks the conversation untrusted
 
 A pasted email or web page is text an outsider may have written, and
-pasting it is the usual way that text reaches the agent. So acp-tui does
+pasting it is the usual way that text reaches the agent. So relay-tui does
 not type a paste into the prompt. A bracketed paste is held, and the input
 shows a placeholder such as `[pasted 42 lines · untrusted #1]`, even for a
 single line: a short paste can carry an injected instruction as well as a
@@ -335,7 +335,7 @@ placeholder replaced by a reference like `[paste:1]`, plus one embedded
 session `contaminated` when it receives a resource block, which is what
 makes egress need your approval from then on. Delete a placeholder from
 the input and that paste is not sent. A terminal that does not do
-bracketed paste types the text in as keys, and acp-tui cannot tell.
+bracketed paste types the text in as keys, and relay-tui cannot tell.
 
 A paste is always untrusted when it arrives. To send one block as trusted
 text, paste it and then press Ctrl-Y: it marks the latest paste still in
@@ -392,7 +392,7 @@ relay sends it, so applying one twice changes nothing.
 
 ## Reading JSON
 
-acp-tui reads everything the agent sends, and every recording another
+relay-tui reads everything the agent sends, and every recording another
 process wrote, by the one dialect that relay and agentloop also use
 (relay#58). `internal/strictjson` implements it with
 `encoding/json/v2`. A message is one JSON object in valid UTF-8, with
@@ -402,12 +402,12 @@ stops at 128 levels, a number literal at 1000 characters, and an
 exponent at 9999 either way (by value, so `1e+0009999` passes). Unknown
 members are ignored. `testdata/strict-json/cases.jsonl` is a copy of the
 table of hostile lines shared by the three repos (the source is relay's
-`testdata/strict-json`), and the tests run every case through acp-tui's
+`testdata/strict-json`), and the tests run every case through relay-tui's
 reader.
 
 Each line from the agent goes through `wire.Screen` before the ACP SDK
 sees it. A line that breaks the dialect is dropped. The SDK never sees
-it, and acp-tui notes it, with a count, where it keeps the agent's stderr,
+it, and relay-tui notes it, with a count, where it keeps the agent's stderr,
 not on the screen. The SDK decodes with `encoding/json` v1, which
 matches names without regard to case, so the screen also removes any
 member that v1 would read under a different name, such as `"Method"`
@@ -429,7 +429,7 @@ through byte for byte. Answers to relay's extension methods and its
 Go 1.27 or later.
 
 ```sh
-make build    # bin/acp-tui
+make build    # bin/relay-tui
 make check    # gofmt, vet, and every test with the race detector
 make update   # move every dependency to its latest version, then check
 ```
@@ -446,7 +446,7 @@ settle, and a turn queued behind scheduled work. A control file plays the
 second device; see `internal/fakehub` for its commands.
 
 `testdata/agentloop` holds ACP streams recorded from agentloop. The tests
-replay them; nothing imports agentloop. The end-to-end tests run acp-tui
+replay them; nothing imports agentloop. The end-to-end tests run relay-tui
 against `cmd/fakeagent`, which plays the scripts in `testdata/scripts`,
 once in process on an emulated terminal and once as a built binary on a
 real pseudo-terminal.

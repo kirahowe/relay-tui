@@ -16,7 +16,7 @@ Each request file holds the request relay was sent and its response.
 
 To refresh them, from a relay checkout:
 
-    bb -cp src:resources:test scripts/card_fixtures.clj <acp-tui>/testdata/relay
+    bb -cp src:resources:test scripts/card_fixtures.clj <relay-tui>/testdata/relay
 
 Card ids and revs are log seqs, so they stay the same from run to run;
 `addedAt` changes.

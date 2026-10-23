@@ -7,7 +7,7 @@ import (
 
 	"pgregory.net/rapid"
 
-	"github.com/kirahowe/acp-tui/internal/jsoncases"
+	"github.com/kirahowe/relay-tui/internal/jsoncases"
 )
 
 // sdkMethod is the method the SDK dispatches a line on: its own envelope,

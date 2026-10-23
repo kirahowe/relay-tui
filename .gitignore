@@ -1,5 +1,5 @@
 /bin/
-/acp-tui
+/relay-tui
 *.test
 *.prof
 coverage.out

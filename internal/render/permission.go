@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kirahowe/acp-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // permissionBody is how many lines of a request's input show before the

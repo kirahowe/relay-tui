@@ -1,5 +1,5 @@
 // Package jsoncases reads the shared table of JSON lines that relay,
-// agentloop and acp-tui must read alike (relay#58), for tests.
+// agentloop and relay-tui must read alike (relay#58), for tests.
 package jsoncases
 
 import (

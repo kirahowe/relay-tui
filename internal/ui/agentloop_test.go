@@ -23,9 +23,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kirahowe/acp-tui/internal/agent"
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/ui"
+	"github.com/kirahowe/relay-tui/internal/agent"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/ui"
 )
 
 var agentloopBin = flag.String("agentloop", filepath.Join("..", "..", "..", "agentloop", "bin", "agentloop"),
@@ -97,7 +97,7 @@ printf '%s %s\n' "$1" "$in" >> "$CALLS"
 printf '{"content":"posted","is_error":false,"labels":[]}'
 `
 
-// startAgentloop runs acp-tui against the real agentloop. The session
+// startAgentloop runs relay-tui against the real agentloop. The session
 // starts private; web_post is an egress tool.
 func startAgentloop(t *testing.T, api *fakeMessagesAPI) (h *harness, calls string) {
 	t.Helper()

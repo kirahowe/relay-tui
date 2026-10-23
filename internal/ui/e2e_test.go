@@ -19,15 +19,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kirahowe/acp-tui/internal/agent"
-	"github.com/kirahowe/acp-tui/internal/core"
-	"github.com/kirahowe/acp-tui/internal/ui"
+	"github.com/kirahowe/relay-tui/internal/agent"
+	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/ui"
 )
 
 var fakeAgent, fakeHub string
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "acp-tui-e2e")
+	dir, err := os.MkdirTemp("", "relay-tui-e2e")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -56,13 +56,13 @@ type harness struct {
 	done chan struct{}
 }
 
-// start runs acp-tui against the fake agent playing script, at w×h.
+// start runs relay-tui against the fake agent playing script, at w×h.
 func start(t *testing.T, script string, w, h int) *harness {
 	t.Helper()
 	return startWith(t, script, w, h, "")
 }
 
-// startWith also sets acp-tui's --title and passes flags to the fake agent.
+// startWith also sets relay-tui's --title and passes flags to the fake agent.
 func startWith(t *testing.T, script string, w, h int, title string, agentFlags ...string) *harness {
 	t.Helper()
 	h0 := &harness{t: t, emu: newTerminal(w, h), log: filepath.Join(t.TempDir(), "agent.log"), done: make(chan struct{})}
@@ -167,7 +167,7 @@ func (h *harness) waitDone() {
 	select {
 	case <-h.done:
 	case <-time.After(8 * time.Second):
-		h.t.Fatal("acp-tui did not quit")
+		h.t.Fatal("relay-tui did not quit")
 	}
 }
 
