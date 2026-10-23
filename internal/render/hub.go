@@ -550,11 +550,16 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	case h.EndAsk:
 		ask := fmt.Sprintf("End the conversation with %s? y to end it, n to keep it", title)
 		bottom = append(bottom, box("end conversation", wrap(ask, InputWidth(width)), width)...)
-	case len(s.Asks) > 0:
+	case len(s.Asks) > 0 && h.App.Moving:
 		bottom = append(bottom, permissionBox(s, now, width, height-1-len(bottom)-2)...)
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.
 	default:
+		if len(s.Asks) > 0 {
+			// Typing: the request waits above the input, which keeps the
+			// keys, until esc moves to answer it.
+			bottom = append(bottom, requestNote(s, width))
+		}
 		if inPanel {
 			bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
 			inputAt = len(bottom)
@@ -569,7 +574,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		}
 		showInput = true
 	}
-	if len(s.Asks) > 0 && !h.EndAsk && !core.RequestFits(height, 1+len(bottom)+1, core.MinTranscriptRows) {
+	if len(s.Asks) > 0 && h.App.Moving && !h.EndAsk && !core.RequestFits(height, 1+len(bottom)+1, core.MinTranscriptRows) {
 		lines := []string{truncate(head, width)}
 		for _, l := range wrap(styled(bold, "Window too small to show this request."), width) {
 			lines = append(lines, l)
@@ -730,7 +735,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	case len(s.Asks) > 0 && h.App.Moving:
 		keys = "h roles · 1 role" // the request's own keys are in its box
 	case len(s.Asks) > 0:
-		keys = "alt+1 role"
+		keys = "esc answer · alt+1 role" // typing: the request waits for esc
 	case h.App.Moving && conv != nil:
 		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · ? keys"
 	case h.App.Moving:

@@ -51,14 +51,15 @@ func TestHubGolden(t *testing.T) {
 	now := t0.Add(time.Minute)
 	h := hubFixture()
 	list := hubStep(h, core.Move{At: t0, Delta: -1})
-	asking := hubStep(h, core.FocusIndex{At: t0, Index: 1})
+	asking := hubStep(h, core.FocusIndex{At: t0, Index: 1}, core.StopTyping{At: t0})
+	typingAsked := hubStep(h, core.FocusIndex{At: t0, Index: 1})
 	ending := hubStep(h, core.AskEnd{At: t0})
 	helped := hubStep(h, core.ToggleHelp{At: t0})
 	empty := hubStep(h, core.FocusIndex{At: t0, Index: 2})
 	for _, c := range []struct {
 		name string
 		h    core.Hub
-	}{{"conversation", h}, {"list", list}, {"request", asking}, {"ending", ending}, {"help", helped}, {"no_conversation", empty}} {
+	}{{"conversation", h}, {"list", list}, {"request", asking}, {"request_typing", typingAsked}, {"ending", ending}, {"help", helped}, {"no_conversation", empty}} {
 		for _, w := range []int{39, 99} {
 			t.Run(fmt.Sprintf("%s_%d", c.name, w), func(t *testing.T) {
 				f := HubView(c.h, strings.Repeat(" ", InputWidth(HubMainWidth(w))), "ctrl+j for a new line", now, w, 16)
@@ -132,7 +133,7 @@ func TestHubMarksStandOut(t *testing.T) {
 }
 
 func TestHubQueuedTurnIsSaid(t *testing.T) {
-	h := hubStep(hubFixture(), core.FocusIndex{At: t0, Index: 1})
+	h := hubStep(hubFixture(), core.FocusIndex{At: t0, Index: 1}, core.StopTyping{At: t0})
 	f := ansi.Strip(HubView(h, "", "", t0, 100, 24).Content)
 	if !strings.Contains(f, "waiting for the role's scheduled work") {
 		t.Errorf("the queued turn is not said:\n%s", f)
@@ -305,7 +306,7 @@ func TestHubInputWidthIsTheBoxDrawn(t *testing.T) {
 // --- Codex round 2
 
 func longRequest(h core.Hub, title string) core.Hub {
-	return hubStep(h, core.Routed{Session: "s1", Event: core.PermissionAsked{At: t0, Permission: core.Permission{
+	return hubStep(h, core.StopTyping{At: t0}, core.Routed{Session: "s1", Event: core.PermissionAsked{At: t0, Permission: core.Permission{
 		ID: 1, CallID: "c", Name: "send_mail", Title: title, Input: `{"to":"a@example.com","body":"` + strings.Repeat("word ", 40) + `"}`,
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}})
 }
@@ -354,12 +355,12 @@ func TestInlineLongRequestTitleIsBounded(t *testing.T) {
 	s, _ = core.Reduce(s, core.Submit{At: t0, Text: "go"})
 	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: "send_mail", Title: title, Input: `{"a":1}`,
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
-	f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 39, 16)
+	f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 39, 16)
 	got := ansi.Strip(f.Content)
 	if f.TooSmall || !strings.Contains(got, "Allow (y)") || !strings.Contains(got, "Reject (n)") || !strings.Contains(got, "permission needed") {
 		t.Errorf("a 500 character title pushed the request off the screen:\n%s", got)
 	}
-	if f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), 39, 5); !f.TooSmall || !strings.Contains(ansi.Strip(f.Content), "too small") {
+	if f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 39, 5); !f.TooSmall || !strings.Contains(ansi.Strip(f.Content), "too small") {
 		t.Errorf("no word that the window is too small:\n%s", ansi.Strip(f.Content))
 	}
 	// v puts the whole title in the transcript.

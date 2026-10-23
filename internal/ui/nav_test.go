@@ -2,6 +2,7 @@ package ui
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -175,25 +176,116 @@ func TestDigitsAndAltDigits(t *testing.T) {
 	}
 }
 
-// A request on offer has the keys in either mode; past its own keys, h
-// and the digits still move, and l cannot take the keys to the pane.
-func TestARequestKeepsItsKeysInEitherMode(t *testing.T) {
-	var calls []string
-	typing := update(navHub(t, &calls), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt})
-	_ = update(typing, tea.KeyPressMsg{Code: tea.KeyEscape}) // esc cancels the request: it is the request's
-	if len(calls) != 1 || calls[0] != "answer" {
-		t.Fatalf("esc on a request: %v", calls)
+// A request is answered only while moving. While typing it takes no
+// key: y and enter go to the input. Esc makes it answerable, and its
+// delay starts then, so a y right behind the esc answers nothing; once
+// armed, y allows. Past its own keys, h and the digits still move, and
+// l cannot take the keys to the pane.
+func TestARequestIsAnsweredOnlyWhileMoving(t *testing.T) {
+	var all []string
+	answers := func() []string {
+		var out []string
+		for _, c := range all {
+			if c == "answer" {
+				out = append(out, c)
+			}
+		}
+		return out
 	}
-	calls = nil
-	typing = navHub(t, &calls)
-	typing = update(typing, tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt}, letter('l'), letter('x'), letter('i'))
-	if typing.hub.App.PaneFocus || typing.input.Value() != "" || len(calls) != 0 {
-		t.Fatalf("l x i: pane %v input %q calls %v", typing.hub.App.PaneFocus, typing.input.Value(), calls)
+	m := update(navHub(t, &all), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt}) // Mail, whose request waits
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	m = update(m, letter('y'), letter('n'), tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(answers()) != 0 || m.hub.App.Moving {
+		t.Fatalf("typing answered: %v (moving %v)", answers(), m.hub.App.Moving)
 	}
-	typing = update(typing, letter('h'))
-	if !typing.hub.List {
-		t.Fatal("h did not reach the list past the request")
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('y'))
+	if len(answers()) != 0 || !m.hub.App.Moving {
+		t.Fatalf("a y right behind esc answered: %v", answers())
 	}
+	m = update(m, letter('l'), letter('x'), letter('i'))
+	if m.hub.App.PaneFocus || !m.hub.App.Moving || len(answers()) != 0 {
+		t.Fatalf("l x i: pane %v moving %v calls %v", m.hub.App.PaneFocus, m.hub.App.Moving, answers())
+	}
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	if m = update(m, letter('y')); len(answers()) != 1 || answers()[0] != "answer" {
+		t.Fatalf("armed y: %v", answers())
+	}
+	// h past a request reaches the list.
+	all = nil
+	m = update(navHub(t, &all), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt}, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('h'))
+	if !m.hub.List || len(answers()) != 0 {
+		t.Fatalf("h: list %v calls %v", m.hub.List, answers())
+	}
+}
+
+// Against a single agent the same: typing, the request takes no key.
+func TestSingleRequestWaitsWhileTyping(t *testing.T) {
+	now := time.Now()
+	var all []string
+	answers := func() []string {
+		var out []string
+		for _, c := range all {
+			if c == "answer" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	ask := core.PermissionAsked{At: now, Permission: core.Permission{ID: 1, Options: []core.PermOption{{ID: "a", Kind: core.AllowOnce}}}}
+	m := update(New(recConn{calls: &all}, ""), tea.WindowSizeMsg{Width: 80, Height: 24}, ev(core.Connected{At: now}),
+		ev(core.Submit{At: now, Text: "go"}), ev(ask))
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	m = update(m, letter('y'))
+	if len(answers()) != 0 || m.input.Value() != "y" {
+		t.Fatalf("typing: calls %v input %q", answers(), m.input.Value())
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('y'))
+	if len(answers()) != 0 {
+		t.Fatalf("a y right behind esc answered: %v", answers())
+	}
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	if m = update(m, letter('y')); len(answers()) != 1 || m.input.Value() != "y" {
+		t.Fatalf("armed y: %v input %q", answers(), m.input.Value())
+	}
+}
+
+// Typing, no key sequence answers a request, on screen or off, however
+// long after it came; moving, no key answers one within its delay of its
+// becoming answerable. The keys that stop the turn or quit are left out:
+// stopping a turn cancels its requests on purpose.
+func TestNoKeyAnswersARequestWhileTypingOrUnarmed(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		var calls []string
+		m := update(navHub(t, &calls), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt})
+		// The request has waited past its delay while the operator typed.
+		m.hub.Convs = slices.Clone(m.hub.Convs)
+		for i := range m.hub.Convs {
+			if a := m.hub.Convs[i].State.Asks; len(a) > 0 {
+				a = slices.Clone(a)
+				a[0].Since = a[0].Since.Add(-time.Hour)
+				m.hub.Convs[i].State.Asks = a
+			}
+		}
+		answerable := time.Time{}
+		for range rapid.IntRange(1, 40).Draw(rt, "keys") {
+			k := genKey(rt)
+			if s := k.String(); s == "ctrl+c" || s == "ctrl+d" {
+				continue
+			}
+			wasMoving := m.hub.App.Moving
+			before := answered(calls)
+			m = update(m, k)
+			if !wasMoving && answered(calls) > before {
+				rt.Fatalf("key %q while typing answered: %v", k.String(), calls)
+			}
+			if !wasMoving && m.hub.App.Moving {
+				answerable = time.Now()
+			}
+			if wasMoving && answered(calls) > before && time.Since(answerable) < core.ArmDelay {
+				rt.Fatalf("key %q answered within the delay of esc: %v", k.String(), calls)
+			}
+		}
+	})
 }
 
 // The key that closes the list of keys only closes it: an x there does
@@ -223,4 +315,15 @@ func TestClosingHelpDoesNothingElse(t *testing.T) {
 	if m.one.State.Help || len(calls) != 0 {
 		t.Fatalf("single: help %v calls %v", m.one.State.Help, calls)
 	}
+}
+
+// answered is how many answers to requests calls holds.
+func answered(calls []string) int {
+	n := 0
+	for _, c := range calls {
+		if c == "answer" {
+			n++
+		}
+	}
+	return n
 }

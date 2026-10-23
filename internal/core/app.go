@@ -92,6 +92,13 @@ type Single struct {
 // ReduceSingle applies one event. It never mutates x's slices in place,
 // so a caller may keep the old state.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
+	switch e.(type) {
+	case PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll:
+		if !x.App.Moving {
+			return x, nil // a request is answered only while moving
+		}
+	}
+	was := x.App.Moving
 	rs := pending(x.Restore, e)
 	a, s, fx := reduce(x.App, x.State, e, true)
 	out := Single{App: a, State: s, Restore: rs}
@@ -99,6 +106,11 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
 	settleMode(&out.App)
+	if !was && out.App.Moving && len(out.State.Asks) > 0 {
+		// The request has just become answerable: its delay starts now.
+		out.State.Asks = append([]Permission(nil), out.State.Asks...)
+		out.State.Asks[0].Since = e.at()
+	}
 	return out, fx
 }
 

@@ -142,12 +142,12 @@ func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.
 	}
 	st := m.focusedState()
 	a, index := ClassifyMoving(k)
-	if !m.hub.List && !m.hub.App.PaneFocus && len(st.Asks) > 0 {
-		// The request has the keys, typing or not: nothing reaches the
-		// input, and only the request's own keys answer it. Past those,
-		// the operator can still go to the list or another role and
-		// scroll; the request stays until answered, and the sidebar says
-		// so.
+	if m.hub.App.Moving && !m.hub.List && !m.hub.App.PaneFocus && len(st.Asks) > 0 {
+		// While moving, the request has the keys: only its own keys
+		// answer it. Past those, the operator can still go to the list or
+		// another role and scroll; the request stays until answered, and
+		// the sidebar says so. While typing it takes no key at all: they
+		// go to the input, and esc moves to answer it.
 		if e := askKey(ClassifyAsk(k), now); e != nil {
 			return one(e)
 		}

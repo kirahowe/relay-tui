@@ -343,13 +343,14 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	h.Blanks = slices.Clone(h.Blanks)
 	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
-	before, view := h.onScreen(), h.view()
+	before, answerable, view := h.onScreen(), h.answerable(), h.view()
 	r.apply(e)
 	r.restoreHub(e.at())
 	r.placeLoose()
 	r.settleColumn()
 	r.adoptBlanks()
 	r.settle(before, e.at())
+	r.arm(answerable, e.at())
 	r.keepCardTrust(view)
 	r.markSeen(e.at())
 	return r.h, r.fx
@@ -418,6 +419,29 @@ func (r *hubReducer) settle(before string, at time.Time) {
 		r.toConv(i, Blurred{At: at}, false)
 	}
 	if i := r.sessionIndex(after); i >= 0 && len(h.Convs[i].State.Asks) > 0 {
+		r.toConv(i, Focused{At: at}, false)
+	}
+}
+
+// answerable is the session whose request on offer the keys can answer:
+// the conversation on screen, while moving. While typing every key goes
+// to the input, so no request is answerable.
+func (h Hub) answerable() string {
+	if !h.App.Moving {
+		return ""
+	}
+	return h.onScreen()
+}
+
+// arm starts a request's delay afresh when it becomes answerable, by
+// esc, by moving to it, or by its arriving while moving, so a key typed
+// for that cannot answer it.
+func (r *hubReducer) arm(was string, at time.Time) {
+	now := r.h.answerable()
+	if now == was || now == "" {
+		return
+	}
+	if i := r.sessionIndex(now); i >= 0 && len(r.h.Convs[i].State.Asks) > 0 {
 		r.toConv(i, Focused{At: at}, false)
 	}
 }
@@ -578,7 +602,11 @@ func (r *hubReducer) apply(e Event) {
 	case Viewport:
 		h.TooSmall = e.TooSmall
 	case PermissionConfirm, PermissionQuick:
-		if !h.TooSmall {
+		if !h.TooSmall && h.App.Moving {
+			r.toFocused(e)
+		}
+	case PermissionMove, PermissionCancel, PermissionShowAll:
+		if h.App.Moving { // a request is answered only while moving
 			r.toFocused(e)
 		}
 	case Pasted, TrustPaste:

@@ -24,6 +24,7 @@ func wideWorkspace(t *testing.T) *harness {
 	h := start(t, "workspace.jsonl", 140, 34)
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	return h
 }
 
@@ -147,6 +148,7 @@ func TestWorkspaceOverlayOnANarrowScreen(t *testing.T) {
 	h := start(t, "workspace.jsonl", 80, 28)
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
@@ -182,6 +184,7 @@ func TestDisplayStaysOutOfToolOutput(t *testing.T) {
 	h := start(t, "workspace.jsonl", 80, 40)
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
@@ -199,6 +202,7 @@ func TestWorkspaceWithoutRelay(t *testing.T) {
 	h := start(t, "workspace_plain.jsonl", 140, 30)
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	scr := h.waitScreen("the display", func(s string) bool { return strings.Contains(s, "Concert venues near the hall") })
 	if !strings.Contains(scr, "untrusted") {
 		t.Errorf("no untrusted mark:\n%s", scr)

@@ -226,11 +226,17 @@ func TestPermissionGolden(t *testing.T) {
 			s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
 			s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: p})
 			for _, w := range []int{60, 30} {
-				f := View(core.Single{State: s}, "› ", "", t0.Add(time.Second), w, 24)
+				f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), w, 24)
 				t.Run(strconv.Itoa(w), func(t *testing.T) { requireGolden(t, f.Content) })
 			}
 		})
 	}
+	// Typing, the request takes no keys: the input stays, and a line says
+	// a request waits and how to answer it.
+	t.Run("typing", func(t *testing.T) {
+		s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: cases["short"]})
+		requireGolden(t, View(core.Single{State: s}, "› half a thought", "", t0.Add(time.Second), 60, 24).Content)
+	})
 	t.Run("request_entry", func(t *testing.T) {
 		requireGolden(t, strings.Join(Entries(nil, []core.Entry{{Kind: core.Request, Text: "web_fetch", Detail: long, Final: true}}, 50, t0), "\n"))
 	})

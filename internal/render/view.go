@@ -97,7 +97,12 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 	}
 	inputLines := strings.Split(input, "\n")
 	inputAt, x := 0, 0
-	if len(s.Asks) > 0 {
+	if len(s.Asks) > 0 && !a.Moving {
+		// Typing: the request waits above the input, which keeps the keys,
+		// until esc moves to answer it.
+		bottom = append(bottom, "", requestNote(s, width))
+	}
+	if len(s.Asks) > 0 && a.Moving {
 		// The request takes the input box's place: every key is spoken for
 		// while it waits, and the room is better spent on the request. Its
 		// input shows in what is left of the screen after the status line,
@@ -124,7 +129,7 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 	rows := max(height-1, 1)
 	// The inline view prints into scrollback, which is where v puts the
 	// whole request, so it needs no rows of conversation beyond the box.
-	if len(s.Asks) > 0 && !core.RequestFits(rows, len(bottom), 0) {
+	if len(s.Asks) > 0 && a.Moving && !core.RequestFits(rows, len(bottom), 0) {
 		lines := wrap(styled(bold, "Window too small to show this request."), width)
 		for _, l := range wrap("Make it larger. Allowing is off until then; esc still cancels.", width) {
 			lines = append(lines, styled(faint, l))

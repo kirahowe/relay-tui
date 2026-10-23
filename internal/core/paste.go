@@ -126,7 +126,10 @@ func (r *reducer) pasted(e Pasted) {
 // inputInPlay says the input box has the keys.
 func (r *reducer) inputInPlay() bool {
 	s := &r.s
-	return !(s.Phase == Exited || len(s.Asks) > 0 || r.a.PaneFocus || (s.Transcript.Open && !s.Shared))
+	// A request has the keys only while moving; while typing, the input
+	// keeps them.
+	asking := len(s.Asks) > 0 && r.a.Moving
+	return !(s.Phase == Exited || asking || r.a.PaneFocus || (s.Transcript.Open && !s.Shared))
 }
 
 // trustPaste marks the latest paste still in the draft as trusted and has

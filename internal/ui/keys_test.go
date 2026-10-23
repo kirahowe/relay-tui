@@ -138,10 +138,12 @@ func TestAskKeys(t *testing.T) {
 	}
 }
 
+// While moving, a request on offer has every key: none edits the input.
 func TestAskNeverTouchesTheInput(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		m := New(nopConn{}, "")
 		var model any = m
+		model, _ = model.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 		model, _ = model.(Model).Update(EventMsg{Event: core.PermissionAsked{At: time.Now(), Permission: core.Permission{ID: 1,
 			Options: []core.PermOption{{ID: "a", Kind: core.AllowOnce}}}}})
 		for range rapid.IntRange(1, 20).Draw(t, "keys") {

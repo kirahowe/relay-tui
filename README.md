@@ -58,17 +58,22 @@ The agent's stderr would garble the screen, so relay-tui keeps the last
 writes all of it to a file. relay-tui's own notes about the connection,
 such as a line it dropped as unreadable, go to the same place.
 
-When the agent asks permission for a tool call, the request replaces the
-input box. It shows the tool's name and its input, indented and cut to ten
+When the agent asks permission for a tool call while you are typing, the
+request takes no keys: a line above the input says "permission needed",
+names the tool and says "esc to answer", the status line says so too,
+and what you type goes on into the input. Esc stops typing, and the
+request then replaces the input box; it does so at once if it arrives
+while you are moving (see "Typing and moving"). It shows the tool's name and its input, indented and cut to ten
 lines, and the options the agent offered. Keys: `y` picks the first
 allow_once option, `n` the first reject_once, up/down and enter pick between
 them (the highlight starts on a reject, so a bare enter refuses). Options
 of any other kind, such as allow_always, are not offered: relay-tui never
 grants standing permission. `v`
 puts the whole input into the transcript, and Esc or Ctrl-C answers
-cancelled. Keys that would approve do nothing for the first 600 ms, so a
-`y` typed for the input cannot allow a call that appeared mid-word. Other
-keys are ignored while a request waits, so no prompt can go out. Requests
+cancelled. Keys that would approve do nothing for the first 600 ms after
+the request can take keys, by esc or by arriving while you move, so a
+`y` typed right behind esc cannot allow it. Other keys are ignored while
+the request has the keys, so no prompt can go out. Requests
 queue and are answered in order; ending the turn cancels the rest.
 
 Nothing the agent wrote in a request is dropped. Control characters, bidi
@@ -107,7 +112,7 @@ Typing:
 |---|---|
 | `enter` | send |
 | `shift+enter`, `ctrl+j` | a new line (so do `ctrl+enter` and `alt+enter`, where the terminal reports them) |
-| `esc` | stop typing, to move; what you typed stays |
+| `esc` | stop typing, to move or to answer a waiting request; what you typed stays |
 | `alt+1` to `alt+9` | that role, still typing (hub) |
 | `pgup`, `pgdown` | scroll the conversation (hub) |
 | `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
@@ -139,9 +144,11 @@ archive or a trust, the next key answers or cancels it and does nothing
 else. A letter that does nothing where you are shows "i to type" in the
 status line. A paste while moving goes nowhere, with the same note.
 
-A permission request has the keys in either mode, as described above.
-Besides its own keys, only `h` (to the list), the role keys and the page
-keys work while it waits, and `l` cannot take the keys to the pane.
+A permission request is answered only while moving, as described
+above: while typing it takes no keys and the input keeps them. While
+moving it has the keys; besides its own, only `h` (to the list), the role
+keys and the page keys work while it waits, and `l` cannot take the keys
+to the pane.
 
 ## The look
 
@@ -355,8 +362,9 @@ rows of conversation left to scroll through, the view says "Window too
 small" and the keys that allow do nothing (esc still cancels).
 
 A request from a conversation in the background shows as `?N` beside its
-role and is answered after switching to it. Switching starts the 600 ms
-delay again, so a key typed for the switch cannot approve it. When
+role and is answered after switching to it while moving. Switching, or
+esc there, starts the 600 ms delay again, so a key typed for the switch
+cannot approve it. When
 another device answers first, the dialog closes and the transcript notes
 "answered elsewhere".
 

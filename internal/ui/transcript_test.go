@@ -22,6 +22,7 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	h.keys("\x0f") // ctrl+o
 	h.waitScreen("the thinking", func(s string) bool { return strings.Contains(s, "The page has") })
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
@@ -51,6 +52,8 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	// The next turn still reaches scrollback, in order, once.
 	// Lines on their way to scrollback are in neither it nor the frame
 	// for a moment, so wait for them to land.
+	h.keys("i") // answering the request left typing
+	h.waitScreen("typing", func(s string) bool { return strings.Contains(s, "TYPING") })
 	h.keys("again\r")
 	h.wait("the next turn after the first", h.all, func(all string) bool {
 		f, a, s := strings.Index(all, "Fetched."), strings.Index(all, "› again"), strings.Index(all, "Second.")
@@ -139,6 +142,7 @@ func TestHelpOverTranscriptYieldsToRequest(t *testing.T) {
 	h.waitIdle()
 	h.keys("go\r\x0f?")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	if s := h.screen(); strings.Contains(s, "any key closes this") || strings.Contains(s, "esc back") {
 		t.Fatalf("the request shares the screen:\n%s", s)
 	}

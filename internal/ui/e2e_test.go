@@ -568,7 +568,47 @@ func permit(t *testing.T, cols, rows int) *harness {
 	h := start(t, "permission.jsonl", cols, rows)
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.answer() // esc: while typing a request takes no keys
 	return h
+}
+
+// answer stops typing so the request on offer takes the keys, and
+// waits until it does: esc on its own, since an escape sent with the
+// next key reads as alt and that key.
+func (h *harness) answer() {
+	h.t.Helper()
+	h.keys("\x1b")
+	h.waitScreen("the request with the keys", func(s string) bool {
+		return strings.Contains(s, "esc cancel") || strings.Contains(s, "esc still cancels")
+	})
+}
+
+// A request that arrives while you type takes no keys: a y typed long
+// after it is text, and the request says how to answer it. Esc gives it
+// the keys, and only after its delay does y allow.
+func TestPermissionWaitsWhileTyping(t *testing.T) {
+	h := start(t, "permission.jsonl", 80, 24)
+	h.keys("go\r")
+	h.waitScreen("the request, waiting", func(s string) bool {
+		return strings.Contains(s, "permission needed") && strings.Contains(s, "esc to answer")
+	})
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.keys("yes y")
+	h.waitScreen("typed", func(s string) bool { return strings.Contains(s, "› yes y") })
+	time.Sleep(100 * time.Millisecond)
+	if o := h.permissionOutcome(); o != "" {
+		t.Fatalf("typing answered the request: %s", o)
+	}
+	h.answer()
+	h.keys("y") // right behind esc: too soon
+	time.Sleep(100 * time.Millisecond)
+	if o := h.permissionOutcome(); o != "" {
+		t.Fatalf("a y right behind esc answered: %s", o)
+	}
+	time.Sleep(core.ArmDelay)
+	h.keys("y")
+	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
+	h.waitScreen("the draft", func(s string) bool { return strings.Contains(s, "› yes y") })
 }
 
 func (h *harness) permissionOutcome() string {

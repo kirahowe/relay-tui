@@ -250,12 +250,16 @@ func TestPasteSurvivesQueue(t *testing.T) {
 	}
 }
 
+// While moving a request has the keys, so a paste goes nowhere; while
+// typing the input keeps them, request or not, and the paste lands.
 func TestPasteIgnoredWhileAsking(t *testing.T) {
-	s := idleState(true)
-	s, _ = Reduce(s, Submit{At: t0, Text: "go"})
-	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1}})
-	s2, fx := Reduce(s, Pasted{At: t0, Text: "x"})
-	if len(fx) != 0 || len(s2.Pastes) != 0 {
-		t.Fatalf("a paste got through: %+v", fx)
+	x := Single{State: idleState(true)}
+	x, _ = feedS(x, Submit{At: t0, Text: "go"}, PermissionAsked{At: t0, Permission: Permission{ID: 1}})
+	if typed, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 1 || len(typed.Pastes) != 1 {
+		t.Fatalf("typing: the paste did not land: %+v", fx)
+	}
+	x, _ = feedS(x, StopTyping{At: t0})
+	if s2, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 0 || len(s2.Pastes) != 0 {
+		t.Fatalf("moving: a paste got through: %+v", fx)
 	}
 }

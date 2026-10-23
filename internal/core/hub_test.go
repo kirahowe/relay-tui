@@ -190,7 +190,7 @@ func TestHubPermissionInTheBackgroundWaitsAndSettles(t *testing.T) {
 func TestHubAnswerGoesWithTheRequestsID(t *testing.T) {
 	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"})
 	ask := PermissionAsked{At: t0, Permission: Permission{ID: 3, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h, fx := apply(t, h, routed("s1", ask), PermissionQuick{At: t0.Add(time.Second), Kind: AllowOnce})
+	h, fx := apply(t, h, StopTyping{At: t0}, routed("s1", ask), PermissionQuick{At: t0.Add(time.Second), Kind: AllowOnce})
 	if !slices.Contains(fx, Effect(AnswerPermission{ID: 3, OptionID: "a"})) {
 		t.Fatalf("%v", fx)
 	}
@@ -731,7 +731,7 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 				return out
 			}
 			h := loadedHub(t)
-			h, _ = apply(t, h, routed("s1", ask))
+			h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", ask))
 			h, _ = apply(t, h, at(time.Second, p[0])...)
 			h, _ = apply(t, h, at(time.Hour, p[1])...)
 			_, fx := apply(t, h, PermissionQuick{At: t0.Add(time.Hour + time.Millisecond), Kind: AllowOnce})
@@ -1017,7 +1017,7 @@ func TestHubPasteToARoleWithNoConversationIsKept(t *testing.T) {
 func TestHubTooSmallWindowMakesApprovalInert(t *testing.T) {
 	ask := PermissionAsked{At: t0, Permission: Permission{ID: 4, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
 	h := loadedHub(t)
-	h, _ = apply(t, h, routed("s1", ask), Viewport{At: t0, TooSmall: true})
+	h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", ask), Viewport{At: t0, TooSmall: true})
 	late := t0.Add(time.Hour)
 	for _, e := range []Event{PermissionQuick{At: late, Kind: AllowOnce}, PermissionConfirm{At: late}, PermissionQuick{At: late, Kind: RejectOnce}} {
 		if _, fx := apply(t, h, e); answerCount(fx) != 0 {

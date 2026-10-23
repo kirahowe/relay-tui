@@ -348,7 +348,9 @@ func (m *Model) wheel(w tea.MouseWheelMsg, now time.Time) core.Event {
 // key turns a key press into events, or passes it to the input box.
 func (m *Model) key(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
 	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
-	if len(m.one.State.Asks) > 0 {
+	if len(m.one.State.Asks) > 0 && m.one.App.Moving {
+		// While moving the request has every key; while typing none, and
+		// esc moves to answer it.
 		return one(askKey(ClassifyAsk(k), now))
 	}
 	empty := m.input.Value() == ""
@@ -619,7 +621,7 @@ func (m Model) View() tea.View {
 	}
 	f := m.frame(time.Now())
 	v := tea.NewView(f.Content)
-	if c := m.input.Cursor(); c != nil && len(m.one.State.Asks) == 0 && !m.one.App.PaneFocus && !m.one.State.Help && !m.one.App.Moving {
+	if c := m.input.Cursor(); c != nil && !m.one.App.PaneFocus && !m.one.State.Help && !m.one.App.Moving {
 		c.Position.X += f.InputX
 		c.Position.Y += f.InputY
 		v.Cursor = c

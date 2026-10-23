@@ -77,7 +77,8 @@ func TestDroppedPasteLeavesNothing(t *testing.T) {
 	cases := map[string]func(Single) Single{
 		"transcript": func(s Single) Single { s, _ = ReduceSingle(s, ShowTools{At: t0}); return s },
 		"pane":       func(s Single) Single { s.PaneFocus = true; return s },
-		"request": func(s Single) Single {
+		"request": func(s Single) Single { // moving: the request has the keys
+			s, _ = ReduceSingle(s, StopTyping{At: t0})
 			s, _ = ReduceSingle(s, Submit{At: t0, Text: "a"})
 			s, _ = ReduceSingle(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Options: []PermOption{{ID: "allow", Kind: AllowOnce}}}})
 			return s

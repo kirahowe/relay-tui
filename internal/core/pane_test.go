@@ -409,7 +409,7 @@ func TestDomainsOnlyGrow(t *testing.T) {
 
 func TestShowAllCarriesThePreview(t *testing.T) {
 	s := busySingle()
-	s, _ = feed(s, LabelsSeen{At: t0, Labels: Labels{Contaminated: true}},
+	s, _ = feed(s, LabelsSeen{At: t0, Labels: Labels{Contaminated: true}}, StopTyping{At: t0},
 		PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "send", Input: `{"a":1}`, Preview: "will send x"}},
 		PermissionShowAll{At: t0})
 	e := s.Entries[len(s.Entries)-1]

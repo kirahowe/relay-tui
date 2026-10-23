@@ -58,6 +58,9 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	case core.StatusAsking:
 		lead = "?"
 		add("waiting for you")
+		if !l.Moving {
+			add("esc to answer")
+		}
 		if l.Asks > 1 {
 			add(strconv.Itoa(l.Asks) + " requests")
 		}

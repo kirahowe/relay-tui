@@ -128,7 +128,7 @@ func TestPermissionBoxShowsThePreview(t *testing.T) {
 		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign", Since: t0,
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
 	s.Pick = 1
-	f := View(core.Single{State: s}, "", "", t0.Add(time.Second), 70, 20)
+	f := View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 70, 20)
 	goldenLines(t, strings.Split(f.Content, "\n"))
 	plain := ansi.Strip(f.Content)
 	if strings.Contains(plain, "https://send") {
@@ -435,7 +435,7 @@ func TestACleanSessionsPreviewIsDefanged(t *testing.T) {
 		FixedArgs: []string{"group"},
 		Options:   []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}}}
 	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Private: true}, Asks: []core.Permission{ask}}
-	plain := ansi.Strip(View(core.Single{State: s}, "", "", t0.Add(time.Second), 90, 30).Content)
+	plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content)
 	for _, live := range []string{"https://evil", "https://in."} {
 		if strings.Contains(plain, live) {
 			t.Errorf("the permission box shows %s live:\n%s", live, plain)
@@ -447,7 +447,7 @@ func TestACleanSessionsPreviewIsDefanged(t *testing.T) {
 	// Even with clean labels everywhere, the preview defangs.
 	ask.PreviewLabels = core.Labels{}
 	s.Asks = []core.Permission{ask}
-	if plain := ansi.Strip(View(core.Single{State: s}, "", "", t0.Add(time.Second), 90, 30).Content); strings.Contains(plain, "https://evil") {
+	if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content); strings.Contains(plain, "https://evil") {
 		t.Errorf("a clean preview shows a live link:\n%s", plain)
 	}
 	e := core.Entry{Kind: core.Request, Text: "send_campaign", Detail: ask.Input, Preview: ask.Preview, Final: true}
@@ -480,7 +480,7 @@ func TestPropertyPreviewLinksNeverLive(t *testing.T) {
 		ask := core.Permission{ID: 1, Name: "send", Input: `{}`, Preview: "go to https://" + host + "/p", Since: t0,
 			Labels: lab("session"), PreviewLabels: lab("preview")}
 		s := core.State{Phase: core.Busy, Ready: true, Labels: lab("state"), Asks: []core.Permission{ask}}
-		if plain := ansi.Strip(View(core.Single{State: s}, "", "", t0.Add(time.Second), 80, 30).Content); strings.Contains(plain, "https://") {
+		if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 80, 30).Content); strings.Contains(plain, "https://") {
 			rt.Fatalf("a live link:\n%s", plain)
 		}
 	})

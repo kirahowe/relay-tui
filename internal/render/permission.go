@@ -46,6 +46,21 @@ func optionKey(k core.OptionKind) string {
 // is dropped or cut, only wrapped: control and format characters show as
 // \u escapes (see core.FaithfulLines). room is how many rows the box may
 // take. A request not yet armed shows its options faint.
+// requestNote is the line that says a request waits while the operator
+// types, and how to answer it.
+func requestNote(s core.State, width int) string {
+	p := s.Asks[0]
+	title := core.EscapeLabel(p.Label())
+	if p.Shown().Union(s.Labels).Contaminated {
+		title = Defang(title)
+	}
+	more := ""
+	if n := len(s.Asks); n > 1 {
+		more = fmt.Sprintf(" (%d)", n)
+	}
+	return truncate(styled(bold|reverse, " permission needed"+more+" ")+" "+styled(bold, oneLine(title))+styled(faint, " · esc to answer"), width)
+}
+
 func permissionBox(s core.State, now time.Time, width, room int) []string {
 	p := s.Asks[0]
 	inner := InputWidth(width)

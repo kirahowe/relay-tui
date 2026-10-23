@@ -129,6 +129,9 @@ const (
 // that key.
 func (h *harness) escape() {
 	h.t.Helper()
+	if s := h.screen(); strings.Contains(s, "MOVING") && !strings.Contains(s, "TYPING") {
+		return // moving already, as after answering a request
+	}
 	h.keys("\x1b")
 	h.waitScreen("moving", contains("MOVING"))
 }
@@ -227,6 +230,7 @@ func TestHubBackgroundRequestShowsInTheSidebarAndIsAnsweredAfterSwitching(t *tes
 	}
 	h.keys("\x1b2")
 	h.waitScreen("the request", contains("permission needed"))
+	h.answer()                         // esc: while typing a request takes no keys
 	time.Sleep(700 * time.Millisecond) // past the arming delay
 	h.keys("y")
 	out := h.waitLog("permission fh-mail")
@@ -477,6 +481,8 @@ func TestHubTooSmallWindowCannotApprove(t *testing.T) {
 	h := startHub(t, threeRoles(), 40, 8, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
 	h.say("ask dev " + strings.Repeat("x", 500))
+	h.waitScreen("the request", contains("permission"))
+	h.keys("\x1b") // to answer it, which the window is too small for
 	h.waitScreen("the notice", contains("too small"))
 	time.Sleep(800 * time.Millisecond)
 	h.keys("y")
@@ -543,6 +549,7 @@ func TestHubQuitLeavesRequestsUnanswered(t *testing.T) {
 	h.waitScreen("dev", contains("hello from dev"))
 	h.say("ask dev")
 	h.waitScreen("the request", contains("permission needed"))
+	h.answer()  // esc: while typing a request takes no keys
 	h.keys("h") // the request has the keys, and h goes past it
 	h.waitScreen("the list", contains("MOVING"))
 	h.keys("\x03") // ctrl+c from the list quits
