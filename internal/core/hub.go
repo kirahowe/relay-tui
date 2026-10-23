@@ -125,6 +125,8 @@ type Hub struct {
 	// with no conversation yet, so what is pasted there is kept.
 	TooSmall bool
 	Blanks   []Blank
+	// Restore is a saved view still on its way back (see view.go).
+	Restore *Restore
 	// Exit is why the connection went away, once Gone.
 	Exit string
 	Gone bool
@@ -343,10 +345,12 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	h.Convs = slices.Clone(h.Convs)
 	h.Ended = slices.Clone(h.Ended)
 	h.Blanks = slices.Clone(h.Blanks)
+	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
 	before, view := h.onScreen(), h.view()
 	r.apply(e)
 	r.backToList()
+	r.restoreHub(e.at())
 	r.adoptBlanks()
 	r.settle(before, e.at())
 	r.keepCardTrust(view)

@@ -38,13 +38,20 @@ type App struct {
 type Single struct {
 	App
 	State
+	// Restore is a saved view still on its way back (see view.go).
+	Restore *Restore
 }
 
 // ReduceSingle applies one event. It never mutates x's slices in place,
 // so a caller may keep the old state.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
+	rs := pending(x.Restore, e)
 	a, s, fx := reduce(x.App, x.State, e, true)
-	return Single{App: a, State: s}, fx
+	out := Single{App: a, State: s, Restore: rs}
+	if rs != nil {
+		out, fx = restoreSingle(out, e.at(), fx)
+	}
+	return out, fx
 }
 
 // Reduce applies one event to a conversation on its own, with no app
