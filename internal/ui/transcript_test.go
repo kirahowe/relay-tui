@@ -58,18 +58,19 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	})
 }
 
-// ? on an empty input shows the keys; any key closes the list, and a key
-// that means something still does it.
+// ? on an empty input shows the keys; any key closes the list and does
+// nothing else, since the list covered what it would act on.
 func TestHelpOverlay(t *testing.T) {
 	h := start(t, "simple.jsonl", 80, 24)
 	h.waitIdle()
 	h.keys("?")
 	h.waitScreen("the keys", func(s string) bool { return strings.Contains(s, "any key closes this") })
-	h.keys("h")
-	h.waitScreen("closed, with the key typed", func(s string) bool {
-		return !strings.Contains(s, "any key closes this") && strings.Contains(s, "› h")
-	})
-	h.keys("?")
+	h.keys("x")
+	h.waitScreen("closed", func(s string) bool { return !strings.Contains(s, "any key closes this") })
+	if strings.Contains(h.screen(), "› x") {
+		t.Errorf("the key that closed the list was typed:\n%s", h.screen())
+	}
+	h.keys("h?")
 	h.waitScreen("a ? typed after text", func(s string) bool {
 		return strings.Contains(s, "› h?") && !strings.Contains(s, "any key closes this")
 	})

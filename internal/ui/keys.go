@@ -199,16 +199,6 @@ func ClassifyTranscript(k tea.KeyPressMsg, inputEmpty bool) (Action, core.Transc
 	return PassThrough, 0
 }
 
-// closesHelp says a key only closes the list of keys; any other key
-// closes it and then does what it does.
-func closesHelp(k tea.KeyPressMsg) bool {
-	switch k.String() {
-	case "esc", "?", "q":
-		return true
-	}
-	return false
-}
-
 // NewlineHint tells the user how to type a new line.
 func NewlineHint(c Caps) string {
 	if c.Disambiguation {

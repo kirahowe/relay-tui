@@ -350,10 +350,8 @@ func (m *Model) key(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
 	}
 	empty := m.input.Value() == ""
 	if m.one.State.Help {
-		m.one, _ = core.ReduceSingle(m.one, core.ToggleHelp{At: now})
-		if closesHelp(k) {
-			return nil, nil
-		}
+		// Any key closes the list of keys, and does only that.
+		return one(core.ToggleHelp{At: now})
 	}
 	if m.one.State.Transcript.Open {
 		return one(m.transcriptKey(k, empty, now))

@@ -125,14 +125,9 @@ func (m Model) focusedState() core.State {
 // works whatever else is going on, even while a request waits.
 func (m *Model) hubKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
 	if m.hub.Help {
-		// Any key closes the list of keys; all but Esc and ? then do what
-		// they do.
-		evs := []core.Event{core.ToggleHelp{At: now}}
-		if closesHelp(k) {
-			return evs, nil
-		}
-		more, cmd := m.hubKeyBody(k, now)
-		return append(evs, more...), cmd
+		// Any key closes the list of keys, and does only that: the list
+		// covers what the key would act on.
+		return []core.Event{core.ToggleHelp{At: now}}, nil
 	}
 	return m.hubKeyBody(k, now)
 }

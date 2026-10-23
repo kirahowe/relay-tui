@@ -195,3 +195,32 @@ func TestARequestKeepsItsKeysInEitherMode(t *testing.T) {
 		t.Fatal("h did not reach the list past the request")
 	}
 }
+
+// The key that closes the list of keys only closes it: an x there does
+// not tick the item the list covered, on any screen.
+func TestClosingHelpDoesNothingElse(t *testing.T) {
+	for _, w := range []int{60, 170} {
+		var calls []string
+		m := update(navHub(t, &calls), tea.WindowSizeMsg{Width: w, Height: 20},
+			tea.KeyPressMsg{Code: tea.KeyEscape}, letter('l'), tea.KeyPressMsg{Code: tea.KeyEnter}, letter('j'))
+		if !m.hub.App.PaneFocus || !m.hub.App.Board.Detail {
+			t.Fatalf("%d: not on an open card", w)
+		}
+		m = update(m, letter('?'), letter('x'))
+		if m.hub.Help || len(calls) != 0 {
+			t.Fatalf("%d: help %v, calls %v", w, m.hub.Help, calls)
+		}
+		if m = update(m, letter('x')); len(calls) != 1 {
+			t.Fatalf("%d: x after the help closed: %v", w, calls)
+		}
+	}
+	// Against a single agent too.
+	now := time.Now()
+	var calls []string
+	m := update(New(recConn{calls: &calls}, ""), tea.WindowSizeMsg{Width: 60, Height: 20}, ev(core.Connected{At: now}),
+		ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}),
+		tea.KeyPressMsg{Code: tea.KeyEscape}, letter('l'), tea.KeyPressMsg{Code: tea.KeyEnter}, letter('j'), letter('?'), letter('x'))
+	if m.one.State.Help || len(calls) != 0 {
+		t.Fatalf("single: help %v calls %v", m.one.State.Help, calls)
+	}
+}
