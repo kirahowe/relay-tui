@@ -28,6 +28,8 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		var cmd tea.Cmd
 		evs, cmd = m.hubKey(msg, now)
+		// Every key is the operator's, even one only the input box sees.
+		evs = append([]core.Event{core.KeyPressed{At: now}}, evs...)
 		cmds = append(cmds, cmd)
 	case tea.MouseWheelMsg:
 		evs = m.hubWheel(msg, now)

@@ -97,6 +97,11 @@ type (
 		InputEmpty bool
 	} // Ctrl-C
 	EOF struct{ At time.Time } // Ctrl-D on an empty input
+	// KeyPressed is any key the operator pressed, sent by the shell ahead
+	// of whatever the key does, the keys the input box takes for itself
+	// included. It changes nothing but what waits on the operator: a
+	// restore in flight gives way to it (see pending).
+	KeyPressed struct{ At time.Time }
 )
 
 // Events from the shell.
@@ -125,6 +130,7 @@ func (e Usage) at() time.Time         { return e.At }
 func (e Submit) at() time.Time        { return e.At }
 func (e Interrupt) at() time.Time     { return e.At }
 func (e EOF) at() time.Time           { return e.At }
+func (e KeyPressed) at() time.Time    { return e.At }
 func (e Tick) at() time.Time          { return e.At }
 func (e TerminalReady) at() time.Time { return e.At }
 func (e Printed) at() time.Time       { return e.At }

@@ -21,7 +21,9 @@ import (
 // agent, the session), the board for the card. Anything that has gone
 // meanwhile, a role, a card, a conversation, falls back to the default.
 // A key the operator presses before a part is back drops that part (but
-// not the drafts): the operator has moved on.
+// not the drafts): the operator has moved on. Any key counts, a letter
+// typed into the input as much as one that moves, so the shell sends
+// KeyPressed for each.
 //
 // Nothing saved has been sent, answered or confirmed. No permission
 // answer, trust of a card or doc, end question or queued message is
@@ -79,7 +81,7 @@ func (RestoreDraft) effect() {}
 // operator's.
 func fromOperator(e Event) bool {
 	switch e.(type) {
-	case Submit, Interrupt, EOF, Pasted, TrustPaste, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
+	case KeyPressed, Submit, Interrupt, EOF, Pasted, TrustPaste, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
 		PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll,
 		FocusMove, FocusIndex, FocusLast, ToggleList, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd:
 		return true

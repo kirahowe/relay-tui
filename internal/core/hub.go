@@ -537,7 +537,7 @@ func (r *hubReducer) apply(e Event) {
 			r.toConv(i, e, false)
 		}
 		r.emit(Quit{})
-	case Tick, TerminalReady, Printed:
+	case Tick, TerminalReady, Printed, KeyPressed:
 	case FocusMove:
 		r.move(e.Delta, e.At)
 	case FocusIndex:

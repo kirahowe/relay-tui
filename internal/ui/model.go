@@ -251,6 +251,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyboardEnhancementsMsg:
 		m.caps.Disambiguation = msg.SupportsKeyDisambiguation()
 	case tea.KeyPressMsg:
+		// Every key is the operator's, even one only the input box sees.
+		m.one, _ = core.ReduceSingle(m.one, core.KeyPressed{At: now})
 		var cmd tea.Cmd
 		ev, cmd = m.key(msg, now)
 		cmds = append(cmds, cmd)
