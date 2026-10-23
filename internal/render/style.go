@@ -1,30 +1,121 @@
 // Package render turns core state into terminal text. It is pure: state,
-// a width and a time in, strings out.
+// a width and a time in, strings out. The one input that is not an
+// argument is the terminal's own colours (SetTerminalColors), which the
+// shell learns once at startup.
 //
-// The look is plain on purpose: no colours, only bold, italic and faint,
-// so it reads the same on light and dark themes. Every line it returns is
-// self-contained: it opens the styles it needs and resets them at its end,
-// so lines can be printed, cut or truncated one at a time.
+// Colours come from the terminal's palette (the ANSI colours its theme
+// sets), so the look follows a light or a dark theme. The tinted
+// backgrounds of a selection, a key chip or a label pill are blends of the
+// terminal's background and text colours; a terminal that does not say
+// what they are gets reverse video for a selection and no tint for the
+// rest. Every line it returns is self-contained: it opens the styles it
+// needs and resets them at its end, so lines can be printed, cut or
+// truncated one at a time.
 package render
 
 import (
+	"fmt"
+	"image/color"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 )
 
-// style is a set of SGR attributes.
-type style uint8
+// style is a set of SGR attributes, with a text colour in bits 8-15 and a
+// background in bits 16-23, each a hue.
+type style uint32
 
 const (
 	bold style = 1 << iota
 	faint
 	italic
 	reverse
+	underline
+	strike
 )
+
+// hue is a colour: one of the terminal's own, or a tint made from its
+// background.
+type hue uint8
+
+const (
+	hueNone hue = iota
+	hueRed
+	hueGreen
+	hueYellow
+	hueBlue
+	hueMagenta
+	hueCyan
+	// Tints, for backgrounds only: a selected row, a key chip or a block
+	// of the operator's own text, and a label pill.
+	tintSel
+	tintChip
+	tintPill
+)
+
+const (
+	fgShift = 8
+	bgShift = 16
+)
+
+func fg(h hue) style { return style(h) << fgShift }
+func bg(h hue) style { return style(h) << bgShift }
+
+func (st style) fg() hue      { return hue(st >> fgShift) }
+func (st style) bg() hue      { return hue(st >> bgShift) }
+func (st style) attrs() style { return st & 0xff }
+
+// The colours by what they mean.
+var (
+	accent      = fg(hueCyan)    // what has focus, and keys
+	okColour    = fg(hueGreen)   // done, and a call that worked
+	warnColour  = fg(hueYellow)  // text from outside
+	errColour   = fg(hueRed)     // a failure
+	labelColour = fg(hueMagenta) // a label pill's text
+	selBar      = bg(tintSel)
+	chipBg      = bg(tintChip)
+	pillBg      = bg(tintPill)
+)
+
+type rgb struct{ r, g, b uint8 }
+
+// terminalColors is the terminal's background and text colour, once it
+// has said; nil until then.
+var terminalColors atomic.Pointer[[2]rgb]
+
+// SetTerminalColors records the terminal's background and text colours,
+// from which the tints are blended. Either nil leaves them unknown.
+func SetTerminalColors(background, foreground color.Color) {
+	if background == nil || foreground == nil {
+		terminalColors.Store(nil)
+		return
+	}
+	terminalColors.Store(&[2]rgb{toRGB(background), toRGB(foreground)})
+}
+
+func toRGB(c color.Color) rgb {
+	r, g, b, _ := c.RGBA()
+	return rgb{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8)}
+}
+
+// tintMix is how far each tint moves from the background toward the text.
+var tintMix = map[hue]float64{tintSel: 0.16, tintChip: 0.08, tintPill: 0.14}
+
+// tintOf is the colour of tint h, and false when the terminal's colours
+// are not known.
+func tintOf(h hue) (rgb, bool) {
+	tc := terminalColors.Load()
+	if tc == nil {
+		return rgb{}, false
+	}
+	bgc, fgc, f := tc[0], tc[1], tintMix[h]
+	mix := func(a, b uint8) uint8 { return uint8(float64(a) + (float64(b)-float64(a))*f + 0.5) }
+	return rgb{mix(bgc.r, fgc.r), mix(bgc.g, fgc.g), mix(bgc.b, fgc.b)}, true
+}
 
 // sgr is the sequence that switches the terminal to exactly st.
 func sgr(st style) string {
@@ -32,6 +123,14 @@ func sgr(st style) string {
 		return "\x1b[m"
 	}
 	codes := "0"
+	rev := st&reverse != 0
+	if b := st.bg(); b >= tintSel {
+		if c, ok := tintOf(b); ok {
+			codes += fmt.Sprintf(";48;2;%d;%d;%d", c.r, c.g, c.b)
+		} else if b == tintSel {
+			rev = true // without the terminal's colours a selection is reversed
+		}
+	}
 	if st&bold != 0 {
 		codes += ";1"
 	}
@@ -41,8 +140,17 @@ func sgr(st style) string {
 	if st&italic != 0 {
 		codes += ";3"
 	}
-	if st&reverse != 0 {
+	if st&underline != 0 {
+		codes += ";4"
+	}
+	if rev {
 		codes += ";7"
+	}
+	if st&strike != 0 {
+		codes += ";9"
+	}
+	if f := st.fg(); f >= hueRed && f <= hueCyan {
+		codes += ";" + strconv.Itoa(30+int(f))
 	}
 	return "\x1b[" + codes + "m"
 }
@@ -57,19 +165,38 @@ func styled(st style, text string) string {
 
 var sgrRE = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 
-// parseSGR returns the style a sequence made by sgr switches to.
+// parseSGR returns the style a sequence made by sgr switches to. A tint
+// comes back as the tint whose colour it is now; reverse video stands for
+// itself.
 func parseSGR(seq string) style {
 	var st style
-	for _, c := range strings.Split(sgrRE.FindStringSubmatch(seq)[1], ";") {
-		switch n, _ := strconv.Atoi(c); n {
-		case 1:
+	codes := strings.Split(sgrRE.FindStringSubmatch(seq)[1], ";")
+	for i := 0; i < len(codes); i++ {
+		switch n, _ := strconv.Atoi(codes[i]); {
+		case n == 1:
 			st |= bold
-		case 2:
+		case n == 2:
 			st |= faint
-		case 3:
+		case n == 3:
 			st |= italic
-		case 7:
+		case n == 4:
+			st |= underline
+		case n == 7:
 			st |= reverse
+		case n == 9:
+			st |= strike
+		case n >= 31 && n <= 36:
+			st = st&^(0xff<<fgShift) | fg(hue(n-30))
+		case n == 48 && i+4 < len(codes) && codes[i+1] == "2":
+			r, _ := strconv.Atoi(codes[i+2])
+			g, _ := strconv.Atoi(codes[i+3])
+			b, _ := strconv.Atoi(codes[i+4])
+			i += 4
+			for _, t := range []hue{tintSel, tintChip, tintPill} {
+				if c, ok := tintOf(t); ok && c == (rgb{uint8(r), uint8(g), uint8(b)}) {
+					st = st&^(0xff<<bgShift) | bg(t)
+				}
+			}
 		}
 	}
 	return st

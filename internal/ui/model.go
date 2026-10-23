@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 	"time"
 
@@ -62,13 +63,16 @@ const tickEvery = 100 * time.Millisecond
 const readyDelay = 50 * time.Millisecond
 
 type Model struct {
-	core    core.State
-	input   textarea.Model
-	caps    Caps
-	w, h    int
-	conn    Conn
-	sized   bool
-	ticking bool
+	core  core.State
+	input textarea.Model
+	caps  Caps
+	// termBg and termFg are the terminal's own colours, once it says;
+	// render blends its tints from them.
+	termBg, termFg color.Color
+	w, h           int
+	conn           Conn
+	sized          bool
+	ticking        bool
 	// printing is set while lines are on their way to scrollback; more
 	// wait until they land, so they arrive in order.
 	printing bool
@@ -144,9 +148,23 @@ func (m Model) Died() (bool, string) {
 }
 
 // Init does nothing: the first size message starts the ticks.
-func (m Model) Init() tea.Cmd { return nil }
+// Init asks the terminal for its colours. A terminal that never answers
+// keeps the untinted look.
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(tea.RequestBackgroundColor, tea.RequestForegroundColor)
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		m.termBg = msg.Color
+		render.SetTerminalColors(m.termBg, m.termFg)
+		return m, nil
+	case tea.ForegroundColorMsg:
+		m.termFg = msg.Color
+		render.SetTerminalColors(m.termBg, m.termFg)
+		return m, nil
+	}
 	if em, ok := msg.(EventMsg); ok {
 		if _, ok := em.Event.(core.HubConnected); ok && !m.hubMode {
 			m.hubMode, m.hub = true, core.NewHub(m.open)
