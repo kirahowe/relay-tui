@@ -360,12 +360,11 @@ func paneParts(s core.State, now time.Time, width int) parts {
 	items := core.PaneItems(s)
 	var pr parts
 	title := styled(bold, "workspace") + styled(faint, fmt.Sprintf(" (%d)", len(items)))
-	keyHint := styled(faint, PaneKey)
-	if p.Focus {
-		keyHint = styled(bold, PaneKey)
+	other := ""
+	if hasBoard(p.Board) {
+		other = fmt.Sprintf("board (%d)", len(p.Board.Cards))
 	}
-	pad := width - ansi.StringWidth(title) - ansi.StringWidth(keyHint)
-	pr.head = []string{title + strings.Repeat(" ", max(pad, 1)) + keyHint}
+	pr.head = paneHead(title, other, p.Focus, width)
 
 	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 	sel := core.SelectedIndex(s)
@@ -408,9 +407,12 @@ func paneParts(s core.State, now time.Time, width int) parts {
 				pr.body = append(pr.body, citationBlock(s, ref, width)...)
 			}
 		}
-		if p.Focus {
+		switch {
+		case p.Focus:
 			pr.foot = hint("↑↓ select · enter open · t trust · b board · esc back")
-		} else {
+		case hasBoard(p.Board):
+			pr.foot = hint(PaneKey + " to focus, then b for the board")
+		default:
 			pr.foot = hint(PaneKey + " to focus")
 		}
 	}
@@ -424,6 +426,28 @@ func paneParts(s core.State, now time.Time, width int) parts {
 		}
 	}
 	return pr
+}
+
+// hasBoard says the agent has a board and it has loaded, so the pane can
+// say how many cards it holds.
+func hasBoard(b core.Board) bool { return b.Loaded && !b.Unavailable }
+
+// paneHead is the pane's header: the view's title, the other view's
+// name and count when there is one, and the key that focuses the pane.
+// The other view is left out when the line has no room for it.
+func paneHead(title, other string, focus bool, width int) []string {
+	keyHint := styled(faint, PaneKey)
+	if focus {
+		keyHint = styled(bold, PaneKey)
+	}
+	if other != "" {
+		with := title + styled(faint, " · "+other)
+		if ansi.StringWidth(with)+1+ansi.StringWidth(keyHint) <= width {
+			title = with
+		}
+	}
+	pad := width - ansi.StringWidth(title) - ansi.StringWidth(keyHint)
+	return []string{title + strings.Repeat(" ", max(pad, 1)) + keyHint}
 }
 
 // labelsLine is the faint line of an item's labels.

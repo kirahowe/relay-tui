@@ -102,6 +102,25 @@ func TestBoardEditAndNotifications(t *testing.T) {
 	}
 }
 
+// A card relay adds during a turn comes into view without a key: the
+// pane counts the board from the start and shows it when the card lands.
+func TestACardAddedInATurnShowsWithoutAKey(t *testing.T) {
+	h := start(t, "card_added.jsonl", 140, 30)
+	h.waitScreen("the count", func(s string) bool { return strings.Contains(s, "workspace (0) · board (1)") })
+	if scr := h.screen(); !strings.Contains(scr, "then b for the board") {
+		t.Errorf("no way to the board:\n%s", scr)
+	}
+	h.keys("go\r")
+	h.waitIdle()
+	scr := h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (2)") })
+	if !strings.Contains(scr, "Focus by area") || !strings.Contains(scr, "I've put a note on your board.") {
+		t.Errorf("the new card is not in view:\n%s", scr)
+	}
+	if n := len(h.extensionCalls("_relay/cards")); n != 1 {
+		t.Errorf("%d cards calls", n)
+	}
+}
+
 func TestBoardWithoutRelay(t *testing.T) {
 	h := start(t, "simple.jsonl", 140, 30)
 	h.keys(ctrlX)

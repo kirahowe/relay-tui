@@ -51,20 +51,86 @@ func typeText(s State, text string) State {
 	return s
 }
 
-func TestBoardAsksOnceWhenFirstOpened(t *testing.T) {
-	s, fx := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard))
-	if !s.Pane.Board.Open || len(effectsOf[RequestCards](fx)) != 1 {
+func TestBoardIsAskedForOnceOnConnect(t *testing.T) {
+	s, fx := feed(State{}, Connected{At: t0})
+	if s.Pane.Board.Open || len(effectsOf[RequestCards](fx)) != 1 {
 		t.Fatalf("open %v, effects %v", s.Pane.Board.Open, fx)
 	}
-	s, fx = feed(s, key(t0, PaneBoard), key(t0, PaneBoard))
+	s, fx = feed(s, key(t0, PaneToggle), key(t0, PaneBoard), key(t0, PaneBoard), key(t0, PaneBoard))
 	if !s.Pane.Board.Open || len(effectsOf[RequestCards](fx)) != 0 {
-		t.Fatalf("asked again on reopening: %v", fx)
+		t.Fatalf("asked again on opening: %v", fx)
 	}
 	// Unfocused, the board stays the pane's view.
 	s, _ = feed(s, key(t0, PaneEsc))
 	if s.Pane.Focus || !s.Pane.Board.Open {
 		t.Fatal("esc should leave the pane on the board")
 	}
+}
+
+// onItems is a session whose board has loaded while the pane shows the
+// workspace items, unfocused.
+func onItems(cards ...Card) State {
+	s, _ := feed(State{}, Connected{At: t0}, CardsLoaded{At: t0, Rev: 100, Cards: cards})
+	return s
+}
+
+func TestAChangedCardBringsTheBoardIntoView(t *testing.T) {
+	s, _ := Reduce(onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{tracker(20, 101)}})
+	b := s.Pane.Board
+	if !b.Open || b.SelID != 20 || s.Pane.Focus {
+		t.Fatalf("open %v, selected %d, focus %v", b.Open, b.SelID, s.Pane.Focus)
+	}
+	s, _ = feed(onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{checklist(10, 101, true)}})
+	if !s.Pane.Board.Open || s.Pane.Board.SelID != 10 {
+		t.Fatal("a card that changed did not bring the board into view")
+	}
+}
+
+func TestTheBoardStaysOutOfTheWay(t *testing.T) {
+	added := CardsChanged{At: t0, Rev: 101, Cards: []Card{tracker(20, 101)}}
+	gone := checklist(10, 101)
+	gone.Status = CardArchived
+	focused, _ := feed(onItems(), key(t0, PaneToggle))
+	asking, _ := feed(onItems(), PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send"}})
+	unloaded, _ := feed(State{}, Connected{At: t0})
+	for name, c := range map[string]struct {
+		s State
+		e CardsChanged
+	}{
+		"while the operator works in the pane": {focused, added},
+		"while a proposal waits":               {asking, added},
+		"before the board has loaded":          {unloaded, added},
+		"for a card that left the board":       {onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{gone}}},
+		"for a copy already held":              {onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{checklist(10, 10)}}},
+	} {
+		s, _ := Reduce(c.s, c.e)
+		if s.Pane.Board.Open {
+			t.Errorf("%s: the board came into view", name)
+		}
+	}
+}
+
+// However cards change, the board never takes the pane from the
+// operator while they work in it or a proposal waits for them.
+func TestTheBoardNeverTakesThePane(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := onItems(checklist(10, 10))
+		if rapid.Bool().Draw(t, "focused") {
+			s, _ = feed(s, key(t0, PaneToggle))
+		} else {
+			s, _ = feed(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send"}})
+		}
+		for i := range rapid.IntRange(1, 8).Draw(t, "notifications") {
+			c := checklist(rapid.Int64Range(10, 14).Draw(t, "id"), int64(101+i), rapid.Bool().Draw(t, "done"))
+			if rapid.Bool().Draw(t, "archived") {
+				c.Status = CardArchived
+			}
+			s, _ = Reduce(s, CardsChanged{At: t0, Rev: int64(101 + i), Cards: []Card{c}})
+			if s.Pane.Board.Open {
+				t.Fatalf("the board took the pane at notification %d", i)
+			}
+		}
+	})
 }
 
 func TestBoardWithoutTheMethod(t *testing.T) {

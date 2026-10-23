@@ -257,12 +257,7 @@ func boardParts(s core.State, width int) parts {
 	if b.Loaded {
 		title += styled(faint, fmt.Sprintf(" (%d)", len(b.Cards)))
 	}
-	keyHint := styled(faint, PaneKey)
-	if p.Focus {
-		keyHint = styled(bold, PaneKey)
-	}
-	pad := width - ansi.StringWidth(title) - ansi.StringWidth(keyHint)
-	pr.head = []string{title + strings.Repeat(" ", max(pad, 1)) + keyHint}
+	pr.head = paneHead(title, fmt.Sprintf("workspace (%d)", len(core.PaneItems(s))), p.Focus, width)
 	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 
 	c, sel := core.BoardCard(b)
@@ -294,7 +289,7 @@ func boardParts(s core.State, width int) parts {
 
 	switch {
 	case !p.Focus:
-		pr.foot = hint(PaneKey + " to focus")
+		pr.foot = hint(PaneKey + " to focus, then b for the workspace")
 	case b.Input != nil:
 		in := b.Input
 		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)

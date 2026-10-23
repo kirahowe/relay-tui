@@ -239,7 +239,8 @@ func BoardCol(b Board, c Card) int {
 
 // put replaces the card with c's id by c, unless the one held is newer.
 // An archived card leaves the board; a new active one joins it at the end.
-func (b *Board) put(c Card) {
+// It says whether an active card was added or changed.
+func (b *Board) put(c Card) bool {
 	i := slices.IndexFunc(b.Cards, func(x Card) bool { return x.ID == c.ID })
 	gone, wasGone := b.Gone[c.ID]
 	switch {
@@ -255,10 +256,14 @@ func (b *Board) put(c Card) {
 		}
 		b.Gone[c.ID] = c.Rev
 	case i >= 0:
+		changed := b.Cards[i].Rev != c.Rev
 		b.Cards[i] = c
+		return changed
 	default:
 		b.Cards = append(b.Cards, c)
+		return true
 	}
+	return false
 }
 
 // keepBoardSelection keeps the selected card selected, and closes what
@@ -394,10 +399,17 @@ func (r *reducer) board(e Event) {
 		}
 		r.keepBoardSelection()
 	case CardsChanged:
+		var changed int64
 		for _, c := range e.Cards {
-			b.put(c)
+			if b.put(c) {
+				changed = c.ID
+			}
 		}
 		b.Rev = max(b.Rev, e.Rev)
+		if changed != 0 && r.mayShowBoard() {
+			r.s.Pane.Detail, r.s.Pane.Scroll = false, 0
+			b.Open, b.SelID, b.Detail = true, changed, false
+		}
 		if b.SelID == 0 && len(b.Cards) > 0 {
 			b.SelID = b.Cards[0].ID
 		}
@@ -455,8 +467,8 @@ func (r *reducer) reopen(in BoardInput) {
 	b.Input = &in
 }
 
-// toggleBoard switches the pane between the board and the items, and asks relay for it the
-// first time.
+// toggleBoard switches the pane between the board and the items, and asks
+// relay for the board if it has not answered yet.
 func (r *reducer) toggleBoard() {
 	p := &r.s.Pane
 	b := &p.Board
@@ -466,11 +478,25 @@ func (r *reducer) toggleBoard() {
 	r.askCards()
 }
 
-// askCards asks relay for the board when it is open and has not been
-// asked for yet. Before the session exists the ask waits for Connected.
+// mayShowBoard says a card that changed may bring the board into view: the
+// board has loaded, and the operator is neither working in the pane nor
+// owed an answer on a proposal the items view shows.
+func (r *reducer) mayShowBoard() bool {
+	p := r.s.Pane
+	if !p.Board.Loaded || p.Board.Open || p.Focus || p.Trust != nil {
+		return false
+	}
+	return !slices.ContainsFunc(PaneItems(r.s), func(it Item) bool {
+		return it.Kind == ProposalItem && it.Status == StatusWaitingProposal
+	})
+}
+
+// askCards asks relay for the board once the session exists, open or not,
+// so the pane can count the cards and relay sends the changes after. It
+// asks again only after a failure or a refresh.
 func (r *reducer) askCards() {
 	b := &r.s.Pane.Board
-	if b.Open && !b.Asked && !b.Unavailable && r.s.Phase != Starting && r.s.Phase != Exited {
+	if !b.Asked && !b.Unavailable && r.s.Phase != Starting && r.s.Phase != Exited {
 		b.Asked = true
 		r.emit(RequestCards{})
 	}

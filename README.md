@@ -151,11 +151,18 @@ trust.
 relay keeps cards: small structured things you work through over days,
 such as a checklist or a tracker of accounts by month. Roles make them.
 Press b in the focused pane to see them.
-The first time, acp-tui asks relay for the board with `_relay/cards`.
-After that relay sends `_relay/cards/changed` whenever a card changes,
-here, in a terminal or by a role, and the board redraws from what relay
-sent. An archived card leaves the board. Against
-an agent without relay the board says "This agent has no board."
+acp-tui asks relay for the board with `_relay/cards` once the session
+starts, so the pane's header can count the cards from either view
+("workspace (0) · board (2)"). After that relay sends
+`_relay/cards/changed` whenever a card changes, here, in a terminal or by
+a role, and the board redraws from what relay sent. An archived card
+leaves the board. Against an agent without relay the board says "This
+agent has no board."
+
+When a card is added or changes, the pane switches to the board and
+selects that card, so a card a role mentions is in view. It stays on the
+workspace items while the pane has focus or a proposal is waiting for
+your answer.
 
 The list shows each card's title, kind, progress and labels. Enter opens
 a card. A checklist shows its items with `[x]` or `[ ]`. A tracker shows

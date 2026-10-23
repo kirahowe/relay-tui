@@ -244,6 +244,31 @@ func unprintable(r rune) bool {
 // Whatever relay (or a model) puts in an item, the pane draws exactly the
 // room it was given, no wider than the width, with no character that could
 // move the cursor, start a link or reorder text.
+// The items view says how many cards the board holds and how to reach
+// it, so a card relay adds is never out of sight without a word.
+func TestPaneNamesTheBoard(t *testing.T) {
+	s := paneState(false, trusted)
+	if text := ansi.Strip(strings.Join(PaneLines(s, t0, 44, 12), "\n")); strings.Contains(text, "board") {
+		t.Fatalf("named a board that has not loaded:\n%s", text)
+	}
+	s.Pane.Board = core.Board{Loaded: true, Cards: []core.Card{{ID: 1}, {ID: 2}}}
+	lines := PaneLines(s, t0, 44, 12)
+	if head := ansi.Strip(lines[0]); !strings.HasPrefix(head, "workspace (1) · board (2)") {
+		t.Fatalf("header %q", head)
+	}
+	if text := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(text, "ctrl+x to focus, then b for the board") {
+		t.Fatalf("no way to the board:\n%s", text)
+	}
+	// Too narrow for both, the header keeps its own view and the key.
+	if head := ansi.Strip(PaneLines(s, t0, 24, 12)[0]); strings.Contains(head, "board") || !strings.HasSuffix(head, PaneKey) {
+		t.Fatalf("narrow header %q", head)
+	}
+	s.Pane.Board.Unavailable = true
+	if head := ansi.Strip(PaneLines(s, t0, 44, 12)[0]); strings.Contains(head, "board") {
+		t.Fatalf("named a board the agent does not have: %q", head)
+	}
+}
+
 func TestPaneNeverEmitsRawControls(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genPaneState(t)

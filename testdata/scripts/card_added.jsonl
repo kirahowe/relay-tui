@@ -1,0 +1,4 @@
+{"extension": {"method": "_relay/cards", "result": {"rev": 10, "cards": [{"id": 8, "kind": "note", "status": "active", "complete": false, "rev": 8, "owner": "operator", "title": {"text": "Where the statements are", "outsider": false, "rev": 8}, "progress": {"done": 0, "total": 0}, "labels": ["private"], "note": {"text": "BMO: online banking.", "outsider": false, "rev": 8}, "text": "Card 8"}]}}}
+{"notify": {"method": "_relay/cards/changed", "params": {"rev": 12, "cards": [{"id": 12, "kind": "note", "status": "active", "complete": false, "rev": 12, "owner": "hub", "title": {"text": "Focus by area", "outsider": false, "rev": 12}, "progress": {"done": 0, "total": 0}, "labels": ["private"], "note": {"text": "Personal: the blog post.", "outsider": false, "rev": 12}, "text": "Card 12"}]}}}
+{"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": "I've put a note on your board."}}
+{"stopReason": "end_turn"}
