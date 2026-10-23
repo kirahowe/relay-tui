@@ -346,7 +346,7 @@ func paneEvent(st core.State, k tea.KeyPressMsg, empty bool, now time.Time, deta
 		}
 		return nil
 	}
-	if b := st.Pane.Board; b.Open {
+	if b := st.Pane.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
 			return core.PaneKey{At: now, Action: a, Text: text}

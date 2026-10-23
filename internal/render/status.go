@@ -67,7 +67,7 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 		add("waiting for the role's scheduled work")
 	}
 	if l.PaneHint {
-		add(fmt.Sprintf("%s workspace (%d)", PaneKey, l.PaneItems))
+		add(fmt.Sprintf("%s %s (%d)", PaneKey, l.PaneView, l.PaneItems))
 	}
 	if l.Kind != core.StatusIdle && l.Kind != core.StatusStarting && l.Kind != core.StatusExited && !l.NoClock {
 		add(Duration(l.Elapsed))

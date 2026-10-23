@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// openBoard starts the board script on a wide screen and opens the board.
+// openBoard starts the board script on a wide screen and focuses the
+// board, which the pane shows by default.
 func openBoard(t *testing.T) *harness {
 	h := start(t, "board.jsonl", 140, 40)
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (4)") })
 	h.keys(ctrlX)
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
-	h.keys("b")
-	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (4)") })
 	return h
 }
 
@@ -102,17 +102,17 @@ func TestBoardEditAndNotifications(t *testing.T) {
 	}
 }
 
-// A card relay adds during a turn comes into view without a key: the
-// pane counts the board from the start and shows it when the card lands.
-func TestACardAddedInATurnShowsWithoutAKey(t *testing.T) {
+// The pane opens on the board, and a card relay adds during a turn shows
+// there without a key.
+func TestTheBoardIsTheDefaultAndACardAddedInATurnShows(t *testing.T) {
 	h := start(t, "card_added.jsonl", 140, 30)
-	h.waitScreen("the count", func(s string) bool { return strings.Contains(s, "workspace (0) · board (1)") })
-	if scr := h.screen(); !strings.Contains(scr, "then b for the board") {
-		t.Errorf("no way to the board:\n%s", scr)
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (1) · workspace (0)") })
+	if scr := h.screen(); !strings.Contains(scr, "Where the statements are") || !strings.Contains(scr, "then b for the workspace") {
+		t.Errorf("the board is not in view:\n%s", scr)
 	}
 	h.keys("go\r")
 	h.waitIdle()
-	scr := h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "board (2)") })
+	scr := h.waitScreen("the new card", func(s string) bool { return strings.Contains(s, "board (2)") })
 	if !strings.Contains(scr, "Focus by area") || !strings.Contains(scr, "I've put a note on your board.") {
 		t.Errorf("the new card is not in view:\n%s", scr)
 	}

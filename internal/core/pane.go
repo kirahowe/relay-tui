@@ -394,6 +394,7 @@ func (r *reducer) displays(callID string, ds []Display) {
 			Sources: d.Sources, Labels: d.Labels}
 		r.putLocal(it)
 	}
+	r.showItems()
 	r.refresh()
 }
 
@@ -415,7 +416,18 @@ func (r *reducer) proposalAsked(pm Permission) {
 	r.putLocal(Item{Kind: ProposalItem, CallID: pm.CallID, Tool: pm.Name, Title: pm.Title, Input: pm.Input,
 		Preview: pm.Preview, Labels: pm.Shown().Union(r.s.Labels), Status: StatusWaitingProposal, AskID: pm.ID,
 		FixedArgs: pm.FixedArgs})
+	r.showItems()
 	r.refresh()
+}
+
+// showItems brings the workspace items into view for something relay
+// just put there, unless the operator is working in the pane.
+func (r *reducer) showItems() {
+	p := &r.s.Pane
+	if p.Focus || p.Board.Items {
+		return
+	}
+	p.Board.Items, p.Detail, p.Scroll = true, false, 0
 }
 
 // proposalAnswered sets the status of the proposal for request id.
@@ -557,7 +569,7 @@ func (r *reducer) paneKey(e PaneKey) {
 		}
 		return
 	}
-	if p.Board.Open {
+	if !p.Board.Items {
 		r.boardKey(e)
 		return
 	}

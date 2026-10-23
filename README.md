@@ -96,10 +96,13 @@ A paste while a request waits is dropped. acp-tui never sends
 
 Agents that run under relay put work in front of you as they go: what a
 tool found, the calls waiting for your approval, and the documents the
-latest reply cites. The workspace pane lists it. On a screen 120 columns
-or wider it stands to the right of the chat. On a narrower one, Ctrl-X
-opens it over the chat and the status line shows `ctrl+x workspace (3)`
-with the item count.
+latest reply cites. The workspace pane lists it, in its items view; its
+other view is the board (see below), which it shows by default. A new
+display or proposal brings the items into view, and a card that changes
+brings the board back. On a screen 120 columns or wider the pane stands
+to the right of the chat. On a narrower one, Ctrl-X opens it over the
+chat and the status line names the view and its count, as in
+`ctrl+x workspace (3)`.
 
 Newest items come first. A shown item has a title, its labels and its
 sources. A proposal is a call held for approval, with relay's preview of
@@ -125,7 +128,7 @@ Keys, once Ctrl-X has given the pane focus:
 - Up and down, or k and j, select an item. Enter opens it; up and down,
   Page Up and Page Down scroll.
 - t starts a trust of the selected item.
-- b switches to the board (see below), and back.
+- b switches between the board and the items.
 - Esc goes back from an item, then returns to the input. Ctrl-X does the
   same from anywhere.
 
@@ -150,19 +153,19 @@ trust.
 
 relay keeps cards: small structured things you work through over days,
 such as a checklist or a tracker of accounts by month. Roles make them.
-Press b in the focused pane to see them.
-acp-tui asks relay for the board with `_relay/cards` once the session
+The pane shows the board unless something else has come up; b in the
+focused pane switches to it. acp-tui asks relay for the board with `_relay/cards` once the session
 starts, so the pane's header can count the cards from either view
-("workspace (0) · board (2)"). After that relay sends
+("board (2) · workspace (0)"). After that relay sends
 `_relay/cards/changed` whenever a card changes, here, in a terminal or by
 a role, and the board redraws from what relay sent. An archived card
 leaves the board. Against an agent without relay the board says "This
 agent has no board."
 
-When a card is added or changes, the pane switches to the board and
-selects that card, so a card a role mentions is in view. It stays on the
-workspace items while the pane has focus or a proposal is waiting for
-your answer.
+When a card is added or changes, the pane switches back to the board
+and selects that card, so a card a role mentions is in view. It stays on
+the workspace items while the pane has focus or a proposal is waiting
+for your answer. An agent without a board leaves the pane on the items.
 
 The list shows each card's title, kind, progress and labels. Enter opens
 a card. A checklist shows its items with `[x]` or `[ ]`. A tracker shows

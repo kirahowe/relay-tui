@@ -354,7 +354,7 @@ type parts struct {
 
 func paneParts(s core.State, now time.Time, width int) parts {
 	p := s.Pane
-	if p.Board.Open {
+	if !p.Board.Items {
 		return boardParts(s, width)
 	}
 	items := core.PaneItems(s)

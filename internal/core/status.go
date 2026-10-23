@@ -42,8 +42,10 @@ type StatusLine struct {
 	Labels     Labels // what the session has seen
 	Message    string // a word that shows for a few seconds
 	Asks       int    // permission requests waiting, including the one on offer
-	// PaneItems is how many items the workspace pane lists. PaneHint says
-	// the pane is a toggled overlay, so the status line names its key.
+	// PaneView is what the workspace pane shows, "board" or "workspace",
+	// and PaneItems how many cards or items it lists. PaneHint says the
+	// pane is a toggled overlay, so the status line names its key.
+	PaneView  string
 	PaneItems int
 	PaneHint  bool
 	// Remote is where the roster says the conversation's turn stands, in
@@ -56,7 +58,11 @@ type StatusLine struct {
 
 // Status describes s at time now.
 func Status(s State, now time.Time) StatusLine {
-	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend, Labels: s.Labels, Asks: len(s.Asks), PaneItems: len(PaneItems(s))}
+	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend, Labels: s.Labels, Asks: len(s.Asks),
+		PaneView: "workspace", PaneItems: len(PaneItems(s))}
+	if !s.Pane.Board.Items {
+		l.PaneView, l.PaneItems = "board", len(s.Pane.Board.Cards)
+	}
 	if u := s.Usage; u != nil && u.Size > 0 {
 		l.HasContext = true
 		// used*100 can overflow 64 bits, so multiply into 128.

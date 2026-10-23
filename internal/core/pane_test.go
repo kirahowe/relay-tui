@@ -43,7 +43,7 @@ var trustable = Item{
 // focused is a connected session with relay's list loaded and the pane
 // focused on the first item.
 func focused(items ...Item) State {
-	s, _ := feed(State{}, Connected{At: t0}, ItemsLoaded{At: t0, Items: items}, key(t0, PaneToggle))
+	s, _ := feed(State{}, Connected{At: t0}, ItemsLoaded{At: t0, Items: items}, key(t0, PaneToggle), key(t0, PaneBoard))
 	return s
 }
 

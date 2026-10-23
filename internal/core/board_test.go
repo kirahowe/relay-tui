@@ -31,7 +31,7 @@ func tracker(id, rev int64, cells ...Cell) Card {
 
 // onBoard is a session with the pane focused on a loaded board.
 func onBoard(cards ...Card) State {
-	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard),
+	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle),
 		CardsLoaded{At: t0, Rev: 100, Cards: cards})
 	return s
 }
@@ -51,37 +51,56 @@ func typeText(s State, text string) State {
 	return s
 }
 
-func TestBoardIsAskedForOnceOnConnect(t *testing.T) {
+func TestTheBoardIsTheDefaultAndAskedForOnceOnConnect(t *testing.T) {
 	s, fx := feed(State{}, Connected{At: t0})
-	if s.Pane.Board.Open || len(effectsOf[RequestCards](fx)) != 1 {
-		t.Fatalf("open %v, effects %v", s.Pane.Board.Open, fx)
+	if s.Pane.Board.Items || len(effectsOf[RequestCards](fx)) != 1 {
+		t.Fatalf("items %v, effects %v", s.Pane.Board.Items, fx)
 	}
-	s, fx = feed(s, key(t0, PaneToggle), key(t0, PaneBoard), key(t0, PaneBoard), key(t0, PaneBoard))
-	if !s.Pane.Board.Open || len(effectsOf[RequestCards](fx)) != 0 {
-		t.Fatalf("asked again on opening: %v", fx)
+	s, fx = feed(s, key(t0, PaneToggle), key(t0, PaneBoard), key(t0, PaneBoard))
+	if s.Pane.Board.Items || len(effectsOf[RequestCards](fx)) != 0 {
+		t.Fatalf("asked again on switching: %v", fx)
 	}
-	// Unfocused, the board stays the pane's view.
-	s, _ = feed(s, key(t0, PaneEsc))
-	if s.Pane.Focus || !s.Pane.Board.Open {
-		t.Fatal("esc should leave the pane on the board")
+	// Unfocused, the items stay the pane's view once chosen.
+	s, _ = feed(s, key(t0, PaneBoard), key(t0, PaneEsc))
+	if s.Pane.Focus || !s.Pane.Board.Items {
+		t.Fatal("esc should leave the pane on the items")
+	}
+}
+
+// The pane shows whatever relay put in front of the operator last: a
+// display or a proposal brings the items back from the board. A display
+// leaves a pane the operator is working in alone; a proposal takes the
+// keys from the pane anyway.
+func TestADisplayOrProposalBringsTheItemsIntoView(t *testing.T) {
+	ask := PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send"}}
+	for name, e := range map[string]Event{"display": displayEvent("d", "Venues", Labels{}), "proposal": ask} {
+		s, _ := feed(busyState(), CardsLoaded{At: t0, Rev: 1}, e)
+		if !s.Pane.Board.Items {
+			t.Errorf("%s: the items did not come into view", name)
+		}
+	}
+	s, _ := feed(busyState(), CardsLoaded{At: t0, Rev: 1}, key(t0, PaneToggle), displayEvent("d", "Venues", Labels{}))
+	if s.Pane.Board.Items {
+		t.Error("a display took the focused pane")
 	}
 }
 
 // onItems is a session whose board has loaded while the pane shows the
 // workspace items, unfocused.
 func onItems(cards ...Card) State {
-	s, _ := feed(State{}, Connected{At: t0}, CardsLoaded{At: t0, Rev: 100, Cards: cards})
+	s, _ := feed(State{}, Connected{At: t0}, CardsLoaded{At: t0, Rev: 100, Cards: cards},
+		key(t0, PaneToggle), key(t0, PaneBoard), key(t0, PaneEsc))
 	return s
 }
 
 func TestAChangedCardBringsTheBoardIntoView(t *testing.T) {
 	s, _ := Reduce(onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{tracker(20, 101)}})
 	b := s.Pane.Board
-	if !b.Open || b.SelID != 20 || s.Pane.Focus {
-		t.Fatalf("open %v, selected %d, focus %v", b.Open, b.SelID, s.Pane.Focus)
+	if b.Items || b.SelID != 20 || s.Pane.Focus {
+		t.Fatalf("open %v, selected %d, focus %v", !b.Items, b.SelID, s.Pane.Focus)
 	}
 	s, _ = feed(onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{checklist(10, 101, true)}})
-	if !s.Pane.Board.Open || s.Pane.Board.SelID != 10 {
+	if s.Pane.Board.Items || s.Pane.Board.SelID != 10 {
 		t.Fatal("a card that changed did not bring the board into view")
 	}
 }
@@ -92,7 +111,7 @@ func TestTheBoardStaysOutOfTheWay(t *testing.T) {
 	gone.Status = CardArchived
 	focused, _ := feed(onItems(), key(t0, PaneToggle))
 	asking, _ := feed(onItems(), PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send"}})
-	unloaded, _ := feed(State{}, Connected{At: t0})
+	unloaded, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard), key(t0, PaneEsc))
 	for name, c := range map[string]struct {
 		s State
 		e CardsChanged
@@ -104,7 +123,7 @@ func TestTheBoardStaysOutOfTheWay(t *testing.T) {
 		"for a copy already held":              {onItems(checklist(10, 10)), CardsChanged{At: t0, Rev: 101, Cards: []Card{checklist(10, 10)}}},
 	} {
 		s, _ := Reduce(c.s, c.e)
-		if s.Pane.Board.Open {
+		if !s.Pane.Board.Items {
 			t.Errorf("%s: the board came into view", name)
 		}
 	}
@@ -126,7 +145,7 @@ func TestTheBoardNeverTakesThePane(t *testing.T) {
 				c.Status = CardArchived
 			}
 			s, _ = Reduce(s, CardsChanged{At: t0, Rev: int64(101 + i), Cards: []Card{c}})
-			if s.Pane.Board.Open {
+			if !s.Pane.Board.Items {
 				t.Fatalf("the board took the pane at notification %d", i)
 			}
 		}
@@ -134,7 +153,7 @@ func TestTheBoardNeverTakesThePane(t *testing.T) {
 }
 
 func TestBoardWithoutTheMethod(t *testing.T) {
-	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard), CardsLoaded{At: t0, Unavailable: true})
+	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), CardsLoaded{At: t0, Unavailable: true})
 	if !s.Pane.Board.Unavailable {
 		t.Fatal("not unavailable")
 	}
@@ -145,7 +164,7 @@ func TestBoardWithoutTheMethod(t *testing.T) {
 }
 
 func TestBoardLoadFailureAsksAgain(t *testing.T) {
-	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard), CardsLoaded{At: t0, Err: "boom"})
+	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), CardsLoaded{At: t0, Err: "boom"})
 	if s.Pane.Board.Failure != "boom" {
 		t.Fatalf("failure %q", s.Pane.Board.Failure)
 	}
@@ -174,7 +193,7 @@ func TestCardsChangedReplacesAndDropsArchived(t *testing.T) {
 }
 
 func TestSnapshotKeepsANewerNotification(t *testing.T) {
-	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard),
+	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle),
 		CardsChanged{At: t0, Rev: 50, Cards: []Card{checklist(10, 50, true)}},
 		CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 40, false), checklist(20, 20)}})
 	b := s.Pane.Board
@@ -285,7 +304,7 @@ func TestUnchangedOpSaysSo(t *testing.T) {
 // A notification can reach the client before the answer to _relay/cards
 // it follows, carrying a card the answer predates. The card stays.
 func TestNotificationBeforeTheAnswerKeepsANewCard(t *testing.T) {
-	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle), key(t0, PaneBoard),
+	s, _ := feed(State{}, Connected{At: t0}, key(t0, PaneToggle),
 		CardsChanged{At: t0, Rev: 101, Cards: []Card{checklist(101, 101)}},
 		CardsLoaded{At: t0, Rev: 100, Cards: []Card{checklist(50, 60)}})
 	var ids []int64
@@ -429,7 +448,7 @@ func TestInputTakesEveryKey(t *testing.T) {
 	s := onBoard(checklist(10, 10, false))
 	s, _ = boardKeys(s, PaneEnter, PaneAdd)
 	s, fx := boardKeys(s, PaneMark, PaneArchive, PaneDown, PaneBoard)
-	if len(fx) != 0 || s.Pane.Board.Input == nil || !s.Pane.Board.Open {
+	if len(fx) != 0 || s.Pane.Board.Input == nil || s.Pane.Board.Items {
 		t.Fatalf("a key escaped the input: %v", fx)
 	}
 	s, _ = boardKeys(s, PaneEsc, PaneEsc, PaneEsc)
@@ -457,7 +476,7 @@ func TestNoteOffersOnlyItsTitle(t *testing.T) {
 
 // Opened before the session exists, the board asks once it does.
 func TestBoardOpenedBeforeConnectAsksOnConnect(t *testing.T) {
-	s, fx := feed(State{}, key(t0, PaneToggle), key(t0, PaneBoard))
+	s, fx := feed(State{}, key(t0, PaneToggle))
 	if len(effectsOf[RequestCards](fx)) != 0 {
 		t.Fatal("asked before the session exists")
 	}
@@ -671,5 +690,17 @@ func TestListOffersOnlyRetitle(t *testing.T) {
 	s, _ = boardKeys(s, PaneEdit)
 	if in := s.Pane.Board.Input; in == nil || in.Op.Op != "retitle" {
 		t.Fatalf("input %+v", in)
+	}
+}
+
+// The status line names the view the pane shows and counts it.
+func TestStatusNamesThePaneView(t *testing.T) {
+	s, _ := feed(State{}, Connected{At: t0}, CardsLoaded{At: t0, Rev: 1, Cards: []Card{checklist(1, 1)}})
+	if l := Status(s, t0); l.PaneView != "board" || l.PaneItems != 1 {
+		t.Fatalf("board: %q %d", l.PaneView, l.PaneItems)
+	}
+	s, _ = feed(s, key(t0, PaneToggle), key(t0, PaneBoard))
+	if l := Status(s, t0); l.PaneView != "workspace" || l.PaneItems != 0 {
+		t.Fatalf("items: %q %d", l.PaneView, l.PaneItems)
 	}
 }

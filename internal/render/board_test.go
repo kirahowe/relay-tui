@@ -36,7 +36,7 @@ var (
 func boardState(focus bool, cards ...core.Card) core.State {
 	s := core.State{Phase: core.Idle, Ready: true}
 	s.Pane.Focus = focus
-	s.Pane.Board = core.Board{Open: true, Asked: true, Loaded: true, Rev: 1900, Cards: cards}
+	s.Pane.Board = core.Board{Asked: true, Loaded: true, Rev: 1900, Cards: cards}
 	if len(cards) > 0 {
 		s.Pane.Board.SelID = cards[0].ID
 	}

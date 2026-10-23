@@ -35,7 +35,7 @@ var (
 
 func paneState(focus bool, items ...core.Item) core.State {
 	s := core.State{Phase: core.Idle, Ready: true}
-	s.Pane = core.Pane{Relay: true, Server: items, Focus: focus}
+	s.Pane = core.Pane{Relay: true, Server: items, Focus: focus, Board: core.Board{Items: true}}
 	s.Labels = core.Labels{Private: true, Contaminated: true}
 	return s
 }
@@ -251,7 +251,7 @@ func TestPaneNamesTheBoard(t *testing.T) {
 	if text := ansi.Strip(strings.Join(PaneLines(s, t0, 44, 12), "\n")); strings.Contains(text, "board") {
 		t.Fatalf("named a board that has not loaded:\n%s", text)
 	}
-	s.Pane.Board = core.Board{Loaded: true, Cards: []core.Card{{ID: 1}, {ID: 2}}}
+	s.Pane.Board = core.Board{Items: true, Loaded: true, Cards: []core.Card{{ID: 1}, {ID: 2}}}
 	lines := PaneLines(s, t0, 44, 12)
 	if head := ansi.Strip(lines[0]); !strings.HasPrefix(head, "workspace (1) · board (2)") {
 		t.Fatalf("header %q", head)

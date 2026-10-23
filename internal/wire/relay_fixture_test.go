@@ -102,7 +102,7 @@ func TestRelayCardFixtures(t *testing.T) {
 	const checklist, tracker, note = 3, 5, 9
 	s := core.State{Phase: core.Idle, Ready: true}
 	s.Pane.Focus = true
-	s.Pane.Board = core.Board{Open: true, Asked: true}
+	s.Pane.Board = core.Board{Asked: true}
 
 	// The client asks for the board the way relay was asked.
 	var cards exchange

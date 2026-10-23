@@ -264,7 +264,7 @@ func boardParts(s core.State, width int) parts {
 	switch {
 	case b.Unavailable:
 		pr.body = []string{styled(faint, "This agent has no board.")}
-	case !b.Loaded && b.Asked:
+	case !b.Loaded && (b.Asked || s.Phase == core.Starting):
 		pr.body = []string{styled(faint, "loading…")}
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}

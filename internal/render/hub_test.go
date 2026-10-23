@@ -182,7 +182,7 @@ func parityState() core.State {
 			{Kind: core.Note, Text: "[max tokens]", Final: true},
 		},
 		Pane: core.Pane{Local: []core.Item{{Kind: core.ShownItem, CallID: "1", Title: "Venues near the hall", Text: "body",
-			Labels: core.Labels{Contaminated: true}}}},
+			Labels: core.Labels{Contaminated: true}}}, Board: core.Board{Items: true}},
 	}
 }
 

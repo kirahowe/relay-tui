@@ -133,8 +133,10 @@ type BoardInput struct {
 
 // Board is the board view's state.
 type Board struct {
-	// Open says the pane shows the board rather than the workspace items.
-	Open bool
+	// Items says the pane shows the workspace items rather than the
+	// board, which it shows by default. An agent without a board falls
+	// back to the items.
+	Items bool
 	// Asked says _relay/cards has been called; Loaded, that it answered.
 	// Unavailable says the agent has no such method.
 	Asked, Loaded, Unavailable bool
@@ -372,6 +374,7 @@ func (r *reducer) board(e Event) {
 		switch {
 		case e.Unavailable:
 			b.Unavailable, b.Loaded, b.Cards = true, false, nil
+			b.Items = true
 		case e.Err != "":
 			b.Asked = false // reopening the board asks again
 			b.Message, b.Failure = "The board did not load.", e.Err
@@ -408,7 +411,7 @@ func (r *reducer) board(e Event) {
 		b.Rev = max(b.Rev, e.Rev)
 		if changed != 0 && r.mayShowBoard() {
 			r.s.Pane.Detail, r.s.Pane.Scroll = false, 0
-			b.Open, b.SelID, b.Detail = true, changed, false
+			b.Items, b.SelID, b.Detail = false, changed, false
 		}
 		if b.SelID == 0 && len(b.Cards) > 0 {
 			b.SelID = b.Cards[0].ID
@@ -473,7 +476,7 @@ func (r *reducer) toggleBoard() {
 	p := &r.s.Pane
 	b := &p.Board
 	p.Detail, p.Scroll = false, 0
-	b.Open = !b.Open
+	b.Items = !b.Items
 	b.Input, b.Confirm = nil, 0
 	r.askCards()
 }
@@ -483,7 +486,7 @@ func (r *reducer) toggleBoard() {
 // owed an answer on a proposal the items view shows.
 func (r *reducer) mayShowBoard() bool {
 	p := r.s.Pane
-	if !p.Board.Loaded || p.Board.Open || p.Focus || p.Trust != nil {
+	if !p.Board.Loaded || !p.Board.Items || p.Focus || p.Trust != nil {
 		return false
 	}
 	return !slices.ContainsFunc(PaneItems(r.s), func(it Item) bool {
