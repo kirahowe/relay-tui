@@ -79,9 +79,20 @@ line breaks; nothing is cut except in the collapsed box, where `v`
 shows the rest.
 
 If the agent reports session labels in `_meta["agentloop/labels"]` on tool
-calls, usage updates and session_info_update, the status line shows them: `[private]` in bold
-and ` contaminated ` in reverse video. Labels only accumulate during a
-session.
+calls, usage updates and session_info_update, the status line shows them
+as pills: ` private ` and ` contaminated `, each in its own colour on a
+tint. Where the terminal has not said what its colours are, they show as
+`[private]` in bold and ` contaminated ` in reverse video. Labels only
+accumulate during a session.
+
+## The look
+
+Colours come from the terminal's own palette, so acp-tui follows a light
+theme as well as a dark one. At startup acp-tui asks the terminal for its
+background and text colours and blends its tints from them: the bar
+behind a selection, the block behind your own messages, a key chip, a
+label pill. A terminal that does not answer gets reverse video for a
+selection and no tints. Your messages are then drawn in boxes.
 
 While the session is contaminated, URLs in what the agent writes (replies,
 notices, tool names, arguments and output) show defanged, as
@@ -167,11 +178,17 @@ and selects that card, so a card a role mentions is in view. It stays on
 the workspace items while the pane has focus or a proposal is waiting
 for your answer. An agent without a board leaves the pane on the items.
 
-The list shows each card's title, kind, progress and labels. Enter opens
-a card. A checklist shows its items with `[x]` or `[ ]`. A tracker shows
-its columns, then one row per line, with `x` for done, `-` for skipped
-and `·` for open. A note shows its text. A card of a kind acp-tui does not
-know shows the text form relay sends with every card.
+Each card is a panel of its own, with a blank row between cards. The
+title sits in the top border in the colour of its kind, and how far along
+the card is sits at the right. The selected card's frame is in the accent
+colour while the pane has the keys. Enter opens a card, and the selected
+line is then a tinted bar. A checklist shows a green ✓ and struck-through
+text for a done item and ○ for an open one. The list shows the first six
+items. A tracker is a grid: the column names across the top, then one row
+per line, with ● for done, × for skipped and ○ for open. A note keeps the
+line breaks it was written with. A `#` heading and `**bold**` are bold,
+and a list line's marker is faint. A card of a kind acp-tui does not know
+shows the text form relay sends with every card.
 
 Keys on the board:
 
@@ -212,8 +229,9 @@ the pane with ctrl+x keeps an open input as it was.
 
 Card text is shown as relay sent it. relay has already made hidden
 characters visible and defanged links in text from outside, which it
-marks as such, and acp-tui puts that text under the `untrusted` mark.
-Links are never clickable, and acp-tui fetches nothing.
+marks as such. acp-tui shows that text in the warning colour, and the
+bottom border of a card that holds any says `outside text`. Links are
+never clickable, and acp-tui fetches nothing.
 
 ## Several conversations (relay's hub)
 
@@ -224,8 +242,13 @@ above. `relay chat [role]` runs it as
 `acp-tui [--open ROLE] -- relay acp --approvals`.
 
 The whole screen is drawn on the alternate screen, from state. On a
-screen 73 columns or wider, the roles stand in a sidebar and the
-conversation in focus fills the rest. On a narrower one you see either
+screen 73 columns or wider it is drawn as panels, each in a frame with
+its title in the top border: the roles, then the conversation in focus,
+then, with room, the workspace pane. The panel that has the keys has its
+frame in the accent colour, and the role in focus sits on a tinted bar.
+A top row names relay, the role in focus and what the other roles want.
+A bottom row lists the keys for whatever has them, each key in the
+accent colour. On a narrower one you see either
 the list of roles or the conversation, as on a phone: the conversation's
 first row says `ctrl+g roles`. Without `--open` acp-tui starts on the
 list.
@@ -334,7 +357,8 @@ and a list of effects, such as "send this prompt" or "print these entries".
 It reads no clock and does no IO, so property tests can check it over long
 random sessions. `internal/wire` turns ACP messages into those events, and
 `internal/render` turns the state into terminal lines. The renderer uses
-bold, italic and faint, and no colours.
+the terminal's own colours and tints blended from them (see The look).
+The terminal's colours are its one input that is not part of the state.
 
 The pane follows the same split. `core` holds its state, the trust
 rules and the board's cards, `wire` reads relay's `_meta`, its
