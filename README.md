@@ -36,8 +36,9 @@ Ctrl-Enter and Alt-Enter do too where the terminal reports them. Pressing
 Enter while the agent is working queues the text, and everything queued
 goes out as one message when the turn ends. Ctrl-C cancels the turn and
 puts any queued text back in the input. With nothing running and an empty
-input, Ctrl-C or Ctrl-D quits. `?` on an empty input, or Ctrl-/, lists
-the keys; any key closes the list.
+input, Ctrl-C or Ctrl-D quits. `?` on an empty input lists the keys; any
+key closes the list. Esc stops typing, and the next section says what
+the keys do then.
 
 Ctrl-T and Ctrl-O open the transcript: the whole session on the
 terminal's alternate screen, with tool calls (Ctrl-T) or thinking
@@ -86,6 +87,62 @@ tint. Where the terminal has not said what its colours are, they show as
 `[private]` in bold and ` contaminated ` in reverse video. Labels only
 accumulate during a session.
 
+## Typing and moving
+
+relay-tui has two modes. While you are typing, what you press goes into
+the input, apart from the few keys below. While you are moving, letters
+move between the columns and act on what is in them, and nothing you
+press is typed. The status line names the mode, TYPING or MOVING; on a
+wide screen in hub mode the row of keys at the bottom starts with it.
+
+There are up to three columns: the list of roles (only with relay's
+hub), the conversation in focus, and the workspace pane. The panel with
+the keys has its frame in the accent colour. Opening a conversation, or
+starting relay-tui on one, puts you to typing in it. Esc stops typing and
+keeps what you typed; `i`, or Enter on the conversation, starts again.
+
+Typing:
+
+| Key | What it does |
+|---|---|
+| `enter` | send |
+| `shift+enter`, `ctrl+j` | a new line (so do `ctrl+enter` and `alt+enter`, where the terminal reports them) |
+| `esc` | stop typing, to move; what you typed stays |
+| `alt+1` to `alt+9` | that role, still typing (hub) |
+| `pgup`, `pgdown` | scroll the conversation (hub) |
+| `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
+| `ctrl+y` | trust the latest paste in the input |
+| `ctrl+c` | stop the turn, clear the input, or quit |
+| `ctrl+d` | quit, from an empty input |
+| `?` | the keys, from an empty input |
+
+Moving:
+
+| Key | What it does |
+|---|---|
+| `h`, `l`, `left`, `right` | the column to the left or the right. A column with nothing in it is skipped, and at the edge they do nothing. In an open tracker card they move between its columns instead, until esc closes it. |
+| `k`, `j`, `up`, `down` | move in the list of roles, or scroll the conversation (hub) |
+| `pgup`, `pgdown`, `g`, `G`, `home`, `end` | page, top and bottom of the conversation (hub) |
+| `enter` | on the list, open the role and type; on the conversation, type; in the pane, what the pane says |
+| `i` | type in the conversation in focus |
+| `1` to `9`, `alt+1` to `alt+9` | that role, still moving (hub) |
+| `X` | end this conversation, after asking (hub) |
+| `esc` | in the pane, close what is open, then go back to the conversation; on the list, back to the conversation |
+| `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
+| `ctrl+c` | stop the turn, or quit |
+| `ctrl+d` | quit, from an empty input |
+| `?` | the keys |
+
+In the pane its own keys work too, as its foot lists them (see "The
+workspace pane" and "The board"). While the pane asks you something, an
+archive or a trust, the next key answers or cancels it and does nothing
+else. A letter that does nothing where you are shows "i to type" in the
+status line. A paste while moving goes nowhere, with the same note.
+
+A permission request has the keys in either mode, as described above.
+Besides its own keys, only `h` (to the list), the role keys and the page
+keys work while it waits, and `l` cannot take the keys to the pane.
+
 ## The look
 
 Colours come from the terminal's own palette, so relay-tui follows a light
@@ -112,9 +169,9 @@ latest reply cites. The workspace pane lists it, in its items view; its
 other view is the board (see below), which it shows by default. A new
 display or proposal brings the items into view, and a card that changes
 brings the board back. On a screen 120 columns or wider the pane stands
-to the right of the chat. On a narrower one, Ctrl-X opens it over the
-chat and the status line names the view and its count, as in
-`ctrl+x workspace (3)`.
+to the right of the chat. On a narrower one, `l` (while moving) opens it
+over the chat and the status line names the view and its count, as in
+`l workspace (3)`.
 
 Newest items come first. A shown item has a title, its labels and its
 sources. A proposal is a call held for approval, with relay's preview of
@@ -135,14 +192,14 @@ operator fixed in relay's settings are listed under "set by your
 settings". A link to a domain that no approved or trusted item has shown
 so far in this run carries `[new domain]`.
 
-Keys, once Ctrl-X has given the pane focus:
+Keys, once `l` has given the pane the keys:
 
 - Up and down, or k and j, select an item. Enter opens it; up and down,
   Page Up and Page Down scroll.
 - t starts a trust of the selected item.
 - b switches between the board and the items.
-- Esc goes back from an item, then returns to the input. Ctrl-X does the
-  same from anywhere.
+- Esc goes back from an item, then to the conversation. `h` goes to the
+  conversation from anywhere in the pane.
 
 While the pane has focus no key reaches the input box. Ctrl-C still stops
 a running turn. A permission request takes the keys back from the pane,
@@ -198,7 +255,8 @@ Keys on the board:
 
 - Up and down, or k and j, select a card, or, in an open card, its title
   and then each item or row. Left and right, or h and l, select a
-  tracker's column. When a change arrives, the cursor stays on the item,
+  tracker's column in an open tracker card (elsewhere they move between
+  the screen's columns). When a change arrives, the cursor stays on the item,
   row or column it was on. If that one is gone, the cursor stays where it
   was and a note says so.
 - x or space ticks or unticks the selected item. On a tracker it moves
@@ -216,7 +274,7 @@ Keys on the board:
   relay-tui sends relay the card's rev and the digest relay sent with it
   (`_relay/cards/trust`), so a card that changed in the meantime is not
   trusted. If the card changes while you are being asked, the question
-  closes, as it does when you leave it: ctrl+x, another role, the list of
+  closes, as it does when you leave it: `h`, another role, the list of
   roles or the list of keys. relay takes trust only from `relay chat`, which runs with
   approvals. Elsewhere the pane names the `relay trust card <id>` command
   to run in a terminal.
@@ -238,8 +296,9 @@ note saying so. When relay refuses an op, the pane shows "Refused." with
 relay's reason, until relay takes your next op or you close the input.
 If the op carried text, the input opens again with what you typed.
 After a refused edit it carries the card's current revision, so Enter
-sends your text over the newer change; Esc drops it. Leaving
-the pane with ctrl+x keeps an open input as it was.
+sends your text over the newer change; Esc drops it. While the input is
+open every key goes to it, digits and `h` and `l` included; Ctrl-C closes
+it, unless a turn is running, which it stops.
 
 Card text is shown as relay sent it. relay has already made hidden
 characters visible and defanged links in text from outside, which it
@@ -262,10 +321,11 @@ then, with room, the workspace pane. The panel that has the keys has its
 frame in the accent colour, and the role in focus sits on a tinted bar.
 A top row names relay, the role in focus and what the other roles want.
 A bottom row lists the keys for whatever has them, each key in the
-accent colour. On a narrower one you see either
-the list of roles or the conversation, as on a phone: the conversation's
-first row says `ctrl+g roles`. Without `--open` relay-tui starts on the
-list.
+accent colour. On a narrower one you see one column at a time, as on a
+phone: the list of roles, the conversation, or the pane in the
+conversation's place, and `h` and `l` move between them. The
+conversation's first row says `h roles`. Without `--open` relay-tui
+starts on the list, moving.
 
 If relay had to drop the oldest history from a replay, the conversation
 starts with "relay: earlier history is not shown".
@@ -300,18 +360,13 @@ delay again, so a key typed for the switch cannot approve it. When
 another device answers first, the dialog closes and the transcript notes
 "answered elsewhere".
 
-Keys, besides the usual ones:
+The keys are in "Typing and moving". With the hub:
 
-- ctrl+n and ctrl+p, the next and previous role
-- alt+1 to alt+9, that role
-- ctrl+l, the role you were in before
-- ctrl+g, the list of roles: up and down move, enter opens, esc goes
-  back, and ctrl+x gives the board the keys
-- ctrl+s, end this conversation. The view asks first; y ends it, n
-  keeps it. relay cancels a running turn before it ends.
-- page up and page down, or the mouse wheel, scroll; ctrl+t and ctrl+o
-  show tool calls and thinking in full, as in the transcript
-- ctrl+c cancels a running turn, including one another device started,
+- `X`, while moving, ends this conversation. The view asks first; y ends
+  it, n keeps it. relay cancels a running turn before it ends.
+- The mouse wheel scrolls too; `ctrl+t` and `ctrl+o` show tool calls and
+  thinking in full, as in the transcript.
+- `ctrl+c` cancels a running turn, including one another device started,
   and otherwise clears the input or quits. Quitting only detaches: it
   answers no permission request, in any conversation (relay holds an
   unanswered one and tells you), and the conversations keep running.
@@ -321,13 +376,13 @@ Keys, besides the usual ones:
 
 The board is the same whichever role is in focus, with the same card
 selected, and it shows with no conversation open: beside the roles on a
-wide screen, or, once ctrl+x gives the pane the keys, in the
+wide screen, or, once `l` gives the pane the keys, in the
 conversation's place. Its ops and trust work from a role that has no
-conversation, and open none. With no role in focus the list has the
-keys, and ctrl+x there gives them to the board; esc or ctrl+x on the
-board gives them back to the list, with the cursor where it was. On a
-narrow screen, where the list is the screen, the board takes its place
-until then. The workspace items in the pane are the
+conversation, and open none. With no role in focus there is no
+conversation column, so `l` on the list goes straight to the board, and
+esc or `h` there goes back to the list, with the cursor where it was. On
+a narrow screen, where the list is the screen, the board takes its
+place until then. The workspace items in the pane are the
 focused conversation's own. Moving to another role gives the keys back to
 its conversation. Only the conversation on screen can bring its items
 into view; a display in another one waits there until you look.
@@ -344,6 +399,8 @@ its cursor, whether the pane had the keys, the board or the workspace
 items, the selected card and whether it was open (with its line and
 column), and your unsent drafts with their pastes. With a single agent
 it keeps the parts that apply there. It does not keep scroll positions.
+It keeps which column had the keys, not the mode: back in a
+conversation you are typing, and anywhere else you are moving.
 
 The saved view goes in a file of relay-tui's own, one per agent command
 (everything after `--`), under `~/.local/state/relay-tui/`, or under
