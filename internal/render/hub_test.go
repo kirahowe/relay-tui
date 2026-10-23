@@ -532,3 +532,13 @@ func TestHubShowsTheBoardWithNoConversation(t *testing.T) {
 		}
 	}
 }
+
+// With no role in focus the conversation's panel has no title, and its
+// top border runs unbroken rather than around an empty name.
+func TestHubPanelWithNoRoleHasNoEmptyTitle(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.RosterUpdate{At: t0, Roles: rosterFixture()})
+	top := strings.Split(ansi.Strip(HubView(h, "", "", t0, 120, 20).Content), "\n")[1]
+	if strings.Contains(top, "╭─  ") || !strings.Contains(top, "╮╭──") {
+		t.Fatalf("top border %q", top)
+	}
+}

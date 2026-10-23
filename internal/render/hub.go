@@ -508,6 +508,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		head += roleBadges(role.Labels)
 	}
 	panelTitle := head
+	if h.Focus == "" {
+		panelTitle = "" // no role, so nothing to name: the frame goes unbroken
+	}
 	if narrow {
 		head = styled(faint, "‹ h roles · ") + head
 		if e := elsewhere(h); e != "" {

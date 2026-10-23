@@ -37,7 +37,10 @@ func panel(title, right, foot string, lines []string, width, height int, focus b
 		bc = accent
 	}
 	inner := framed(width)
-	top := styled(bc, "╭─") + " " + truncate(title, max(width-6, 1)) + " "
+	top := styled(bc, "╭─")
+	if title != "" {
+		top += " " + truncate(title, max(width-6, 1)) + " "
+	}
 	end := styled(bc, "╮")
 	if right != "" {
 		r := truncate(right, max(width-ansi.StringWidth(top)-6, 0))
