@@ -97,6 +97,36 @@ func tint(line string, bgst style) string {
 	return b.String()
 }
 
+// tinted says the terminal's colours are known, so tints show.
+func tinted() bool {
+	_, ok := tintOf(tintChip)
+	return ok
+}
+
+// pill is a label as the status line and a panel's title show it, when
+// tints show: its name in colour on a tint. ok is false otherwise, and the
+// caller shows the label its own way.
+func pill(name string, colour style) (string, bool) {
+	if !tinted() {
+		return "", false
+	}
+	return styled(colour|pillBg|bold, " "+name+" "), true
+}
+
+// block lays lines on a tint edge to edge, width wide, with a tinted row
+// above and below: the operator's own words in the conversation.
+func block(lines []string, width int) []string {
+	pad := func(l string) string {
+		l = truncate(l, width)
+		return tint(l+strings.Repeat(" ", max(width-ansi.StringWidth(l), 0)), chipBg)
+	}
+	out := []string{pad("")}
+	for _, l := range lines {
+		out = append(out, pad(l))
+	}
+	return append(out, pad(""))
+}
+
 // chip is a key as a hint shows it on its own: the key in the accent
 // colour on a tint, then what it does.
 func chip(key, what string) string {

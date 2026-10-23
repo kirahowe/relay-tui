@@ -87,7 +87,7 @@ func TestNothingLostBehindTranscript(t *testing.T) {
 	})
 	h.keys("\x1b")
 	h.wait("everything once, in order", h.all, func(all string) bool {
-		c, r, a := strings.Index(all, "Checking everything."), strings.Index(all, "✓ read file1.go"), strings.Index(all, "All thirty read.")
+		c, r, a := strings.Index(all, "Checking everything."), strings.Index(all, "read file1.go"), strings.Index(all, "All thirty read.")
 		return count(all, "Checking everything.") == 1 && count(all, "All thirty read.") == 1 && c < r && r < a && c >= 0
 	})
 }

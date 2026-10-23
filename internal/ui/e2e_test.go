@@ -268,6 +268,15 @@ func TestSimpleReply(t *testing.T) {
 	}
 }
 
+// toolRun is how tool_loop.jsonl's run of two calls shows, as chips.
+const toolRun = `✓  echo {"text":"hi"}   ls -la`
+
+// privateBadge says the session's private label is on screen, as a pill
+// or, without tints, as [private].
+func privateBadge(s string) bool {
+	return strings.Contains(s, "private")
+}
+
 // Tool calls show as one line each, apart from the prose, and the status
 // line names the running tool.
 func TestToolLoop(t *testing.T) { bothSizes(t, testToolLoop) }
@@ -282,11 +291,12 @@ func testToolLoop(t *testing.T, cols, rows int) {
 	h.waitAll("the directory is fine")
 	h.waitIdle()
 	all := h.all()
-	orderedIn(t, all, "› look", "Let me look.", `✓ echo {"text":"hi"} · ls -la`, "It said hi, and the directory is fine.")
+	// With the terminal's colours known each tool is a chip.
+	orderedIn(t, all, "› look", "Let me look.", toolRun, "It said hi, and the directory is fine.")
 	if st := statusLine(h.screen()); !strings.Contains(st, "12% context · $0.03") {
 		t.Fatalf("status %q, want the context use and the spend", st)
 	}
-	if n := count(all, `✓ echo {"text":"hi"} · ls -la`); n != 1 {
+	if n := count(all, toolRun); n != 1 {
 		t.Fatalf("the run appears %d times:\n%s", n, all)
 	}
 	for _, l := range strings.Split(all, "\n") {
@@ -312,7 +322,7 @@ func testToolBurstDoesNotRedraw(t *testing.T, cols, rows int) {
 	if out := h.emu.written()[before:]; strings.Contains(out, ansi.EraseScreenBelow) || strings.Contains(out, ansi.EraseEntireScreen) {
 		t.Fatalf("the frame was erased and redrawn during the turn")
 	}
-	if n := count(h.all(), "✓ read file1.go · read file2.go"); n != 1 {
+	if n := count(h.all(), "✓  read file1.go   read file2.go"); n != 1 {
 		t.Fatalf("the run shows %d times:\n%s", n, h.all())
 	}
 	// ctrl+t shows the calls in full in the transcript view, and
@@ -521,7 +531,7 @@ func TestLongReplyKeepsView(t *testing.T) {
 	}
 	// Regression: a chunk that was one blank line was dropped, so the
 	// paragraphs ran together.
-	orderedIn(t, all, "› go", "╯\n\nParagraph 1 has", "in it.\n\nParagraph 2 has")
+	orderedIn(t, all, "› go", "\n\nParagraph 1 has", "in it.\n\nParagraph 2 has")
 }
 
 // The banner: --title wins, then agentInfo.title, then the agent's name;
@@ -590,7 +600,7 @@ func testPermissionAllow(t *testing.T, cols, rows int) {
 			t.Errorf("%q not on screen:\n%s", want, scr)
 		}
 	}
-	if st := h.waitScreen("the private badge", func(s string) bool { return strings.Contains(s, "[private]") }); !strings.Contains(st, "waiting for you") && cols >= 80 {
+	if st := h.waitScreen("the private badge", func(s string) bool { return privateBadge(s) }); !strings.Contains(st, "waiting for you") && cols >= 80 {
 		t.Errorf("status does not say it is waiting:\n%s", st)
 	}
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
@@ -600,7 +610,7 @@ func testPermissionAllow(t *testing.T, cols, rows int) {
 	h.waitIdle()
 	h.waitScreen("both badges", func(s string) bool {
 		st := statusLine(s)
-		return strings.Contains(st, "[private]") && strings.Contains(st, "contaminated")
+		return privateBadge(st) && strings.Contains(st, "contaminated")
 	})
 	h.waitAll("allowed: web_fetch")
 	if p := h.prompts(); len(p) != 1 || p[0] != "go" {

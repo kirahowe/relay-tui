@@ -183,7 +183,7 @@ func callsLog(path string) string { b, _ := os.ReadFile(path); return string(b) 
 func TestAgentloopPasteHoldAllow(t *testing.T) {
 	api := newFakeMessagesAPI(t, apiTool("toolu_1", "web_post", `{"body":"the secrets"}`), apiText("all posted"))
 	h, calls := startAgentloop(t, api)
-	h.waitScreen("the private badge at start", func(s string) bool { return strings.Contains(s, "[private]") })
+	h.waitScreen("the private badge at start", privateBadge)
 	if strings.Contains(h.screen(), "contaminated") {
 		t.Fatalf("contaminated before any paste:\n%s", h.screen())
 	}

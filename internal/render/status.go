@@ -110,6 +110,14 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 func badges(sl core.StatusLine) string {
 	l := sl.Labels
 	var b string
+	if p, ok := pill("private", labelColour); ok && l.Private {
+		b += p + sgr(faint) + " "
+		l.Private = false
+	}
+	if p, ok := pill("contaminated", warnColour); ok && l.Contaminated {
+		b += p + sgr(faint) + " "
+		l.Contaminated = false
+	}
 	if l.Private {
 		b += sgr(bold) + "[private]" + sgr(faint) + " "
 	}

@@ -83,6 +83,13 @@ func entryAs(e core.Entry, x expand, width int, now time.Time) []string {
 // userLines shows the user's text as typed, after a faint ›, in the box
 // it was typed in, so the user's turns stand apart from the agent's.
 func userLines(text string, width int) []string {
+	if tinted() && width >= minBox {
+		var out []string
+		for _, line := range strings.Split(sanitize(text), "\n") {
+			out = append(out, wrap(line, width-4)...)
+		}
+		return block(indent(out, " "+styled(accent, "›")+" ", "   ", width), width)
+	}
 	inner := InputWidth(width)
 	var out []string
 	for _, line := range strings.Split(sanitize(text), "\n") {
@@ -150,6 +157,18 @@ func runLine(calls []core.Call, width int, now time.Time) string {
 		glyph, st = "✗", 0
 	}
 	line := "  " + glyph + " " + strings.Join(parts, " · ")
+	if tinted() && failed == 0 && stopped == 0 {
+		// Each tool a chip, the glyph in the colour of how the run went.
+		gst := faint
+		if running == 0 && pending == 0 {
+			gst = okColour
+		}
+		chips := make([]string, len(parts))
+		for i, p := range parts {
+			chips[i] = styled(faint|chipBg, " "+p+" ")
+		}
+		return truncate("  "+styled(gst, glyph)+" "+strings.Join(chips, " "), width)
+	}
 	// What went wrong outlasts the names when the line is cut: a lone
 	// failed call's reason may be cut, but a count is kept whole.
 	var tail string

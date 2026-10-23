@@ -112,6 +112,14 @@ func roleName(r core.Role) string { return paneLine(r.Title, r.Labels.Contaminat
 // shows a session's.
 func roleBadges(l core.Labels) string {
 	var b string
+	if p, ok := pill("private", labelColour); ok && l.Private {
+		b += " " + p
+		l.Private = false
+	}
+	if p, ok := pill("contaminated", warnColour); ok && l.Contaminated {
+		b += " " + p
+		l.Contaminated = false
+	}
 	if l.Private {
 		b += " " + styled(bold, "[private]")
 	}
