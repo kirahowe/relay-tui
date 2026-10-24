@@ -43,7 +43,7 @@ func (m *mailRun) apply(t interface{ Helper() }, es ...Event) []Effect {
 		}
 		all = append(all, fx...)
 		// Drawn at once, as a renderer would draw it.
-		m.h, _ = ReduceHub(m.h, Drawn{At: e.at(), Surface: HubSurfaceID(m.h)})
+		m.h, _ = ReduceHub(m.h, Drawn{At: e.at(), Surfaces: []string{HubSurfaceID(m.h)}})
 	}
 	return all
 }

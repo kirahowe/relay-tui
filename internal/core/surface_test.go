@@ -117,7 +117,7 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 			n++
 			e = agent(t, at, n)
 		case k <= 2:
-			e = Drawn{At: at, Surface: id}
+			e = Drawn{At: at, Surfaces: []string{id}}
 			if drawnID != id {
 				drawnID, drawnAt, drawnShows = id, at, shows(x)
 			}
@@ -296,7 +296,7 @@ func TestAQuestionIsAboutWhatItShowed(t *testing.T) {
 			case 0:
 				e = PaneKey{At: at, Action: rapid.SampledFrom([]PaneAction{PaneUp, PaneDown, PaneArchive, PaneTrust, PaneBoard}).Draw(t, "open")}
 			case 1:
-				e = Drawn{At: at, Surface: SingleSurfaceID(x)}
+				e = Drawn{At: at, Surfaces: []string{SingleSurfaceID(x)}}
 				if confirmShows(x.App, x.State) != drawnShows {
 					drawnShows, drawnAt = confirmShows(x.App, x.State), at
 				}

@@ -24,8 +24,11 @@ type Frame struct {
 	TooSmall bool
 	// DetailMax is how far the pane's detail view can scroll as drawn.
 	DetailMax int
-	// Active is what the frame drew as having the keys.
-	Active core.SurfaceKind
+	// Active is what the frame drew as having the keys, and Armable the
+	// things a key could authorize that it drew in full and readable (see
+	// HubFrame).
+	Active  core.SurfaceKind
+	Armable []string
 }
 
 // View lays out the live part of the screen. It always fills height-1
@@ -64,9 +67,10 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 	if Side(width) {
 		f := view(a, s, surf, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
 		rows := max(height-1, 1)
-		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
+		pane, mx, arm := paneRenderArm(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
 		f.DetailMax = mx
+		f.Armable = armed(f.Armable, arm)
 		if a.PaneFocus && f.Active != core.SurfaceHelp {
 			f.Active = paneActive(a, s) // the pane is drawn with the keys
 		}
@@ -76,13 +80,14 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 		return view(a, s, surf, input, hint, now, width, height, h, true)
 	}
 	if surf.Column == core.ColumnPane {
-		mx := 0
+		mx, arm := 0, ""
 		f := view(a, s, surf, input, hint, now, width, height, func(room int) []string {
 			var lines []string
-			lines, mx = paneRender(a, s, now, width, room)
+			lines, mx, arm = paneRenderArm(a, s, now, width, room)
 			return lines
 		}, true)
 		f.DetailMax = mx
+		f.Armable = armed(f.Armable, arm)
 		if a.PaneFocus {
 			f.Active = paneActive(a, s)
 		}
@@ -197,12 +202,17 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 	switch {
 	case asking:
 		f.Active = core.SurfaceRequest
+		f.Armable = armed(nil, core.RequestID(s))
 	case over != nil && surf.Kind == core.SurfaceHelp:
 		f.Active = core.SurfaceHelp
 	case surf.Kind == core.SurfaceInput:
 		f.Active = core.SurfaceInput // the input box, with the cursor
+		f.Armable = armed(nil, core.InputID(""))
 	default:
 		f.Active = core.SurfaceConversation
+	}
+	if len(bottom) > rows {
+		f.Armable = nil // the bottom does not fit: its top is cut
 	}
 	return f
 }

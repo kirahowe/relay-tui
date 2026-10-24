@@ -113,14 +113,12 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		return x, nil
 	}
 	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, id, e.at()) {
-		x.State.Message = Message{Text: x.App.refusal(need), At: e.at()}
+		x.State.Message = Message{Text: x.App.refusal(need, id), At: e.at()}
 		return x, nil
 	}
 	switch e := e.(type) {
 	case Drawn:
-		if e.Surface == id && x.App.Shown.Surface != id {
-			x.App.Shown = Shown{Surface: id, At: e.At}
-		}
+		x.App = x.App.shown(e, id)
 		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true

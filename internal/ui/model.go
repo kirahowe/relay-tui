@@ -6,6 +6,7 @@ package ui
 import (
 	"image/color"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,10 +122,13 @@ type Model struct {
 	savedNote string
 	// holding says the kind is known but the screen input lands on is
 	// not yet (see connect.go), and replaying that held input is being
-	// replayed. drawnSent is the surface last reported drawn, or about to
-	// be (see drawn).
+	// replayed. drawnSet is what the last frame drew that a key could
+	// authorize, drawnGen counts the frames reported, and drawnPending
+	// says the report of the last is on its way (see drawn).
 	holding, replaying bool
-	drawnSent          string
+	drawnSet           []string
+	drawnGen           int
+	drawnPending       bool
 	held               []heldMsg
 	size               *tea.WindowSizeMsg
 	caps0              *tea.KeyboardEnhancementsMsg
@@ -296,24 +300,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // the update that changed it.
 const drawLag = 50 * time.Millisecond
 
-// drawnMsg says the frame showing the surface named surface has been
-// drawn.
-type drawnMsg struct{ surface string }
+// drawnMsg says frame gen, which drew set in full, is on screen.
+type drawnMsg struct {
+	gen int
+	set []string
+}
 
-// drawn tells the core, a frame after the surface that has the keys
-// changes, that it has been drawn as the active one: authorizing keys
-// are armed from then (see core/authority.go). Nothing is drawn while
-// input is held, as the screen is "connecting…" then.
+// drawn tells the core what the frame about to be drawn shows in full
+// that a key could authorize (the renderer's Armable): what it no longer
+// shows is forgotten at once, and what it newly shows is armed from a
+// frame later, when it is on screen (see core/authority.go). Nothing is
+// drawn while input is held, as the screen is "connecting…" then.
 func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if m.kind == kindUnknown || m.holding {
 		return m, cmd
 	}
-	id := m.surfaceID()
-	if id == m.drawnSent {
-		return m, cmd
+	set := m.armable()
+	if slices.Equal(set, m.drawnSet) {
+		// The same frame: report it again only if the surface was forgotten
+		// meanwhile (it changed and came back) and no report is on its way.
+		if m.drawnPending || !slices.Contains(set, m.surfaceID()) || m.app().Shown.Surface == m.surfaceID() {
+			return m, cmd
+		}
+	} else {
+		var kept []string
+		for _, id := range set {
+			if slices.Contains(m.drawnSet, id) {
+				kept = append(kept, id)
+			}
+		}
+		m.coreEvent(core.Drawn{At: m.now(), Surfaces: kept, OnlyForget: true})
 	}
-	m.drawnSent = id
-	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return drawnMsg{id} }))
+	m.drawnSet = set
+	m.drawnGen++
+	m.drawnPending = true
+	msg := drawnMsg{gen: m.drawnGen, set: set}
+	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return msg }))
+}
+
+// armable is what the frame as drawn now shows in full that a key could
+// authorize.
+func (m Model) armable() []string {
+	now := m.now()
+	if m.kind == kindHub {
+		return m.hubFrame(now).Armable
+	}
+	if m.alt {
+		return nil // the transcript asks nothing
+	}
+	return m.frame(now).Armable
+}
+
+// coreEvent applies an event with no effects to the core, in either mode.
+func (m *Model) coreEvent(e core.Event) {
+	if m.kind == kindHub {
+		m.hub, _ = core.ReduceHub(m.hub, e)
+		return
+	}
+	m.one, _ = core.ReduceSingle(m.one, e)
 }
 
 // surfaceID names what has the keys, in either mode.
@@ -360,7 +404,11 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.SingleSurface(m.one), now, msg.Content)}
 	case drawnMsg:
-		ev = core.Drawn{At: now, Surface: msg.surface}
+		if msg.gen != m.drawnGen {
+			return m, nil // a later frame replaced it
+		}
+		m.drawnPending = false
+		ev = core.Drawn{At: now, Surfaces: msg.set}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {

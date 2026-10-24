@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -17,12 +18,63 @@ import (
 // answering no are safe, and need only a live key. Replayed input may
 // type and move, and nothing else.
 
-// Drawn says the shell has drawn the surface named Surface (see
-// HubSurfaceID and SingleSurfaceID) as the active one, at At.
+// Drawn says what the renderer drew in full and readable in a frame
+// that is now on screen, at At: the identities (RequestID, ConfirmID,
+// EndID, InputID) of the things in it that a key could authorize. A
+// thing clipped, covered or behind "too small" is not among them. The
+// surface with the keys is armed from the first frame that drew it,
+// and forgotten in the first that did not. With OnlyForget the frame is
+// one the shell knows will replace the last at once: it can forget but
+// not arm, as it is not on screen yet.
 type Drawn struct {
-	At      time.Time
-	Surface string
+	At         time.Time
+	Surfaces   []string
+	OnlyForget bool
 }
+
+// shown is the app after e, for the surface named id.
+func (a App) shown(e Drawn, id string) App {
+	switch {
+	case !slices.Contains(e.Surfaces, id):
+		a.Shown = Shown{}
+	case a.Shown.Surface != id && !e.OnlyForget:
+		a.Shown = Shown{Surface: id, At: e.At}
+	}
+	return a
+}
+
+// RequestID names the request on offer in s.
+func RequestID(s State) string {
+	if len(s.Asks) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("request/%d", s.Asks[0].ID)
+}
+
+// ConfirmID names the question the pane asks: a doc's trust, a card's
+// archive or a card's trust, each with the version it is about; "" for
+// none.
+func ConfirmID(a App, s State) string {
+	b := a.Board
+	switch {
+	case s.Pane.Trust != nil && !s.Pane.Trust.Sent:
+		t := s.Pane.Trust.Item
+		return fmt.Sprintf("doctrust/%q/%s/%s", t.Path, t.Version, t.SHA256)
+	case b.Items:
+	case b.Confirm != 0:
+		return fmt.Sprintf("archive/%d/%d", b.Confirm, b.ConfirmRev)
+	case b.Trust != nil && !b.Trust.Sent:
+		return fmt.Sprintf("cardtrust/%d/%d/%s", b.Trust.Card, b.Trust.Rev, b.Trust.SHA256)
+	}
+	return ""
+}
+
+// EndID names the question whether to end session's conversation.
+func EndID(session string) string { return fmt.Sprintf("end/%q", session) }
+
+// InputID names the input of role ("" against a single agent), where
+// ctrl+y trusts a paste.
+func InputID(role string) string { return fmt.Sprintf("input/%q", role) }
 
 func (e Drawn) at() time.Time { return e.At }
 
@@ -63,23 +115,16 @@ func HubSurfaceID(h Hub) string {
 func SingleSurfaceID(x Single) string { return surfaceID(SingleSurface(x), x.App, x.State, "") }
 
 func surfaceID(surf Surface, a App, s State, extra string) string {
-	b := a.Board
 	switch surf.Kind {
 	case SurfaceRequest:
-		return fmt.Sprintf("request/%d", s.Asks[0].ID)
+		return RequestID(s)
 	case SurfaceConfirm:
-		switch {
-		case s.Pane.Trust != nil:
-			t := s.Pane.Trust.Item
-			return fmt.Sprintf("doctrust/%q/%s/%s", t.Path, t.Version, t.SHA256)
-		case b.Confirm != 0:
-			return fmt.Sprintf("archive/%d/%d", b.Confirm, b.ConfirmRev)
-		case b.Trust != nil:
-			return fmt.Sprintf("cardtrust/%d/%d/%s", b.Trust.Card, b.Trust.Rev, b.Trust.SHA256)
-		}
+		return ConfirmID(a, s)
 	case SurfaceEnd:
-		return fmt.Sprintf("end/%q", extra) // the session the question is about
-	case SurfaceInput, SurfaceConversation:
+		return EndID(extra)
+	case SurfaceInput:
+		return InputID(extra)
+	case SurfaceConversation:
 		return fmt.Sprintf("%d/%q", surf.Kind, extra)
 	}
 	return fmt.Sprintf("%d/%d", surf.Kind, surf.Column)
@@ -130,15 +175,19 @@ func (a App) mayTake(need authority, id string, at time.Time) bool {
 const (
 	ReplayedNote = "a key typed while connecting answers nothing: press it again"
 	TooSoonNote  = "too soon after it came on screen: press it again"
+	NotShownNote = "not all of it is on screen: make the window larger, then press it again"
 )
 
-// refusal is what to say about an event mayTake refused, "" for none.
-func (a App) refusal(need authority) string {
+// refusal is what to say about an event mayTake refused on the surface
+// named id, "" for none.
+func (a App) refusal(need authority, id string) string {
 	switch {
 	case need == needsNothing:
 		return ""
 	case a.KeyReplayed:
 		return ReplayedNote
+	case a.Shown.Surface != id:
+		return NotShownNote
 	}
 	return TooSoonNote
 }

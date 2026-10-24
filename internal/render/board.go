@@ -429,8 +429,12 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 			keys = " y archive (wait a moment) · any other key cancels"
 		}
 		pr.foot = wrap(styled(bold, "Archive "+cardName(b, b.Confirm)+"?")+styled(faint, keys), width)
+		pr.confirm = core.ConfirmID(a, s)
 	case b.Trust != nil:
 		pr.foot = wrap(styled(bold, "Trust "+cardName(b, b.Trust.Card)+"? It clears outside text from what it says now."), width)
+		if !b.Trust.Sent {
+			pr.confirm, pr.whole = core.ConfirmID(a, s), true
+		}
 		switch {
 		case b.Trust.Sent:
 			pr.foot = append(pr.foot, hint("trusting…")...)

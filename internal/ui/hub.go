@@ -36,7 +36,11 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.HubSurface(m.hub), now, msg.Content)}
 	case drawnMsg:
-		evs = []core.Event{core.Drawn{At: now, Surface: msg.surface}}
+		if msg.gen != m.drawnGen {
+			return m, nil // a later frame replaced it
+		}
+		m.drawnPending = false
+		evs = []core.Event{core.Drawn{At: now, Surfaces: msg.set}}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {

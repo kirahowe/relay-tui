@@ -25,8 +25,8 @@ func update(m Model, msgs ...tea.Msg) Model {
 	for _, msg := range msgs {
 		next, _ := m.Update(msg)
 		m = next.(Model)
-		if m.Known() {
-			next, _ = m.Update(drawnMsg{m.surfaceID()})
+		if m.drawnPending {
+			next, _ = m.Update(drawnMsg{gen: m.drawnGen, set: m.drawnSet})
 			m = next.(Model)
 		}
 	}

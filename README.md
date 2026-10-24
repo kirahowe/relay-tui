@@ -82,7 +82,11 @@ so a `y` typed right behind esc cannot allow it. The same holds for
 every key that authorizes something: archiving a card, trusting a card,
 a doc or a paste (Ctrl-Y), and ending a conversation each wait 600 ms
 from when their question, or the input, was drawn, and the status line
-says "too soon" if you press it before. Other keys are ignored while
+says "too soon" if you press it before. Drawn means drawn in full: a
+request behind "Window too small", or a question the window clips (a
+tall draft can leave the pane no room), is not armed at all, and the
+status line says to make the window larger. When it next shows whole,
+its 600 ms start again. Other keys are ignored while
 the request has the keys, so no prompt can go out. Requests
 queue and are answered in order; ending the turn cancels the rest.
 

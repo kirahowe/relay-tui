@@ -10,7 +10,7 @@ func feedS(x Single, events ...Event) (Single, []Effect) {
 		var fx []Effect
 		x, fx = ReduceSingle(x, e)
 		all = append(all, fx...)
-		x, _ = ReduceSingle(x, Drawn{At: e.at(), Surface: SingleSurfaceID(x)})
+		x, _ = ReduceSingle(x, Drawn{At: e.at(), Surfaces: []string{SingleSurfaceID(x)}})
 	}
 	return x, all
 }

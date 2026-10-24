@@ -27,7 +27,7 @@ func apply(t interface{ Helper() }, h Hub, es ...Event) (Hub, []Effect) {
 		h, fx = ReduceHub(h, e)
 		all = append(all, fx...)
 		// Drawn at once, as a renderer would draw it.
-		h, _ = ReduceHub(h, Drawn{At: e.at(), Surface: HubSurfaceID(h)})
+		h, _ = ReduceHub(h, Drawn{At: e.at(), Surfaces: []string{HubSurfaceID(h)}})
 	}
 	return h, all
 }

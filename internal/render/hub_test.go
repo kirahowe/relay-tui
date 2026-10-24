@@ -27,7 +27,7 @@ func hubStep(h core.Hub, es ...core.Event) core.Hub {
 	for _, e := range es {
 		h, _ = core.ReduceHub(h, e)
 		// Drawn, and long enough ago to be armed.
-		h, _ = core.ReduceHub(h, core.Drawn{At: t0.Add(-time.Hour), Surface: core.HubSurfaceID(h)})
+		h, _ = core.ReduceHub(h, core.Drawn{At: t0.Add(-time.Hour), Surfaces: []string{core.HubSurfaceID(h)}})
 	}
 	return h
 }

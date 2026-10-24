@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
 	"github.com/kirahowe/relay-tui/internal/core"
@@ -72,7 +73,7 @@ func surfaceHub(calls *[]call, clock *time.Time) Model {
 	return update(m, tea.WindowSizeMsg{Width: 170, Height: 40},
 		ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: roles}),
 		ev(core.Attached{At: now, Role: "dev", Session: "s1"}), ev(core.Attached{At: now, Role: "mail", Session: "s2"}),
-		ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}))
+		ev(core.CardsLoaded{At: now, Rev: 2, Cards: outsideNavCards()}))
 }
 
 // surfaceSingle is a single-agent model typing, with the board loaded.
@@ -80,7 +81,15 @@ func surfaceSingle(calls *[]call, clock *time.Time) Model {
 	m := New(callConn{calls: calls, clock: clock}, "")
 	m.clock = func() time.Time { return *clock }
 	return update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, ev(core.Connected{At: *clock, Embedded: true}),
-		ev(core.CardsLoaded{At: *clock, Rev: 2, Cards: navCards()}))
+		ev(core.CardsLoaded{At: *clock, Rev: 2, Cards: outsideNavCards()}))
+}
+
+// outsideNavCards is navCards with outside text in the first, so it can
+// be trusted.
+func outsideNavCards() []core.Card {
+	cards := navCards()
+	cards[0].Labels, cards[0].SHA256 = core.Labels{Contaminated: true}, "abc"
+	return cards
 }
 
 func key(s string) tea.KeyPressMsg {
@@ -99,7 +108,7 @@ func key(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "pgup":
 		return tea.KeyPressMsg{Code: tea.KeyPgUp}
-	case "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y":
+	case "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y", "ctrl+j":
 		return tea.KeyPressMsg{Code: rune(s[5]), Mod: tea.ModCtrl}
 	case "alt+1", "alt+2":
 		return tea.KeyPressMsg{Code: rune(s[4]), Mod: tea.ModAlt}
@@ -110,7 +119,7 @@ func key(s string) tea.KeyPressMsg {
 
 // surfaceKeys are the keys that mean something somewhere: every column
 // move, every pane key, the request's keys, and plain letters.
-var surfaceKeys = []string{"enter", "esc", "backspace", "tab", "up", "down", "pgup", "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y",
+var surfaceKeys = []string{"enter", "esc", "backspace", "tab", "up", "down", "pgup", "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y", "ctrl+j",
 	"alt+1", "alt+2", "h", "j", "k", "l", "i", "e", "E", "a", "x", "X", "y", "Y", "n", "t", "b", "v", "q", "?", " ", "1", "2", "z"}
 
 // editorText is the board's editor, or "" with none open.
@@ -128,6 +137,44 @@ func keptAll(before, after map[string]string, except string) bool {
 		if role != except && !strings.Contains(after[role], text) {
 			return false
 		}
+	}
+	return true
+}
+
+// onScreen says the screen shows in full what id names: the request's
+// tool and both its options, the question with its subject and its yes,
+// the input. Spaces and frame lines are ignored, so a wrapped line still
+// counts.
+func onScreen(m Model, id string) bool {
+	var content string
+	if m.kind == kindHub {
+		content = m.hubFrame(m.now()).Content
+	} else {
+		content = m.frame(m.now()).Content
+	}
+	flat := strings.Map(func(r rune) rune {
+		if strings.ContainsRune(" \n│╭╮╰╯─", r) {
+			return -1
+		}
+		return r
+	}, ansi.Strip(content))
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if !strings.Contains(flat, strings.ReplaceAll(w, " ", "")) {
+				return false
+			}
+		}
+		return true
+	}
+	switch {
+	case strings.HasPrefix(id, "request/"):
+		return has("send_mail", "Allow", "Reject")
+	case strings.HasPrefix(id, "archive/"):
+		return has("Archive “", "y archive")
+	case strings.HasPrefix(id, "cardtrust/"):
+		return has("Trust “", "y trust", "Trip", "pack", "go")
+	case strings.HasPrefix(id, "end/"):
+		return has("End the conversation with", "y to end it")
 	}
 	return true
 }
@@ -175,10 +222,29 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			offer, since = o, clock
 		}
 	}
+	// present is, for the thing a key could authorize, since when the
+	// screen has shown it in full without a break, read off the screen
+	// itself, not off what the renderer says it drew.
+	present := map[string]time.Time{}
+	frames := func() {
+		id := m.surfaceID()
+		for other := range present {
+			if other != id {
+				delete(present, other)
+			}
+		}
+		if !onScreen(m, id) {
+			delete(present, id)
+		} else if _, ok := present[id]; !ok {
+			present[id] = clock
+		}
+	}
+	frames()
 	step := 0
 	press := func(name string) {
 		k := key(name)
 		surf := surface(m)
+		target := m.surfaceID()
 		surfaceSeen[surf.Kind]++
 		before := drafts(m)
 		edText, edOpen := editorText(m)
@@ -209,6 +275,12 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			if c.what == "answer" && c.option != "" && c.at.Sub(since) < core.ArmDelay {
 				rt.Fatalf("step %d: key %q answered %q %v after the request became the surface", step, name, c.option, c.at.Sub(since))
 			}
+			// (e) what it authorized was drawn in full for the whole delay.
+			if authorized(c) {
+				if t0, ok := present[target]; !ok || c.at.Sub(t0) < core.ArmDelay {
+					rt.Fatalf("step %d: key %q made %+v on %q, drawn in full since %v (%v)", step, name, c, target, t0, ok)
+				}
+			}
 		}
 		// (d)
 		after := drafts(m)
@@ -233,6 +305,7 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			rt.Fatalf("step %d: key %q on %v changed the editor from %q to %q", step, name, surf.Kind, edText, now)
 		}
 		track()
+		frames()
 	}
 	// event applies something that is not a key: nothing typed goes,
 	// nothing is answered, and what is being typed in keeps the keys.
@@ -256,6 +329,7 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			}
 		}
 		track()
+		frames()
 	}
 	// Ways to the surfaces a random key rarely reaches.
 	macros := [][]string{
@@ -269,6 +343,8 @@ func surfaceRun(rt *rapid.T, hub bool) {
 		{"esc", "X"},                     // the end question
 		{"i", "w", "o", "r", "d", "s"},   // typing
 		{"esc", "l", "e", "a", "b", "c"}, // typing in the editor
+		{"esc", "l", "t"},                // the card's trust
+		{"i", "a", "ctrl+j", "b", "ctrl+j", "c", "ctrl+j", "d", "ctrl+j", "e"}, // a tall draft
 	}
 	for range rapid.IntRange(1, 60).Draw(rt, "steps") {
 		step++
@@ -299,6 +375,11 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			}
 			event(ev(core.CardsChanged{At: clock, Rev: c.Rev, Cards: []core.Card{c}}))
 		case 3:
+			if rapid.Bool().Draw(rt, "resize") {
+				sz := rapid.SampledFrom([][2]int{{60, 10}, {40, 10}, {60, 20}, {100, 24}, {170, 40}}).Draw(rt, "size")
+				event(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+				break
+			}
 			event(tea.PasteMsg{Content: "pasted words"})
 		case 4, 5:
 			for _, k := range rapid.SampledFrom(macros).Draw(rt, "macro") {
@@ -440,6 +521,162 @@ func TestAnArchivedCardLeavesItsEditorTyping(t *testing.T) {
 			if m = update(m, key("esc")); func() bool { _, open := editorText(m); return open }() {
 				t.Fatal("esc did not discard it")
 			}
+		})
+	}
+}
+
+// Codex round 4, finding A1: at 60x10 a tall draft and a waiting
+// request leave the pane no room, so its question is clipped entirely.
+// A trust or an archive asked there is not drawn, so it is never armed:
+// y, however long after, does nothing, and says why. Hub and single.
+func TestAClippedQuestionCannotBeAnswered(t *testing.T) {
+	for _, hub := range []bool{true, false} {
+		for _, ask := range []string{"t", "X"} {
+			t.Run(fmt.Sprint("hub=", hub, " ", ask), func(t *testing.T) {
+				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+				var calls []call
+				var m Model
+				request := tea.Msg(ev(askEvent(clock, 1)))
+				if hub {
+					m = surfaceHub(&calls, &clock)
+					request = ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)})
+				} else {
+					m = surfaceSingle(&calls, &clock)
+				}
+				m = update(m, tea.WindowSizeMsg{Width: 60, Height: 10})
+				for _, k := range []string{"a", "ctrl+j", "b", "ctrl+j", "c", "ctrl+j", "d", "ctrl+j", "e", "esc", "l"} {
+					m = update(m, key(k))
+				}
+				m = update(m, request, key(ask))
+				if s := core.SingleSurface(m.one); hub {
+					s = core.HubSurface(m.hub)
+					if s.Kind != core.SurfaceConfirm {
+						t.Fatalf("surface %+v", s)
+					}
+				} else if s.Kind != core.SurfaceConfirm {
+					t.Fatalf("surface %+v", s)
+				}
+				if onScreen(m, m.surfaceID()) {
+					t.Fatalf("the question fits after all:\n%s", m.View().Content)
+				}
+				clock = clock.Add(2 * time.Second)
+				m = update(m, key("y"))
+				for _, c := range calls {
+					if authorized(c) {
+						t.Fatalf("authorized a question not on screen: %+v", calls)
+					}
+				}
+				note := m.one.State.Message.Text
+				if hub {
+					note = m.hub.Notice
+				}
+				if note != core.NotShownNote {
+					t.Fatalf("note %q", note)
+				}
+			})
+		}
+	}
+}
+
+// Codex round 4, finding A2: a request behind "Window too small" is not
+// drawn, so it is not armed however long it waits; made larger, it is
+// armed afresh from then.
+func TestARequestTooSmallToShowArmsWhenShown(t *testing.T) {
+	for _, hub := range []bool{true, false} {
+		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
+			clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+			var calls []call
+			var m Model
+			request := tea.Msg(ev(askEvent(clock, 1)))
+			if hub {
+				m = surfaceHub(&calls, &clock)
+				request = ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)})
+			} else {
+				m = surfaceSingle(&calls, &clock)
+			}
+			m = update(m, key("esc"), request, tea.WindowSizeMsg{Width: 40, Height: 5})
+			if f := m.View().Content; !strings.Contains(ansi.Strip(f), "too small") {
+				t.Fatalf("not too small:\n%s", f)
+			}
+			clock = clock.Add(2 * time.Second)
+			m = update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, key("y"))
+			if len(calls) != 0 {
+				t.Fatalf("answered at once after the window grew: %+v", calls)
+			}
+			clock = clock.Add(core.ArmDelay)
+			if m = update(m, key("y")); len(calls) != 1 || calls[0].option != "allow" {
+				t.Fatalf("calls %+v", calls)
+			}
+		})
+	}
+}
+
+// Whatever the window's size and what else is on screen, an
+// authorization only ever happens for something the screen showed in
+// full (read off the screen: the request's tool and options, the
+// question with its subject and its yes) for the whole ArmDelay up to the
+// key. Sizes, draft heights, requests, questions, waits and resizes at
+// random, in both modes.
+func TestNothingUnseenIsAuthorized(t *testing.T) {
+	sizes := [][2]int{{40, 5}, {40, 10}, {60, 10}, {60, 14}, {80, 24}, {170, 40}}
+	for _, hub := range []bool{true, false} {
+		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
+			rapid.Check(t, func(rt *rapid.T) {
+				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+				var calls []call
+				var m Model
+				request := func() tea.Msg { return ev(askEvent(clock, 1)) }
+				if hub {
+					m = surfaceHub(&calls, &clock)
+					request = func() tea.Msg { return ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)}) }
+				} else {
+					m = surfaceSingle(&calls, &clock)
+				}
+				sz := rapid.SampledFrom(sizes).Draw(rt, "size")
+				m = update(m, tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+				for range rapid.IntRange(0, 6).Draw(rt, "draft lines") {
+					m = update(m, key("w"), key("ctrl+j"))
+				}
+				present := map[string]time.Time{}
+				see := func() {
+					id := m.surfaceID()
+					if !onScreen(m, id) {
+						delete(present, id)
+					} else if _, ok := present[id]; !ok {
+						present[id] = clock
+					}
+				}
+				route := rapid.SampledFrom([][]string{{"esc", "l", "t"}, {"esc", "l", "X"}, {"esc"}, {"esc", "X"}}).Draw(rt, "route")
+				withRequest := rapid.Bool().Draw(rt, "request")
+				if route[0] == "esc" && len(route) == 1 {
+					withRequest = true // the request is what esc goes to
+				}
+				for i, k := range route {
+					if withRequest && i == len(route)-1 {
+						m = update(m, request())
+						see()
+					}
+					m = update(m, key(k))
+					see()
+				}
+				for range rapid.IntRange(1, 6).Draw(rt, "steps") {
+					clock = clock.Add(time.Duration(rapid.IntRange(0, 900).Draw(rt, "ms")) * time.Millisecond)
+					if rapid.Bool().Draw(rt, "resize") {
+						sz := rapid.SampledFrom(sizes).Draw(rt, "size")
+						m = update(m, tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+						see()
+						continue
+					}
+					id, n := m.surfaceID(), len(calls)
+					m = update(m, key("y"))
+					for _, c := range calls[n:] {
+						if since, ok := present[id]; authorized(c) && (!ok || c.at.Sub(since) < core.ArmDelay) {
+							rt.Fatalf("authorized %+v on %q, on screen in full since %v (%v)", c, id, since, ok)
+						}
+					}
+					see()
+				}
+			})
 		})
 	}
 }

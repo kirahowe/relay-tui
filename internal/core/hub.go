@@ -346,14 +346,12 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 		return h, nil
 	}
 	if need := authorityOf(e, surf, st); !h.App.mayTake(need, id, e.at()) {
-		h.Notice = h.App.refusal(need)
+		h.Notice = h.App.refusal(need, id)
 		return h, nil
 	}
 	switch e := e.(type) {
 	case Drawn:
-		if e.Surface == id && h.App.Shown.Surface != id {
-			h.App.Shown = Shown{Surface: id, At: e.At}
-		}
+		h.App = h.App.shown(e, id)
 		return h, nil
 	case KeyPressed:
 		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true
