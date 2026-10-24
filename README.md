@@ -51,19 +51,24 @@ own scrollback, which cannot be redrawn, so the transcript is where
 blocks open and close. Nothing goes into scrollback while it is open:
 what the agent writes meanwhile is printed when you leave. A permission
 request closes the transcript, so the request is always on screen, and
-the session's labels lead its footer as they lead the status line.
+while one waits Ctrl-T and Ctrl-O do not open it: the status line says
+to answer the request first. The session's labels lead the
+transcript's footer as they lead the status line.
 
 The agent's stderr would garble the screen, so relay-tui keeps the last
 64 KiB and prints them if the agent exits on its own. `--agent-log FILE`
 writes all of it to a file. relay-tui's own notes about the connection,
 such as a line it dropped as unreadable, go to the same place.
 
-When the agent asks permission for a tool call while you are typing, the
-request takes no keys: a line above the input says "permission needed",
-names the tool and says "esc to answer", the status line says so too,
-and what you type goes on into the input. Esc stops typing, and the
-request then replaces the input box; it does so at once if it arrives
-while you are moving (see "Typing and moving"). It shows the tool's name and its input, indented and cut to ten
+When the agent asks permission for a tool call, the request moves no
+keys and closes nothing. While you are typing, in the input or in a
+card's editor, it takes no keys: a line above the input says
+"permission needed", names the tool and says how to get to it ("esc to
+answer"), the status line says so too, and what you type goes on where
+you were typing. In the pane it waits the same way, and `h` goes to it.
+The request is answered only once it has the keys, in its conversation
+while you are moving: it then replaces the input box, at once if it
+arrives while you are there (see "Typing and moving"). It shows the tool's name and its input, indented and cut to ten
 lines, and the options the agent offered. Keys: `y` picks the first
 allow_once option, `n` the first reject_once, up/down and enter pick between
 them (the highlight starts on a reject, so a bare enter refuses). Options
@@ -71,8 +76,9 @@ of any other kind, such as allow_always, are not offered: relay-tui never
 grants standing permission. `v`
 puts the whole input into the transcript, and Esc or Ctrl-C answers
 cancelled. Keys that would approve do nothing for the first 600 ms after
-the request can take keys, by esc or by arriving while you move, so a
-`y` typed right behind esc cannot allow it. Other keys are ignored while
+the request gets the keys, by esc, by moving to its conversation, or by
+arriving while you are moving there, so a `y` typed right behind esc
+cannot allow it. Other keys are ignored while
 the request has the keys, so no prompt can go out. Requests
 queue and are answered in order; ending the turn cancels the rest.
 
@@ -97,8 +103,10 @@ accumulate during a session.
 relay-tui has two modes. While you are typing, what you press goes into
 the input, apart from the few keys below. While you are moving, letters
 move between the columns and act on what is in them, and nothing you
-press is typed. The status line names the mode, TYPING or MOVING; on a
-wide screen in hub mode the row of keys at the bottom starts with it.
+press is typed. A card's one-line editor (a title, an item's text) is
+typing too. The status line names the mode, TYPING or MOVING, ahead of
+its other hints when the line is short; on a wide screen in hub mode
+the row of keys at the bottom starts with it.
 
 There are up to three columns: the list of roles (only with relay's
 hub), the conversation in focus, and the workspace pane. The panel with
@@ -142,13 +150,15 @@ In the pane its own keys work too, as its foot lists them (see "The
 workspace pane" and "The board"). While the pane asks you something, an
 archive or a trust, the next key answers or cancels it and does nothing
 else. A letter that does nothing where you are shows "i to type" in the
-status line. A paste while moving goes nowhere, with the same note.
+status line. A paste while moving goes nowhere, with the same note, and
+so does a paste into a card's editor: a card's text is your own words,
+so a paste, which may be anyone's, does not go into it.
 
-A permission request is answered only while moving, as described
-above: while typing it takes no keys and the input keeps them. While
-moving it has the keys; besides its own, only `h` (to the list), the role
-keys and the page keys work while it waits, and `l` cannot take the keys
-to the pane.
+A permission request is answered only when it has the keys, as
+described above: while typing it takes no keys and the input keeps
+them. In its conversation while moving it has the keys; besides its
+own, only `h` (to the list), the role keys and the page keys work while
+it waits.
 
 ## The look
 
@@ -165,8 +175,7 @@ notices, tool names, arguments and output) show defanged, as
 writes OSC 8 hyperlinks. The request box shows its input exactly, but
 with its URLs defanged once the session is contaminated: a click on one,
 to look at it, would send what it carries before you approve anything.
-A paste while a request waits is dropped. relay-tui never sends
-`resource_link` blocks.
+relay-tui never sends `resource_link` blocks.
 
 ## The workspace pane
 
@@ -209,10 +218,10 @@ Keys, once `l` has given the pane the keys:
   conversation from anywhere in the pane.
 
 While the pane has focus no key reaches the input box. Ctrl-C still stops
-a running turn. A permission request takes the keys back from the pane,
-and you answer it as before: the pane only highlights the waiting
-proposal and shows its preview, here and in the request box. It adds no
-second way to approve.
+a running turn. A permission request leaves the pane its keys: `h` goes
+to the conversation, where you answer it as before. The pane only
+highlights the waiting proposal and shows its preview, here and in the
+request box. It adds no second way to approve.
 
 Trusting needs relay chat, which lets relay-tui ask relay to do it. Press t
 on a contaminated shown item. The pane shows the text that would be
@@ -428,10 +437,19 @@ key before those arrive, what you did stands: the layout and the card
 are not put back over it, and only the drafts come back. A saved draft
 goes ahead of anything you typed for that role meanwhile, and its
 pastes take the numbers after any you made, so neither is lost, even if
-you close relay-tui before it came back. What you type and paste before
-relay-tui knows the agent is relay's hub becomes the draft of the first
-role in focus, pastes as trusted as you left them. `--open ROLE` wins
-over the saved focus.
+you close relay-tui before it came back. `--open ROLE` wins over the
+saved focus.
+
+Until the agent has answered `initialize`, relay-tui does not know
+whether it is relay's hub, so it handles nothing you type: the screen
+says "connecting…", and your keys and pastes wait, in order. Once the
+agent answers, relay-tui puts back the saved view for that kind of
+agent and then replays them as if you had just typed them, at the times
+you pressed them: with `--open` they land in that role's input, and on
+the list they are the list's keys. Ctrl-C quits while connecting. If the
+agent exits before it answers, the saved view is left as it was. A view
+saved against the other kind of agent puts back what it can, and a
+draft with nowhere to go is not put back, with a note.
 
 A restored paste is never more trusted than it was. One you trusted
 with Ctrl-Y comes back trusted, the rest untrusted, and anything about
