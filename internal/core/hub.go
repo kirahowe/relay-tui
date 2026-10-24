@@ -389,10 +389,7 @@ func (r *hubReducer) adoptBlanks() {
 		if j < 0 {
 			continue
 		}
-		s := &r.h.Convs[j].State
-		if len(s.Pastes) == 0 && s.NextPaste == 0 {
-			s.Pastes, s.NextPaste = b.State.Pastes, b.State.NextPaste
-		}
+		adoptWaiting(&r.h.Convs[j].State, b.State)
 		r.h.Blanks = slices.Delete(r.h.Blanks, i, i+1)
 	}
 }
@@ -509,7 +506,7 @@ func newConv(session, role string) Conv {
 func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
-	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
+	case Tick, TerminalReady, Printed, Initialized, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
 		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited, Viewport:
 	default:
 		h.Notice = "" // a key was pressed
@@ -568,7 +565,7 @@ func (r *hubReducer) apply(e Event) {
 			r.toConv(i, e, false)
 		}
 		r.emit(Quit{})
-	case Tick, TerminalReady, Printed, KeyPressed:
+	case Tick, TerminalReady, Printed, KeyPressed, Initialized:
 	case FocusIndex:
 		if e.Index >= 0 && e.Index < len(h.Roles) {
 			r.focus(h.Roles[e.Index].ID, false, e.At)
@@ -978,10 +975,16 @@ func (r *hubReducer) attached(e Attached) {
 			return x.Role == e.Role && !x.Attached && (x.Session == "" || x.Session == e.Session)
 		})
 		if i >= 0 {
-			q := h.Convs[i].State.Queue
+			s := h.Convs[i].State
 			h.Convs = slices.Delete(h.Convs, i, i+1)
-			if len(q) > 0 && h.Focus == e.Role {
-				r.emit(RestoreInput{Text: strings.Join(q, "\n\n")})
+			// The role has no conversation again: the pastes its input or
+			// queue still name wait in its blank, as before it had one.
+			if len(s.Pastes) > 0 || s.NextPaste > 0 {
+				b := r.blank(e.Role)
+				adoptWaiting(&b.State, State{Pastes: s.Pastes, NextPaste: s.NextPaste})
+			}
+			if len(s.Queue) > 0 && h.Focus == e.Role {
+				r.emit(RestoreInput{Text: strings.Join(s.Queue, "\n\n")})
 			}
 		}
 		if e.Session != "" {
@@ -999,8 +1002,8 @@ func (r *hubReducer) attached(e Attached) {
 	switch {
 	case bySession >= 0 && byRole >= 0:
 		// The replay got here first and made a conversation of its own;
-		// the one that was waiting contributes its queue.
-		h.Convs[bySession].State.Queue = append(slices.Clone(h.Convs[byRole].State.Queue), h.Convs[bySession].State.Queue...)
+		// the one that was waiting gives it what the operator put in it.
+		adoptWaiting(&h.Convs[bySession].State, h.Convs[byRole].State)
 		h.Convs = slices.Delete(h.Convs, byRole, byRole+1)
 		bySession = r.sessionIndex(e.Session)
 	case bySession < 0 && byRole >= 0:
@@ -1019,6 +1022,23 @@ func (r *hubReducer) attached(e Attached) {
 	if e.Role == h.Focus {
 		r.toConv(bySession, Focused{At: e.At}, false)
 	}
+}
+
+// adoptWaiting folds into dst what the operator gave src, a
+// conversation that waited for its attach: its queue, ahead of dst's,
+// and its pastes with their counter, so the placeholders in the input
+// and the queue still send their text and no number is used twice. A
+// paste of dst's with a number of src's gives way to src's, whose
+// placeholder is the one in the input.
+func adoptWaiting(dst *State, src State) {
+	dst.Queue = append(slices.Clone(src.Queue), dst.Queue...)
+	pastes := slices.Clone(src.Pastes)
+	for _, p := range dst.Pastes {
+		if !slices.ContainsFunc(src.Pastes, func(q Paste) bool { return q.ID == p.ID }) {
+			pastes = append(pastes, p)
+		}
+	}
+	dst.Pastes, dst.NextPaste = pastes, max(dst.NextPaste, src.NextPaste)
 }
 
 func (r *hubReducer) ended(e ConversationEnded) {

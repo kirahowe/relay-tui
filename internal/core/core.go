@@ -28,6 +28,12 @@ type (
 		// labelled resource.
 		Embedded bool
 	}
+	// Initialized means initialize has answered without relay's hub in
+	// it: the agent is a plain ACP agent, and Connected follows once its
+	// session exists. The shell builds its state on it (see the shell's
+	// hold of input before the agent's kind is known); the reducers
+	// change nothing for it.
+	Initialized struct{ At time.Time }
 	// Usage is the agent's context window use, and what the session has
 	// cost so far when the agent says. Size 0 means the window is unknown.
 	Usage struct {
@@ -117,6 +123,7 @@ type (
 )
 
 func (e Connected) at() time.Time     { return e.At }
+func (e Initialized) at() time.Time   { return e.At }
 func (e TextChunk) at() time.Time     { return e.At }
 func (e ThoughtChunk) at() time.Time  { return e.At }
 func (e ToolStarted) at() time.Time   { return e.At }
@@ -471,7 +478,7 @@ func (r *reducer) apply(e Event) {
 		if s.Ready && !e.Upto.Before(s.Printed) && s.printable(e.Upto) {
 			s.Printed = e.Upto
 		}
-	case Tick:
+	case Tick, Initialized:
 		// Changes nothing; the shell redraws the status line.
 	case Move:
 		// Against a single agent there are two columns, the conversation

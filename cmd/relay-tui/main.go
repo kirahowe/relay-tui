@@ -101,10 +101,12 @@ func run(args []string) int {
 	p = tea.NewProgram(ui.New(conn, *title).Open(*open).Restore(view, note).OnView(saver.Save))
 	close(started)
 	final, err := p.Run()
-	if m, ok := final.(ui.Model); ok {
+	if m, ok := final.(ui.Model); ok && m.Known() {
 		saver.Close(m.SavedView())
 	} else {
-		saver.Close(view)
+		// The agent never said what it is, so nothing the operator did was
+		// handled: the saved view stays exactly as it was.
+		saver.Stop()
 	}
 	if err != nil {
 		conn.Shutdown()

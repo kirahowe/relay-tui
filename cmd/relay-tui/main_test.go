@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 
+	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/viewfile"
 )
 
@@ -231,5 +232,33 @@ func TestPTYDraftSurvivesAKill(t *testing.T) {
 	other.waitScreen("ready")
 	if strings.Contains(other.screen(), "keep these words") {
 		t.Fatal("another command got the draft")
+	}
+}
+
+// Codex round 2, finding 2: an agent that exits before initialize
+// answers leaves the saved view exactly as it was, whatever was typed
+// meanwhile: nothing was handled, so there is nothing new to save.
+func TestPTYAFailedStartLeavesTheSavedView(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	agent := []string{"false"}
+	v := core.View{Hub: &core.HubView{Focus: "mail", Cursor: "mail"},
+		Drafts: []core.Draft{{Text: "typed before the hub was known"}, {Role: "mail", Text: "a draft"}}}
+	b, _, err := viewfile.Encode(agent, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := viewfile.Write(viewfile.Path(dir, agent), b); err != nil {
+		t.Fatal(err)
+	}
+	s := runPTY(t, append([]string{"--state-dir", dir, "--"}, agent...)...)
+	s.keys("more words")
+	if code := s.exit(); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	if got, err := os.ReadFile(viewfile.Path(dir, agent)); err != nil || !bytes.Equal(got, b) {
+		t.Fatalf("the saved view changed (%v):\n%s\nwas\n%s", err, got, b)
 	}
 }

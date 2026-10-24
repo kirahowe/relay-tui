@@ -306,3 +306,6 @@ func truncate(s string, width int) string {
 	}
 	return ""
 }
+
+// Faint is text on one line, faint, cut to width.
+func Faint(text string, width int) string { return styled(faint, truncate(oneLine(text), width)) }

@@ -108,13 +108,29 @@ type Model struct {
 	onView func(core.View)
 	seen   core.View
 	// keysTo is the surface the last key was routed to, for tests, and
-	// clock the time, which tests set (nil is the real clock).
+	// clock the time, which tests set (nil is the real clock). at, when
+	// set, is the time of the input being replayed (see connecting).
 	keysTo core.Surface
 	clock  func() time.Time
+	at     time.Time
+	// saved is the view loaded at the start, and savedNote what to say
+	// about it. Until the agent says what it is, held is the input held
+	// back, size and caps the terminal's latest word, dropped how many
+	// keys did not fit, and exitWhy why the agent went away, if it did.
+	saved     core.View
+	savedNote string
+	held      []heldMsg
+	size      *tea.WindowSizeMsg
+	caps0     *tea.KeyboardEnhancementsMsg
+	dropped   int
+	exitWhy   string
 }
 
 // now is the time by the model's clock.
 func (m Model) now() time.Time {
+	if !m.at.IsZero() {
+		return m.at
+	}
 	if m.clock != nil {
 		return m.clock()
 	}
@@ -161,13 +177,11 @@ func (m Model) Open(role string) Model {
 }
 
 // Restore gives the model the view saved when it last closed against
-// this agent, and a note to show about it ("" for none). The core puts
-// it back as what it refers to arrives.
+// this agent, and a note to show about it ("" for none). Once the agent
+// has said what it is, the core puts it back, for that kind of agent,
+// as what it refers to arrives.
 func (m Model) Restore(v core.View, note string) Model {
-	m.one = core.RestoreSingle(m.one, v)
-	if note != "" {
-		m.one.State.Message = core.Message{Text: note, At: m.now()}
-	}
+	m.saved, m.savedNote = v, note
 	return m
 }
 
@@ -179,8 +193,13 @@ func (m Model) OnView(f func(core.View)) Model {
 	return m
 }
 
-// SavedView is the view to save: where the operator is now.
+// SavedView is the view to save: where the operator is now. Before the
+// agent has said what it is, nothing has happened, so it is the view
+// as loaded (see Known).
 func (m Model) SavedView() core.View {
+	if m.kind == kindUnknown {
+		return m.saved
+	}
 	if m.kind == kindHub {
 		drafts := make(map[string]string, len(m.drafts)+1)
 		for role, text := range m.drafts {
@@ -196,7 +215,7 @@ func (m Model) SavedView() core.View {
 
 // tellView tells onView the saved view if it has changed.
 func (m *Model) tellView() {
-	if m.onView == nil {
+	if m.onView == nil || m.kind == kindUnknown {
 		return
 	}
 	if v := m.SavedView(); !reflect.DeepEqual(v, m.seen) {
@@ -217,11 +236,19 @@ func (m Model) Keeps() (known, keeps bool) {
 
 // Died reports whether the agent exited on its own, and why.
 func (m Model) Died() (bool, string) {
-	if m.kind == kindHub {
+	switch m.kind {
+	case kindHub:
 		return m.died, m.hub.Exit
+	case kindUnknown:
+		return m.died, m.exitWhy
 	}
 	return m.died, m.one.State.Exit
 }
+
+// Known says the agent said what it is (initialize answered), so the
+// model has a state of its own and a view to save. A model closed
+// before then saves nothing: the saved view stays as it was.
+func (m Model) Known() bool { return m.kind != kindUnknown }
 
 // Init does nothing: the first size message starts the ticks.
 // Init asks the terminal for its colours. A terminal that never answers
@@ -241,18 +268,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		render.SetTerminalColors(m.termBg, m.termFg)
 		return m, nil
 	}
-	if em, ok := msg.(EventMsg); ok {
-		if _, ok := em.Event.(core.HubConnected); ok && m.kind != kindHub {
-			m.kind, m.hub = kindHub, core.NewHub(m.open)
-			// What was typed and pasted so far is the hub's now, for the
-			// first role in focus.
-			m.hub = core.HubFromSingle(m.hub, m.one, m.input.Value())
-			m.input.Reset()
-			if msg := m.one.State.Message; msg.Text != "" && time.Since(msg.At) < core.MessageFor {
-				m.hub.Notice = msg.Text
-			}
-			m.input.SetWidth(render.HubInputWidth(m.hub, m.width()))
-		}
+	if m.kind == kindUnknown {
+		return m.connecting(msg)
 	}
 	if m.kind == kindHub {
 		next, cmd := m.updateHub(msg)
@@ -585,6 +602,9 @@ func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
 }
 
 func (m Model) View() tea.View {
+	if m.kind == kindUnknown {
+		return tea.NewView(connectingLine(len(m.held), m.width()))
+	}
 	if m.kind == kindHub {
 		return m.hubView(time.Now())
 	}

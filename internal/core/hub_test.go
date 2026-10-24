@@ -1152,3 +1152,97 @@ func TestHubMergedReplayChunkEqualsManySmallOnes(t *testing.T) {
 		}
 	})
 }
+
+// Whatever order relay's replay, the attach's answer and the operator's
+// pastes and messages come in, every paste made goes out with the
+// message that names it, and no paste number is used twice.
+func TestHubPastesSurviveAnyAttachOrder(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0, Embedded: true})
+		var tokens []string
+		attached, replayed := false, false
+		var sent []Attachment
+		collect := func(fx []Effect) {
+			for _, f := range fx {
+				if fs, ok := f.(ForSession); ok {
+					if sp, ok := fs.Effect.(SendPrompt); ok {
+						sent = append(sent, sp.Attachments...)
+					}
+				}
+			}
+		}
+		pasted := 0
+		for range rapid.IntRange(1, 12).Draw(t, "steps") {
+			var fx []Effect
+			switch rapid.IntRange(0, 3).Draw(t, "what") {
+			case 0:
+				pasted++
+				h, fx = apply(t, h, Pasted{At: t0, Text: fmt.Sprint("paste ", pasted)})
+				tok, ok := insertText(fx)
+				if !ok {
+					t.Fatalf("paste %d dropped", pasted)
+				}
+				if slices.Contains(tokens, tok) {
+					t.Fatalf("number used twice: %s", tok)
+				}
+				tokens = append(tokens, tok)
+			case 1:
+				if !replayed {
+					replayed = true
+					h, fx = apply(t, h, routed("s1", TextChunk{At: t0, Text: "earlier"}))
+				}
+			case 2:
+				if !attached {
+					attached = true
+					h, fx = apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
+				}
+			case 3:
+				if len(tokens) > 0 {
+					h, fx = apply(t, h, Submit{At: t0, Text: "read " + strings.Join(tokens, " ")})
+					tokens = nil
+				}
+			}
+			collect(fx)
+		}
+		h, fx := apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
+		collect(fx)
+		if len(tokens) > 0 {
+			h, fx = apply(t, h, Submit{At: t0, Text: "read " + strings.Join(tokens, " ")})
+			collect(fx)
+		}
+		// What was queued behind a turn goes when the turn ends.
+		for range 3 {
+			h, fx = apply(t, h, routed("s1", PromptDone{At: t0, Stop: EndTurn}))
+			collect(fx)
+		}
+		if len(sent) != pasted {
+			t.Fatalf("%d pastes, %d sent: %+v", pasted, len(sent), sent)
+		}
+	})
+}
+
+// An attach that fails leaves the role with no conversation; the queued
+// text comes back to the input and the pastes it names wait in the
+// role's blank, so it sends as typed once a conversation opens.
+func TestHubAttachFailureKeepsThePastes(t *testing.T) {
+	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0, Embedded: true})
+	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
+	tok, _ := insertText(fx)
+	h, _ = apply(t, h, Submit{At: t0, Text: "read " + tok})
+	h, fx = apply(t, h, Attached{At: t0, Role: "dev", Err: "busy"})
+	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Text != "read "+tok {
+		t.Fatalf("restore %v", fx)
+	}
+	h, fx = apply(t, h, StartConversation{At: t0}, Attached{At: t0, Role: "dev", Session: "s2"}, Submit{At: t0, Text: "read " + tok})
+	var sp *SendPrompt
+	for _, f := range fx {
+		if fs, ok := f.(ForSession); ok {
+			if p, ok := fs.Effect.(SendPrompt); ok {
+				sp = &p
+			}
+		}
+	}
+	if sp == nil || len(sp.Attachments) != 1 || sp.Attachments[0].Text != "an email" {
+		t.Fatalf("sent %+v", sp)
+	}
+}

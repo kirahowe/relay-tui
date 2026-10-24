@@ -154,6 +154,13 @@ func (s *Saver) flush() {
 	s.written = b
 }
 
+// Stop stops the saver and writes nothing more: the client closed
+// before it had a view of its own, so the file stays as it was.
+func (s *Saver) Stop() {
+	close(s.stop)
+	<-s.done
+}
+
 // Close stops the saver and writes v, the view as the client closes.
 func (s *Saver) Close(v core.View) {
 	close(s.stop)
