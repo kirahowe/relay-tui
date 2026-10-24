@@ -861,6 +861,10 @@ func (r *reducer) inputKey(e PaneKey, in *BoardInput) {
 			b.Message, b.Failure = "", ""
 		}
 	case PaneEnter:
+		if !slices.ContainsFunc(b.Cards, func(c Card) bool { return c.ID == in.Card }) {
+			b.Message, b.Failure = editorGoneNote(in.Card), "" // nothing to send it to
+			return
+		}
 		if in.Was != "" && in.Text == in.Was {
 			b.Input = nil
 			b.Message = "Unchanged."

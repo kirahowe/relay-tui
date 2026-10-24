@@ -356,7 +356,7 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 		}
 		return h, nil
 	case KeyPressed:
-		h.App.KeyReplayed = e.Replayed
+		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true
 	}
 	h.Roles = slices.Clone(h.Roles)
 	h.Convs = slices.Clone(h.Convs)
@@ -377,6 +377,9 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	r.arm(offered, e.at())
 	r.keepCardTrust(view)
 	r.markSeen(e.at())
+	if !fromOperator(e) && surf.Typing() && !HubSurface(r.h).Typing() && h.App.Pressed {
+		keepTypingHub(&r.h, h, surf)
+	}
 	if HubSurfaceID(r.h) != id {
 		r.h.App.Shown = Shown{} // a new surface is armed only once drawn
 	}
@@ -651,6 +654,12 @@ func (r *hubReducer) apply(e Event) {
 		}
 	case Submit:
 		if strings.TrimSpace(e.Text) == "" || h.Focus == "" || h.List {
+			return
+		}
+		if h.RosterLoaded && h.RoleByID(h.Focus) == nil {
+			// The role has gone: nothing to send to. The text goes back.
+			h.Notice = "no role " + oneLineText(h.Focus) + ": nothing was sent"
+			r.emit(RestoreInput{Text: e.Text})
 			return
 		}
 		if h.Focused() == nil {

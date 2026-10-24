@@ -436,15 +436,31 @@ func TestArchiveNeedsConfirming(t *testing.T) {
 	}
 }
 
+// An open card leaving the board closes it, unless the operator is
+// typing in its editor: then the editor stays, with its text, says the
+// card has gone, and enter sends nothing (Codex round 3, finding 2).
 func TestOpenCardLeavingTheBoardClosesIt(t *testing.T) {
 	s := onBoard(checklist(10, 10, false))
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneEdit)
+	s, _ = boardKeys(s, PaneEnter, PaneDown)
 	gone := checklist(10, 11)
 	gone.Status = CardArchived
+	g, _ := ReduceSingle(s, CardsChanged{At: t0, Cards: []Card{gone}})
+	if b := g.Board; b.Detail || b.Input != nil || len(b.Cards) != 0 || b.Message == "" {
+		t.Fatalf("%+v", b)
+	}
+	s, _ = feedS(s, KeyPressed{At: t0}, key(t0, PaneEdit))
+	s = typeText(s, "happy")
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Cards: []Card{gone}})
 	b := s.Board
-	if b.Detail || b.Input != nil || len(b.Cards) != 0 || b.Message == "" {
-		t.Fatalf("%+v", b)
+	if SingleSurface(s).Kind != SurfaceEditor || b.Input == nil || b.Input.Text != "stephappy" || b.Message != editorGoneNote(10) {
+		t.Fatalf("surface %+v board %+v", SingleSurface(s), b)
+	}
+	s, fx := feedS(s, key(t0, PaneEnter))
+	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Input == nil {
+		t.Fatalf("enter sent to a card that has gone: %v", fx)
+	}
+	if s, _ = feedS(s, key(t0, PaneEsc)); s.Board.Input != nil {
+		t.Fatal("esc did not discard it")
 	}
 }
 
@@ -669,8 +685,9 @@ func TestRefusalGoesOnSuccessOrEsc(t *testing.T) {
 	}
 }
 
-// A refusal goes too when its card leaves the board under a reopened
-// input, and the board says the card has gone.
+// A refusal goes when its card leaves the board under the input it
+// reopened, and the board says the card has gone. Before any key the
+// input closes; once the operator has typed, it stays, with its text.
 func TestRefusalGoesWhenTheCardLeaves(t *testing.T) {
 	s := onBoard(checklist(10, 10))
 	s, _ = boardKeys(s, PaneEnter, PaneAdd)
@@ -679,8 +696,13 @@ func TestRefusalGoesWhenTheCardLeaves(t *testing.T) {
 	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "too long"})
 	gone := checklist(10, 20)
 	gone.Status = CardArchived
+	g, _ := ReduceSingle(s, CardsChanged{At: t0, Rev: 20, Cards: []Card{gone}})
+	if b := g.Board; b.Input != nil || b.Message != "That card has left the board." || b.Failure != "" {
+		t.Fatalf("%+v", b)
+	}
+	s, _ = feedS(s, KeyPressed{At: t0})
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 20, Cards: []Card{gone}})
-	if b := s.Board; b.Input != nil || b.Message != "That card has left the board." || b.Failure != "" {
+	if b := s.Board; b.Input == nil || b.Input.Text != "yyy" || b.Message != editorGoneNote(10) || b.Failure != "" {
 		t.Fatalf("%+v", b)
 	}
 }

@@ -290,10 +290,14 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			} else {
 				event(ev(e))
 			}
-		case 2: // the board changes: a card gets a new rev, nothing leaves
+		case 2: // the board changes: a card gets a new rev, or one is archived
 			cards := navCards()
-			cards[1].Rev = int64(10 + step)
-			event(ev(core.CardsChanged{At: clock, Rev: int64(10 + step), Cards: cards[1:]}))
+			c := cards[rapid.IntRange(0, 1).Draw(rt, "card")]
+			c.Rev = int64(10 + step)
+			if rapid.Bool().Draw(rt, "archived") {
+				c.Status = core.CardArchived
+			}
+			event(ev(core.CardsChanged{At: clock, Rev: c.Rev, Cards: []core.Card{c}}))
 		case 3:
 			event(tea.PasteMsg{Content: "pasted words"})
 		case 4, 5:
@@ -397,5 +401,45 @@ func TestTheTranscriptDoesNotOpenUnderARequest(t *testing.T) {
 	m = update(m, key("esc"))
 	if s := core.SingleSurface(m.one); s.Kind != core.SurfaceRequest || !strings.HasPrefix(m.input.Value(), "abc") {
 		t.Fatalf("surface %+v input %q", s, m.input.Value())
+	}
+}
+
+// Codex round 3, finding 2: typing in a card's editor, the card is
+// archived from outside. The editor stays open with its text and says
+// so; the next letters go on into it, not to the board, so no h moves
+// and no y answers the request waiting; enter sends nothing; esc
+// discards it.
+func TestAnArchivedCardLeavesItsEditorTyping(t *testing.T) {
+	for _, hub := range []bool{true, false} {
+		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
+			clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+			var calls []call
+			var m Model
+			ask := tea.Msg(ev(askEvent(clock, 1)))
+			if hub {
+				m = surfaceHub(&calls, &clock)
+				ask = ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)})
+			} else {
+				m = surfaceSingle(&calls, &clock)
+			}
+			m = update(m, key("esc"), key("l"), key("e"), key("x"), ask)
+			gone := navCards()[0]
+			gone.Rev, gone.Status = 9, core.CardArchived
+			m = update(m, ev(core.CardsChanged{At: clock, Rev: 9, Cards: []core.Card{gone}}))
+			clock = clock.Add(time.Hour)
+			m = typeText(m, "happy")
+			m = update(m, key("y"))
+			text, open := editorText(m)
+			if !open || !strings.HasSuffix(text, "xhappyy") || m.app().Board.Message != "card 1 left the board · enter does nothing · esc to discard" {
+				t.Fatalf("editor %q open %v message %q", text, open, m.app().Board.Message)
+			}
+			m = update(m, key("enter"))
+			if len(calls) != 0 {
+				t.Fatalf("calls %+v", calls)
+			}
+			if m = update(m, key("esc")); func() bool { _, open := editorText(m); return open }() {
+				t.Fatal("esc did not discard it")
+			}
+		})
 	}
 }

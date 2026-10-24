@@ -108,7 +108,12 @@ relay-tui has two modes. While you are typing, what you press goes into
 the input, apart from the few keys below. While you are moving, letters
 move between the columns and act on what is in them, and nothing you
 press is typed. A card's one-line editor (a title, an item's text) is
-typing too. The status line names the mode, TYPING or MOVING, ahead of
+typing too. Only you move the keys out of typing: nothing that happens
+elsewhere does. If the card you are editing is archived or changed away
+meanwhile, the editor stays open with your text and says so ("card 12
+left the board · enter does nothing · esc to discard"); if the role you
+are typing to is removed, the input keeps your text, says so, and sends
+nothing; in both, what you go on typing is still typed. The status line names the mode, TYPING or MOVING, ahead of
 its other hints when the line is short; on a wide screen in hub mode
 the row of keys at the bottom starts with it.
 

@@ -47,6 +47,10 @@ type App struct {
 	// connecting and is replayed (see authority.go).
 	Shown       Shown
 	KeyReplayed bool
+	// Pressed says the operator has pressed a key. Until then the start
+	// (the saved view, --open, the roster) may move the keys as it likes;
+	// after, only the operator does (see keeptyping.go).
+	Pressed bool
 }
 
 // Events that move between typing and moving, and between the columns:
@@ -119,7 +123,7 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		}
 		return x, nil
 	case KeyPressed:
-		x.App.KeyReplayed = e.Replayed
+		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true
 	}
 	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
 		x.State.Message = Message{Text: EditorPasteNote, At: e.at()} // only a paste reaches the editor as Unbound
@@ -132,6 +136,9 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
 	settleMode(&out.App)
+	if !fromOperator(e) && surf.Typing() && !SingleSurface(out).Typing() && x.App.Pressed {
+		keepTypingSingle(&out, x, surf)
+	}
 	if SingleSurfaceID(out) != id {
 		out.App.Shown = Shown{} // a new surface is armed only once drawn
 	}

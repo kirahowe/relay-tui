@@ -102,6 +102,8 @@ func authorizes(f Effect) bool {
 func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), surface func(S) Surface,
 	surfaceID func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
 	at := t0
+	// A key first: before any, the start may move the keys (App.Pressed).
+	x, _ = reduce(x, KeyPressed{At: t0})
 	drawnID, drawnAt := surfaceID(x), t0 // the set-up drew it at t0
 	var n uint64
 	for step := range rapid.IntRange(1, 100).Draw(t, "steps") {
@@ -163,17 +165,49 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 	}
 }
 
+// boardEvent is a change to the board from outside: a card changed, a
+// card archived (the one an editor may be open on), or the board sent
+// again without one.
+func boardEvent(t *rapid.T, at time.Time, n uint64) Event {
+	rev := int64(100 + n)
+	switch rapid.IntRange(0, 2).Draw(t, "board") {
+	case 0:
+		c := checklist(10, rev, false, true)
+		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
+	case 1:
+		c := checklist(rapid.SampledFrom([]int64{10, 30}).Draw(t, "archived"), rev)
+		c.Status = CardArchived
+		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
+	}
+	return CardsLoaded{At: at, Rev: rev, Cards: []Card{contaminatedCard()}}
+}
+
 func TestSurfaceRulesInTheHubCore(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}},
 			Attached{At: t0, Role: "dev", Session: "s1"}, Attached{At: t0, Role: "mail", Session: "s2"},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}})
-		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, id uint64) Event {
-			session := "s1"
-			if id%3 == 0 {
-				session = "s2"
+		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
+			session := rapid.SampledFrom([]string{"s1", "s2"}).Draw(t, "session")
+			switch rapid.IntRange(0, 7).Draw(t, "agent") {
+			case 0:
+				return boardEvent(t, at, n)
+			case 1: // a role removed, or back
+				roles := []Role{role("mail", "s2")}
+				if rapid.Bool().Draw(t, "dev stays") {
+					roles = append(roles, role("dev", "s1"))
+				}
+				return RosterUpdate{At: at, Roles: roles}
+			case 2:
+				return ConversationEnded{At: at, Session: session}
+			case 3:
+				return Attached{At: at, Role: "dev", Err: "no"}
+			case 4:
+				return Routed{Session: session, Event: PromptDone{At: at, Stop: EndTurn}}
+			case 5:
+				return PermissionSettled{At: at, Session: session, CallID: fmt.Sprint(n - 1)}
 			}
-			return Routed{Session: session, Event: PermissionAsked{At: at, Permission: Permission{ID: id, CallID: fmt.Sprint(id), Options: surfaceOpts}}}
+			return Routed{Session: session, Event: PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}}
 		})
 	})
 }
@@ -183,8 +217,14 @@ func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 		x, _ := feedS(Single{}, Connected{At: t0, Embedded: true},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}},
 			ItemsLoaded{At: t0, Items: []Item{trustable}})
-		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, id uint64) Event {
-			return PermissionAsked{At: at, Permission: Permission{ID: id, CallID: fmt.Sprint(id), Options: surfaceOpts}}
+		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
+			switch rapid.IntRange(0, 3).Draw(t, "agent") {
+			case 0:
+				return boardEvent(t, at, n)
+			case 1:
+				return PromptDone{At: at, Stop: EndTurn}
+			}
+			return PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}
 		})
 	})
 }
