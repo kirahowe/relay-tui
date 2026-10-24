@@ -291,8 +291,11 @@ Keys on the board:
 - e edits the selected line's text: the title, an item or a row's name.
   In the list it retitles the selected card. In an open tracker, E
   renames the selected column. A note's text cannot be edited here.
-- X archives the selected card, after you confirm with y. relay's CLI can
-  restore it.
+- X archives the selected card, after you confirm with y. The question
+  is about the card as you saw it: if it changes meanwhile (another
+  device retitles it, say), the question is cancelled with a note. The
+  archive also carries the rev you saw (`seen`). A doc's trust is cancelled the same way when relay lists a
+  newer version. relay's CLI can restore an archived card.
 - t trusts the selected card when it holds outside text. The pane shows
   the whole card and asks "Trust …? It clears outside text from what it
   says now." After a short delay, y confirms, and any other key cancels.

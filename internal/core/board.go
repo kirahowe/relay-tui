@@ -157,8 +157,9 @@ type Board struct {
 	Line   int
 	Col    int
 	Input  *BoardInput
-	// Confirm is the card waiting for y to archive it.
-	Confirm int64
+	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
+	// rev the operator was shown. A newer copy of it cancels the question.
+	Confirm, ConfirmRev int64
 	// Trust is a trust of a whole card waiting for y, or on its way.
 	Trust *CardTrust
 	// Sending is the card an op is on its way for; the op is its name.
@@ -414,6 +415,7 @@ func (r *reducer) board(e Event) {
 	anchor, anchored := anchorOf(*b)
 	defer func() { r.reanchor(anchor, anchored) }()
 	defer r.keepTrust()
+	defer r.keepConfirm()
 	switch e := e.(type) {
 	case CardTrustDone:
 		b.Trust = nil
@@ -588,10 +590,12 @@ func (r *reducer) boardKey(e PaneKey) {
 		return
 	}
 	if b.Confirm != 0 {
-		id := b.Confirm
-		b.Confirm = 0
+		id, rev := b.Confirm, b.ConfirmRev
+		b.Confirm, b.ConfirmRev = 0, 0
 		if e.Action == PaneYes {
-			r.sendOp(id, opOn("archive"))
+			op := opOn("archive")
+			op.Seen = int64p(rev) // relay refuses it if the card has changed since
+			r.sendOp(id, op)
 		} else {
 			b.Message = "Archive cancelled."
 		}
@@ -668,7 +672,7 @@ func (r *reducer) boardKey(e PaneKey) {
 	case PaneArchive:
 		if i >= 0 {
 			b.SelID = c.ID
-			b.Confirm = c.ID
+			b.Confirm, b.ConfirmRev = c.ID, c.Rev
 		}
 	case PaneTrust:
 		if i >= 0 {
@@ -702,6 +706,20 @@ func (r *reducer) startCardTrust(at time.Time, c Card) {
 	default:
 		b.SelID = c.ID
 		b.Trust = &CardTrust{Card: c.ID, Rev: c.Rev, SHA256: c.SHA256, Since: at}
+	}
+}
+
+// keepConfirm cancels the archive question when its card has changed:
+// the operator answers about the card they were shown, and only that.
+func (r *reducer) keepConfirm() {
+	b := &r.a.Board
+	if b.Confirm == 0 {
+		return
+	}
+	i := slices.IndexFunc(b.Cards, func(c Card) bool { return c.ID == b.Confirm })
+	if i >= 0 && b.Cards[i].Rev != b.ConfirmRev {
+		b.Confirm, b.ConfirmRev = 0, 0
+		b.Message, b.Failure = "The card changed, so it was not archived. Look at it again.", ""
 	}
 }
 

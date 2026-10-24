@@ -100,11 +100,12 @@ func authorizes(f Effect) bool {
 // keys from a typing surface; and that nothing is authorized but by a
 // live key at least ArmDelay after the surface it lands on was drawn.
 func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), surface func(S) Surface,
-	surfaceID func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
+	surfaceID func(S) string, shows func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
 	at := t0
 	// A key first: before any, the start may move the keys (App.Pressed).
 	x, _ = reduce(x, KeyPressed{At: t0})
 	drawnID, drawnAt := surfaceID(x), t0 // the set-up drew it at t0
+	drawnShows := shows(x)
 	var n uint64
 	for step := range rapid.IntRange(1, 100).Draw(t, "steps") {
 		at = at.Add(time.Duration(rapid.IntRange(0, 900).Draw(t, "ms")) * time.Millisecond)
@@ -118,7 +119,7 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 		case k <= 2:
 			e = Drawn{At: at, Surface: id}
 			if drawnID != id {
-				drawnID, drawnAt = id, at
+				drawnID, drawnAt, drawnShows = id, at, shows(x)
 			}
 		default:
 			replayed = rapid.IntRange(0, 3).Draw(t, "replayed") == 0
@@ -152,6 +153,8 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 					t.Fatalf("step %d: %T (operator %v, replayed %v) authorized %#v", step, e, operator, replayed, f)
 				case drawnID != id || at.Sub(drawnAt) < ArmDelay:
 					t.Fatalf("step %d: %T authorized %#v on %q, drawn %q %v before", step, e, f, id, drawnID, at.Sub(drawnAt))
+				case shows(x) != drawnShows:
+					t.Fatalf("step %d: %T authorized %#v on %q, which shows %q, drawn showing %q", step, e, f, id, shows(x), drawnShows)
 				}
 			}
 		}
@@ -165,14 +168,49 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 	}
 }
 
+// confirmShows is what a question the pane asks is about, as the board
+// and the items hold it now: the card's rev and digest, or the doc's
+// version. It is read from the board, not from the question, so a
+// question that kept pointing at a card that changed shows a change.
+func confirmShows(a App, s State) string {
+	b := a.Board
+	card := func(id int64) string {
+		for _, c := range b.Cards {
+			if c.ID == id {
+				return fmt.Sprintf("%d/%d/%s/%q", c.ID, c.Rev, c.SHA256, c.Title.Text)
+			}
+		}
+		return "gone"
+	}
+	switch {
+	case b.Confirm != 0:
+		return "archive " + card(b.Confirm)
+	case b.Trust != nil:
+		return "trust " + card(b.Trust.Card)
+	case s.Pane.Trust != nil:
+		for _, it := range PaneItems(s) {
+			if it.Path == s.Pane.Trust.Item.Path {
+				return "doc " + it.Version + "/" + it.SHA256
+			}
+		}
+		return "doc gone"
+	}
+	return ""
+}
+
 // boardEvent is a change to the board from outside: a card changed, a
 // card archived (the one an editor may be open on), or the board sent
 // again without one.
 func boardEvent(t *rapid.T, at time.Time, n uint64) Event {
 	rev := int64(100 + n)
-	switch rapid.IntRange(0, 2).Draw(t, "board") {
+	switch rapid.IntRange(0, 3).Draw(t, "board") {
 	case 0:
 		c := checklist(10, rev, false, true)
+		c.Title.Text = fmt.Sprint("retitled ", n)
+		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
+	case 3:
+		c := contaminatedCard()
+		c.Rev, c.SHA256 = rev, fmt.Sprint("sha", n)
 		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
 	case 1:
 		c := checklist(rapid.SampledFrom([]int64{10, 30}).Draw(t, "archived"), rev)
@@ -187,7 +225,13 @@ func TestSurfaceRulesInTheHubCore(t *testing.T) {
 		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}},
 			Attached{At: t0, Role: "dev", Session: "s1"}, Attached{At: t0, Role: "mail", Session: "s2"},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}})
-		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
+		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(h Hub) string {
+			var s State
+			if c := h.Focused(); c != nil {
+				s = c.State
+			}
+			return confirmShows(h.App, s)
+		}, func(t *rapid.T, at time.Time, n uint64) Event {
 			session := rapid.SampledFrom([]string{"s1", "s2"}).Draw(t, "session")
 			switch rapid.IntRange(0, 7).Draw(t, "agent") {
 			case 0:
@@ -217,14 +261,88 @@ func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 		x, _ := feedS(Single{}, Connected{At: t0, Embedded: true},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}},
 			ItemsLoaded{At: t0, Items: []Item{trustable}})
-		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
-			switch rapid.IntRange(0, 3).Draw(t, "agent") {
-			case 0:
-				return boardEvent(t, at, n)
-			case 1:
-				return PromptDone{At: at, Stop: EndTurn}
-			}
-			return PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}
-		})
+		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(x Single) string { return confirmShows(x.App, x.State) },
+			func(t *rapid.T, at time.Time, n uint64) Event {
+				switch rapid.IntRange(0, 3).Draw(t, "agent") {
+				case 0:
+					return boardEvent(t, at, n)
+				case 1:
+					return PromptDone{At: at, Stop: EndTurn}
+				}
+				return PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}
+			})
 	})
+}
+
+// A question's identity is the version of what it shows: an archive or
+// a trust is about the card at the rev it was asked at, and a doc's trust
+// about the version listed. Whatever changes, and whenever, a yes only
+// ever goes out for the object exactly as it was when the question was
+// drawn, ArmDelay before; a change cancels the question with a note.
+func TestAQuestionIsAboutWhatItShowed(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		at := t0
+		x, _ := feedS(Single{}, Connected{At: t0, Embedded: true},
+			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}},
+			ItemsLoaded{At: t0, Items: []Item{trustable}}, KeyPressed{At: t0}, StopTyping{At: t0}, Move{At: t0, Delta: 1})
+		if SingleSurface(x).Kind != SurfacePane {
+			t.Fatalf("not on the pane: %+v", SingleSurface(x))
+		}
+		drawnShows, drawnAt := "", time.Time{}
+		for step := range rapid.IntRange(1, 40).Draw(t, "steps") {
+			at = at.Add(time.Duration(rapid.IntRange(0, 700).Draw(t, "ms")) * time.Millisecond)
+			var e Event
+			switch rapid.IntRange(0, 6).Draw(t, "what") {
+			case 0:
+				e = PaneKey{At: at, Action: rapid.SampledFrom([]PaneAction{PaneUp, PaneDown, PaneArchive, PaneTrust, PaneBoard}).Draw(t, "open")}
+			case 1:
+				e = Drawn{At: at, Surface: SingleSurfaceID(x)}
+				if confirmShows(x.App, x.State) != drawnShows {
+					drawnShows, drawnAt = confirmShows(x.App, x.State), at
+				}
+			case 2:
+				e = boardEvent(t, at, uint64(step))
+			case 3:
+				it := trustable
+				it.Version = rapid.SampledFrom([]string{trustable.Version, "999"}).Draw(t, "version")
+				e = ItemsLoaded{At: at, Items: []Item{it}}
+			default:
+				e = PaneKey{At: at, Action: PaneYes}
+			}
+			x, _ = ReduceSingle(x, KeyPressed{At: at})
+			before := confirmShows(x.App, x.State)
+			next, fx := ReduceSingle(x, e)
+			for _, f := range fx {
+				if !authorizes(f) {
+					continue
+				}
+				if before != drawnShows || at.Sub(drawnAt) < ArmDelay {
+					t.Fatalf("step %d: %#v about %q, drawn showing %q %v before", step, f, before, drawnShows, at.Sub(drawnAt))
+				}
+				if op, ok := f.(SendCardOp); ok && (op.Op.Seen == nil || !strings.Contains(before, fmt.Sprintf("%d/%d/", op.Card, *op.Op.Seen))) {
+					t.Fatalf("step %d: archive %+v does not carry the rev shown, %q", step, op, before)
+				}
+			}
+			if confirmShows(next.App, next.State) != before && next.Board.Confirm != 0 && x.Board.Confirm == next.Board.Confirm {
+				t.Fatalf("step %d: the archive question outlived a change to its card: %q to %q", step, before, confirmShows(next.App, next.State))
+			}
+			x = next
+		}
+	})
+}
+
+// A doc's trust is cancelled with a note when relay lists a newer
+// version of the doc while the question waits.
+func TestADocsTrustGoesWithANewVersion(t *testing.T) {
+	s := focused(trustable)
+	s, _ = feed(s, key(t0, PaneTrust))
+	newer := trustable
+	newer.Version, newer.SHA256 = "413", "ffff"
+	s, _ = feed(s, ItemsLoaded{At: t0, Items: []Item{newer}})
+	if s.Pane.Trust != nil || s.Pane.Message != "The doc changed, so nothing was trusted. Look at it again." {
+		t.Fatalf("trust %+v message %q", s.Pane.Trust, s.Pane.Message)
+	}
+	if _, fx := feed(s, key(t0.Add(time.Hour), PaneYes)); len(effectsOf[SendTrust](fx)) != 0 {
+		t.Fatalf("effects %v", fx)
+	}
 }

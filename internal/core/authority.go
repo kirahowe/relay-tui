@@ -73,11 +73,13 @@ func surfaceID(surf Surface, a App, s State, extra string) string {
 			t := s.Pane.Trust.Item
 			return fmt.Sprintf("doctrust/%q/%s/%s", t.Path, t.Version, t.SHA256)
 		case b.Confirm != 0:
-			return fmt.Sprintf("archive/%d", b.Confirm)
+			return fmt.Sprintf("archive/%d/%d", b.Confirm, b.ConfirmRev)
 		case b.Trust != nil:
 			return fmt.Sprintf("cardtrust/%d/%d/%s", b.Trust.Card, b.Trust.Rev, b.Trust.SHA256)
 		}
-	case SurfaceEnd, SurfaceInput, SurfaceConversation:
+	case SurfaceEnd:
+		return fmt.Sprintf("end/%q", extra) // the session the question is about
+	case SurfaceInput, SurfaceConversation:
 		return fmt.Sprintf("%d/%q", surf.Kind, extra)
 	}
 	return fmt.Sprintf("%d/%d", surf.Kind, surf.Column)

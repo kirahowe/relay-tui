@@ -468,6 +468,14 @@ func (r *reducer) pane(e Event) {
 		default:
 			p.Relay = true
 			p.Server = append([]Item(nil), e.Items...)
+			// A trust asks about the doc as it was listed: a newer version
+			// of it cancels the question.
+			if t := p.Trust; t != nil && !t.Sent && !slices.ContainsFunc(p.Server, func(it Item) bool {
+				return it.Path == t.Item.Path && it.Version == t.Item.Version && it.SHA256 == t.Item.SHA256
+			}) {
+				p.Trust = nil
+				p.Message = "The doc changed, so nothing was trusted. Look at it again."
+			}
 		}
 		r.keepSelection()
 	case CitationResolved:
