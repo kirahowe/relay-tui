@@ -609,7 +609,12 @@ func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
 
 func (m Model) View() tea.View {
 	if m.kind == kindUnknown || m.holding {
-		return tea.NewView(connectingLine(len(m.held), m.width()))
+		// On the alternate screen, so it leaves nothing behind: the hub's
+		// screen replaces it, and against a plain agent leaving it gives
+		// the inline view the terminal as it was.
+		v := tea.NewView(connectingLine(len(m.held), m.width()))
+		v.AltScreen = true
+		return v
 	}
 	if m.kind == kindHub {
 		return m.hubView(time.Now())

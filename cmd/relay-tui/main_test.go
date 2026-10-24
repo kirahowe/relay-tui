@@ -24,7 +24,7 @@ import (
 	"github.com/kirahowe/relay-tui/internal/viewfile"
 )
 
-var relaytui, fakeAgent string
+var relaytui, fakeAgent, fakeHub string
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "relay-tui-pty")
@@ -32,8 +32,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	relaytui, fakeAgent = filepath.Join(dir, "relay-tui"), filepath.Join(dir, "fakeagent")
-	for bin, pkg := range map[string]string{relaytui: ".", fakeAgent: "../fakeagent"} {
+	relaytui, fakeAgent, fakeHub = filepath.Join(dir, "relay-tui"), filepath.Join(dir, "fakeagent"), filepath.Join(dir, "fakehub")
+	for bin, pkg := range map[string]string{relaytui: ".", fakeAgent: "../fakeagent", fakeHub: "../fakehub"} {
 		if out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput(); err != nil {
 			fmt.Fprintf(os.Stderr, "building %s: %v\n%s", pkg, err, out)
 			os.Exit(1)
@@ -83,7 +83,20 @@ func runPTY(t *testing.T, args ...string) *session {
 			}
 		}
 	}()
-	go func() { _, _ = io.Copy(f, s.emu) }() // the emulator's answers to queries
+	go func() {
+		// The emulator's answers to queries. Keep reading them after the
+		// pty has gone, or the emulator blocks writing one, with mu held.
+		buf := make([]byte, 256)
+		for {
+			n, err := s.emu.Read(buf)
+			if n > 0 {
+				_, _ = f.Write(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	go func() { s.done <- s.cmd.Wait() }()
 	t.Cleanup(func() {
 		select {
@@ -261,4 +274,43 @@ func TestPTYAFailedStartLeavesTheSavedView(t *testing.T) {
 	if got, err := os.ReadFile(viewfile.Path(dir, agent)); err != nil || !bytes.Equal(got, b) {
 		t.Fatalf("the saved view changed (%v):\n%s\nwas\n%s", err, got, b)
 	}
+}
+
+// The "connecting…" line is drawn on the alternate screen, so nothing of
+// it is left in the terminal: not after a failed start, not once a plain
+// agent's inline view has taken over, and not after quitting from the
+// hub's screen.
+func TestPTYConnectingLeavesNothingBehind(t *testing.T) {
+	left := func(s *session) {
+		t.Helper()
+		time.Sleep(100 * time.Millisecond) // the last bytes reach the emulator
+		if strings.Contains(s.screen(), "connecting") {
+			t.Fatalf("left behind:\n%s", s.screen())
+		}
+	}
+	s := runPTY(t, "--", "false")
+	if code := s.exit(); code != 1 {
+		t.Fatalf("exit %d, want 1", code)
+	}
+	left(s)
+
+	s = runPTY(t, "--", fakeAgent, script("simple.jsonl"))
+	s.waitScreen("ready")
+	left(s)
+	s.keys("\x04")
+	if code := s.exit(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+
+	cfg := filepath.Join(t.TempDir(), "hub.json")
+	if err := os.WriteFile(cfg, []byte(`{"roles":[{"id":"dev","title":"Dev"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s = runPTY(t, "--", fakeHub, cfg)
+	s.waitScreen("Dev")
+	s.keys("\x03") // on the list: quit
+	if code := s.exit(); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	left(s)
 }

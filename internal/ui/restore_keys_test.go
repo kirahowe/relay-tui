@@ -232,13 +232,14 @@ func TestAReplayedKeyAnswersNothing(t *testing.T) {
 	})
 }
 
-// While connecting, the screen says so, and how much is held; past
+// While connecting, the screen says so, on the alternate screen so it
+// leaves nothing behind, and how much is held; past
 // maxHeld keys more are dropped, and the status line says how many once
 // the agent answers.
 func TestHeldInputIsBounded(t *testing.T) {
 	m := update(New(nopConn{}, ""), tea.WindowSizeMsg{Width: 80, Height: 20})
-	if v := m.View(); !strings.Contains(v.Content, "connecting…") {
-		t.Fatalf("screen %q", v.Content)
+	if v := m.View(); !strings.Contains(v.Content, "connecting…") || !v.AltScreen {
+		t.Fatalf("screen %q alt %v", v.Content, v.AltScreen)
 	}
 	for range maxHeld + 3 {
 		m = update(m, letter('a'))
