@@ -567,7 +567,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		bottom = append(bottom, box("end conversation", wrap(ask, InputWidth(width)), width)...)
 		active = core.SurfaceEnd
 	case asking:
-		bottom = append(bottom, permissionBox(s, now, width, height-1-len(bottom)-2)...)
+		bottom = append(bottom, permissionBox(s, core.RequestArmed(h.App, s, now), width, height-1-len(bottom)-2)...)
 		active = core.SurfaceRequest
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.

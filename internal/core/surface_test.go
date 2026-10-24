@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,27 +76,55 @@ func contaminatedCard() Card {
 	return c
 }
 
-// surfaceChecks runs events at random through reduce, and checks that a
+// authorizes says an effect acts on the operator's authority: an allow,
+// a trust of a card, a doc or a paste, an archive, an end.
+func authorizes(f Effect) bool {
+	switch f := f.(type) {
+	case AnswerPermission:
+		return f.OptionID == "allow"
+	case SendCardTrust, SendTrust, EndConversation:
+		return true
+	case SendCardOp:
+		return f.Op.Op == "archive"
+	case ReplaceInput:
+		return strings.Contains(f.New, "· trusted #")
+	}
+	return false
+}
+
+// surfaceChecks runs events at random through reduce, as the shell
+// sends them: each operator event after a KeyPressed, live or replayed,
+// the agent's events, and Drawn for what has the keys. It checks that a
 // typing surface's event never answers, trusts, confirms or sends a card
-// op but the editor's own, that an event of the agent's never takes the
-// keys from a typing surface, and that no request is answered (other
-// than cancelled) within ArmDelay of becoming the surface.
+// op but the editor's own; that an event of the agent's never takes the
+// keys from a typing surface; and that nothing is authorized but by a
+// live key at least ArmDelay after the surface it lands on was drawn.
 func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), surface func(S) Surface,
-	offered func(S) string, ask func(at time.Time, id uint64) Event) {
+	surfaceID func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
 	at := t0
-	since, offer := time.Time{}, ""
-	var id uint64
-	for step := range rapid.IntRange(1, 80).Draw(t, "steps") {
+	drawnID, drawnAt := surfaceID(x), t0 // the set-up drew it at t0
+	var n uint64
+	for step := range rapid.IntRange(1, 100).Draw(t, "steps") {
 		at = at.Add(time.Duration(rapid.IntRange(0, 900).Draw(t, "ms")) * time.Millisecond)
-		surf := surface(x)
+		surf, id := surface(x), surfaceID(x)
 		var e Event
-		operator := rapid.IntRange(0, 4).Draw(t, "kind") > 0
-		if operator {
+		replayed := false
+		switch k := rapid.IntRange(0, 9).Draw(t, "kind"); {
+		case k == 0:
+			n++
+			e = agent(t, at, n)
+		case k <= 2:
+			e = Drawn{At: at, Surface: id}
+			if drawnID != id {
+				drawnID, drawnAt = id, at
+			}
+		default:
+			replayed = rapid.IntRange(0, 3).Draw(t, "replayed") == 0
+			x, _ = reduce(x, KeyPressed{At: at, Replayed: replayed})
 			e = genOperator(t, at)
-		} else {
-			id++
-			e = ask(at, id)
 		}
+		_, operator := e.(Drawn)
+		operator = !operator && fromOperator(e)
 		next, fx := reduce(x, e)
 		for _, f := range fx {
 			if ff, ok := f.(ForSession); ok {
@@ -115,16 +144,21 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 					}
 				}
 			}
-			if a, ok := f.(AnswerPermission); ok && !a.Cancelled && at.Sub(since) < ArmDelay {
-				t.Fatalf("step %d: %T answered %v after the request became the surface", step, e, at.Sub(since))
+			if authorizes(f) {
+				switch {
+				case !operator || replayed:
+					t.Fatalf("step %d: %T (operator %v, replayed %v) authorized %#v", step, e, operator, replayed, f)
+				case drawnID != id || at.Sub(drawnAt) < ArmDelay:
+					t.Fatalf("step %d: %T authorized %#v on %q, drawn %q %v before", step, e, f, id, drawnID, at.Sub(drawnAt))
+				}
 			}
 		}
 		if !operator && surf.Typing() && surface(next) != surf {
-			t.Fatalf("step %d: a request took the keys from %+v to %+v", step, surf, surface(next))
+			t.Fatalf("step %d: %T took the keys from %+v to %+v", step, e, surf, surface(next))
 		}
 		x = next
-		if o := offered(x); o != offer {
-			offer, since = o, at
+		if surfaceID(x) != id {
+			drawnID = "" // a new surface, not yet drawn
 		}
 	}
 }
@@ -134,13 +168,7 @@ func TestSurfaceRulesInTheHubCore(t *testing.T) {
 		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}},
 			Attached{At: t0, Role: "dev", Session: "s1"}, Attached{At: t0, Role: "mail", Session: "s2"},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}})
-		surfaceChecks(t, h, ReduceHub, HubSurface, func(h Hub) string {
-			if HubSurface(h).Kind != SurfaceRequest {
-				return ""
-			}
-			c := h.Focused()
-			return fmt.Sprintf("%s/%d", c.Session, c.State.Asks[0].ID)
-		}, func(at time.Time, id uint64) Event {
+		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, id uint64) Event {
 			session := "s1"
 			if id%3 == 0 {
 				session = "s2"
@@ -155,12 +183,7 @@ func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 		x, _ := feedS(Single{}, Connected{At: t0, Embedded: true},
 			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), contaminatedCard()}},
 			ItemsLoaded{At: t0, Items: []Item{trustable}})
-		surfaceChecks(t, x, ReduceSingle, SingleSurface, func(x Single) string {
-			if SingleSurface(x).Kind != SurfaceRequest {
-				return ""
-			}
-			return fmt.Sprint(x.State.Asks[0].ID)
-		}, func(at time.Time, id uint64) Event {
+		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, id uint64) Event {
 			return PermissionAsked{At: at, Permission: Permission{ID: id, CallID: fmt.Sprint(id), Options: surfaceOpts}}
 		})
 	})

@@ -37,7 +37,7 @@ func (c callConn) add(what, option string) {
 	*c.calls = append(*c.calls, call{what: what, option: option, at: *c.clock})
 }
 func (c callConn) Answer(a core.AnswerPermission)           { c.add("answer", a.OptionID) }
-func (c callConn) CardOp(int64, core.CardOp)                { c.add("card-op", "") }
+func (c callConn) CardOp(_ int64, op core.CardOp)           { c.add("card-op", op.Op) }
 func (c callConn) CardTrust(int64, int64, string)           { c.add("card-trust", "") }
 func (c callConn) Trust(string, string, string, string)     { c.add("trust", "") }
 func (c callConn) End(string)                               { c.add("end", "") }

@@ -120,7 +120,7 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 		// input shows in what is left of the screen after the status line,
 		// the blank row above and the request's own frame.
 		bottom = append(bottom, "")
-		bottom = append(bottom, permissionBox(s, now, width, height-1-len(bottom)-1)...)
+		bottom = append(bottom, permissionBox(s, core.RequestArmed(a, s, now), width, height-1-len(bottom)-1)...)
 		inputLines = []string{""}
 		inputAt = -1
 	} else {

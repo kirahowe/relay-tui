@@ -103,6 +103,8 @@ func TestPaneGolden(t *testing.T) {
 	t.Run("trust_confirmation", func(t *testing.T) {
 		d := list
 		d.Pane.Trust = &core.TrustPrompt{Item: untrusted, Since: t0}
+		d.App.PaneFocus = true
+		d = drawn(d, t0) // drawn at t0, armed ArmDelay after
 		goldenLines(t, PaneLines(d.App, d.State, t0.Add(core.ArmDelay), 44, 24))
 	})
 	t.Run("trust_confirmation_not_armed", func(t *testing.T) {
@@ -128,7 +130,7 @@ func TestPermissionBoxShowsThePreview(t *testing.T) {
 		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign", Since: t0,
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
 	s.Pick = 1
-	f := View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 70, 20)
+	f := View(drawnLongAgo(core.Single{App: core.App{Moving: true}, State: s}), "", "", t0.Add(time.Second), 70, 20)
 	goldenLines(t, strings.Split(f.Content, "\n"))
 	plain := ansi.Strip(f.Content)
 	if strings.Contains(plain, "https://send") {

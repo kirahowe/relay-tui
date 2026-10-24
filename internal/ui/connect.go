@@ -148,12 +148,13 @@ func (m Model) settled(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	held := m.held
 	m.held = nil
+	m.replaying = true
 	for _, h := range held {
 		m.at = h.at
 		next, cmd := m.Update(h.msg)
 		m, cmds = next.(Model), append(cmds, cmd)
 	}
-	m.at = time.Time{}
+	m.at, m.replaying = time.Time{}, false
 	note := failed
 	if failed != "" && len(held) > 0 {
 		note = failed + "; what you typed went to the list"

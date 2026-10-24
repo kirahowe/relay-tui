@@ -42,6 +42,11 @@ type App struct {
 	// PasteSeq counts the pastes of this run, in every conversation, so
 	// the latest can be told by when it came (Paste.Seq).
 	PasteSeq int
+	// Shown is the surface the shell last drew as active, while it still
+	// is; KeyReplayed says the key being handled was held while
+	// connecting and is replayed (see authority.go).
+	Shown       Shown
+	KeyReplayed bool
 }
 
 // Events that move between typing and moving, and between the columns:
@@ -99,8 +104,22 @@ type Single struct {
 // surface does not take (see SingleSurface) is dropped whole.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
 	surf := SingleSurface(x)
+	id := SingleSurfaceID(x)
 	if !surf.takes(e) {
 		return x, nil
+	}
+	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, id, e.at()) {
+		x.State.Message = Message{Text: x.App.refusal(need), At: e.at()}
+		return x, nil
+	}
+	switch e := e.(type) {
+	case Drawn:
+		if e.Surface == id && x.App.Shown.Surface != id {
+			x.App.Shown = Shown{Surface: id, At: e.At}
+		}
+		return x, nil
+	case KeyPressed:
+		x.App.KeyReplayed = e.Replayed
 	}
 	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
 		x.State.Message = Message{Text: EditorPasteNote, At: e.at()} // only a paste reaches the editor as Unbound
@@ -113,6 +132,9 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
 	settleMode(&out.App)
+	if SingleSurfaceID(out) != id {
+		out.App.Shown = Shown{} // a new surface is armed only once drawn
+	}
 	if surf.Kind != SurfaceRequest && SingleSurface(out).Kind == SurfaceRequest {
 		// The request has just become the surface: its delay starts now.
 		out.State.Asks = append([]Permission(nil), out.State.Asks...)

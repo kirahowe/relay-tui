@@ -417,7 +417,13 @@ func TestArchiveNeedsConfirming(t *testing.T) {
 	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Message != "Archive cancelled." {
 		t.Fatal("archived without a y")
 	}
+	// y right away does nothing: the question is armed ArmDelay after
+	// it was drawn.
 	s, fx = boardKeys(s, PaneArchive, PaneYes)
+	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Confirm == 0 {
+		t.Fatalf("archived before the question was armed: %v", fx)
+	}
+	s, fx = feedS(s, key(t0.Add(ArmDelay), PaneYes))
 	ops := effectsOf[SendCardOp](fx)
 	if len(ops) != 1 || ops[0].Card != 20 || ops[0].Op.Op != "archive" {
 		t.Fatalf("ops %+v", ops)

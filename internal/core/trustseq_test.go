@@ -42,6 +42,8 @@ func (m *mailRun) apply(t interface{ Helper() }, es ...Event) []Effect {
 			}
 		}
 		all = append(all, fx...)
+		// Drawn at once, as a renderer would draw it.
+		m.h, _ = ReduceHub(m.h, Drawn{At: e.at(), Surface: HubSurfaceID(m.h)})
 	}
 	return all
 }
@@ -84,7 +86,7 @@ func TestCtrlYAfterARestoreTrustsThisRunsPaste(t *testing.T) {
 	if !strings.Contains(m.input, "an email") && !strings.Contains(m.input, "untrusted #2]") {
 		t.Fatalf("the saved draft is not back: %q", m.input)
 	}
-	m.apply(t, TrustPaste{At: t0, Draft: m.input})
+	m.apply(t, TrustPaste{At: t0.Add(ArmDelay), Draft: m.input})
 	for _, p := range m.pastes() {
 		if p.Trusted != (p.Text == "my own words") {
 			t.Fatalf("trusted the wrong paste: %+v (input %q)", m.pastes(), m.input)
@@ -92,7 +94,7 @@ func TestCtrlYAfterARestoreTrustsThisRunsPaste(t *testing.T) {
 	}
 	// Again: the email was not pasted in this run, so nothing is trusted,
 	// and the status line says why.
-	m.apply(t, TrustPaste{At: t0, Draft: m.input})
+	m.apply(t, TrustPaste{At: t0.Add(ArmDelay), Draft: m.input})
 	for _, p := range m.pastes() {
 		if p.Text != "my own words" && p.Trusted {
 			t.Fatalf("a restored paste was trusted: %+v", m.pastes())
@@ -136,7 +138,7 @@ func TestCtrlYOnlyEverTrustsTheLatestPasteOfThisRun(t *testing.T) {
 						}
 					}
 				}
-				m.apply(t, TrustPaste{At: t0, Draft: m.input})
+				m.apply(t, TrustPaste{At: t0.Add(ArmDelay), Draft: m.input})
 				got := ""
 				for _, p := range m.pastes() {
 					if p.Trusted && !slices.ContainsFunc(before, func(q Paste) bool { return q.ID == p.ID && q.Trusted }) {

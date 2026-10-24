@@ -204,6 +204,16 @@ func TestBannerGolden(t *testing.T) {
 	requireGolden(t, strings.Join(out, "\n"))
 }
 
+// drawnLongAgo is x as the shell would have it with its surface on
+// screen for a while: armed.
+func drawnLongAgo(x core.Single) core.Single { return drawn(x, t0.Add(-time.Hour)) }
+
+// drawn is x with its surface drawn at at.
+func drawn(x core.Single, at time.Time) core.Single {
+	x.App.Shown = core.Shown{Surface: core.SingleSurfaceID(x), At: at}
+	return x
+}
+
 func TestPermissionGolden(t *testing.T) {
 	opts := []core.PermOption{
 		{ID: "allow", Name: "Allow once", Kind: core.AllowOnce},
@@ -226,7 +236,7 @@ func TestPermissionGolden(t *testing.T) {
 			s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
 			s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: p})
 			for _, w := range []int{60, 30} {
-				f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), w, 24)
+				f := View(drawnLongAgo(core.Single{App: core.App{Moving: true}, State: s}), "› ", "", t0.Add(time.Second), w, 24)
 				t.Run(strconv.Itoa(w), func(t *testing.T) { requireGolden(t, f.Content) })
 			}
 		})

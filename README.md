@@ -76,9 +76,13 @@ of any other kind, such as allow_always, are not offered: relay-tui never
 grants standing permission. `v`
 puts the whole input into the transcript, and Esc or Ctrl-C answers
 cancelled. Keys that would approve do nothing for the first 600 ms after
-the request gets the keys, by esc, by moving to its conversation, or by
-arriving while you are moving there, so a `y` typed right behind esc
-cannot allow it. Other keys are ignored while
+the request is drawn with the keys, whether it got them by esc, by
+moving to its conversation, or by arriving while you are moving there,
+so a `y` typed right behind esc cannot allow it. The same holds for
+every key that authorizes something: archiving a card, trusting a card,
+a doc or a paste (Ctrl-Y), and ending a conversation each wait 600 ms
+from when their question, or the input, was drawn, and the status line
+says "too soon" if you press it before. Other keys are ignored while
 the request has the keys, so no prompt can go out. Requests
 queue and are answered in order; ending the turn cancels the rest.
 
@@ -447,7 +451,10 @@ pastes wait, in order. Against a plain agent that is once its session
 exists; against relay's hub, once the roles have come and the saved
 view has been put back (or found nothing to put back). relay-tui then
 replays them as if you had just typed them on that screen, at the times
-you pressed them, so they do not stop the saved view coming back: with
+you pressed them, so they do not stop the saved view coming back. They
+type and move, and nothing else: a replayed key never allows, trusts,
+archives or ends anything, refuses or cancels a request, since you
+never saw what it would have answered: with
 `--open`, or a saved role in focus, they land in that role's input
 after its saved draft, and on the list they are the list's keys. Only
 the card, which waits for the board, can still be cancelled by them.

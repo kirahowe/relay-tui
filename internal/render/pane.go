@@ -373,7 +373,7 @@ func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 	switch {
 	case p.Trust != nil:
 		pr.body = trustBody(s, width)
-		armed := now.Sub(p.Trust.Since) >= core.ArmDelay
+		armed := core.ConfirmArmed(a, s, now)
 		switch {
 		case p.Trust.Sent:
 			pr.foot = hint("trusting…")

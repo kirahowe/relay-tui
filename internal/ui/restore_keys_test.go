@@ -17,10 +17,18 @@ import (
 // The saved view against the real model: what the operator types before
 // a restore has come back, and what is saved meanwhile.
 
+// update hands the model messages in turn, and after each draws the
+// screen at once, as the renderer would: the core hears that the
+// surface with the keys was drawn (drawnMsg), as it does a frame later
+// in the real program.
 func update(m Model, msgs ...tea.Msg) Model {
 	for _, msg := range msgs {
 		next, _ := m.Update(msg)
 		m = next.(Model)
+		if m.Known() {
+			next, _ = m.Update(drawnMsg{m.surfaceID()})
+			m = next.(Model)
+		}
 	}
 	return m
 }
@@ -138,12 +146,14 @@ func TestTypingBeforeTheHubIsKnownIsReplayed(t *testing.T) {
 	m = update(m, ev(core.HubConnected{At: now}))
 	m = typeText(m, " more")
 	m = update(m, ev(core.RosterUpdate{At: now, Roles: roles}))
-	want := "old draftnew [pasted 1 line · trusted #1] more" // typed on where the saved draft ends
+	// Typed on where the saved draft ends. The held ctrl+y trusts nothing:
+	// a replayed key authorizes nothing.
+	want := "old draftnew [pasted 1 line · untrusted #1] more"
 	if m.hub.Focus != "mail" || m.input.Value() != want {
 		t.Fatalf("focus %q input %q, want %q", m.hub.Focus, m.input.Value(), want)
 	}
 	ps := pastesOf(m, "mail")
-	if len(ps) != 1 || ps[0].Text != "my own words" || !ps[0].Trusted {
+	if len(ps) != 1 || ps[0].Text != "my own words" || ps[0].Trusted {
 		t.Fatalf("pastes %+v", ps)
 	}
 
@@ -207,29 +217,97 @@ func TestAPasteBeforeTheAttachSurvivesAReplayThatCameFirst(t *testing.T) {
 	}
 }
 
-// A replayed key meets every guard a live one does: held keys replay at
-// the times they were pressed, before any request can exist, so a y or
-// an enter typed while connecting answers nothing, now or later.
-func TestAReplayedKeyAnswersNothing(t *testing.T) {
+// authorized says a call acted on the operator's authority: an allow,
+// a trust, an archive, an end.
+func authorized(c call) bool {
+	switch c.what {
+	case "answer":
+		return c.option == "allow"
+	case "card-trust", "trust", "end":
+		return true
+	case "card-op":
+		return c.option == "archive"
+	}
+	return false
+}
+
+// Codex round 3, finding 1: a replayed key authorizes nothing. Keys held
+// while connecting replay onto the restored screen, and may type and
+// move there, but whatever the agent puts in front of them first (a
+// request that arrives before the roster, a restored board with an
+// outside card), no held y, enter, t, X or ctrl+y allows, trusts,
+// archives or ends anything, even when held long before.
+func TestAReplayedKeyAuthorizesNothing(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
 		var calls []call
-		m := New(callConn{calls: &calls, clock: &clock}, "").Open("dev")
+		saved := core.View{PaneFocus: rapid.Bool().Draw(rt, "pane"), Card: 1}
+		if rapid.Bool().Draw(rt, "saved hub") {
+			saved.Hub = &core.HubView{Focus: "dev", Cursor: "dev"}
+		}
+		m := New(callConn{calls: &calls, clock: &clock}, "").Restore(saved, "")
+		if rapid.Bool().Draw(rt, "open") {
+			m = m.Open("dev")
+		}
 		m.clock = func() time.Time { return clock }
 		m = update(m, tea.WindowSizeMsg{Width: 140, Height: 30})
-		for range rapid.IntRange(0, 20).Draw(rt, "held") {
-			m = update(m, key(rapid.SampledFrom([]string{"y", "Y", "enter", "esc", "j", "tab", "a"}).Draw(rt, "key")))
+		for range rapid.IntRange(0, 25).Draw(rt, "held") {
+			m = update(m, key(rapid.SampledFrom([]string{"y", "Y", "enter", "esc", "j", "l", "h", "t", "X", "x", "ctrl+y", "i"}).Draw(rt, "key")))
+			clock = clock.Add(time.Duration(rapid.IntRange(0, 400).Draw(rt, "ms")) * time.Millisecond)
 		}
-		clock = clock.Add(time.Duration(rapid.IntRange(0, 2000).Draw(rt, "ms")) * time.Millisecond)
-		ask := core.Routed{Session: "s1", Event: askEvent(clock, 1)}
-		m = update(m, ev(core.HubConnected{At: clock}), ev(core.RosterUpdate{At: clock, Roles: restoreRoles}),
-			ev(core.Attached{At: clock, Role: "dev", Session: "s1"}), ev(ask))
+		if rapid.Bool().Draw(rt, "paste") {
+			m = update(m, tea.PasteMsg{Content: "pasted"}, key("ctrl+y"))
+		}
+		clock = clock.Add(time.Duration(rapid.IntRange(0, 2000).Draw(rt, "wait")) * time.Millisecond)
+		roles := []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}, {ID: "mail", Title: "Mail"}}
+		cards := navCards()
+		cards[0].Labels, cards[0].SHA256 = core.Labels{Contaminated: true}, "abc"
+		m = update(m, ev(core.HubConnected{At: clock}), ev(core.Attached{At: clock, Role: "dev", Session: "s1"}),
+			ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)}), ev(core.CardsLoaded{At: clock, Rev: 2, Cards: cards}),
+			ev(core.RosterUpdate{At: clock, Roles: roles}))
 		for _, c := range calls {
-			if c.what == "answer" {
-				rt.Fatalf("answered: %+v", calls)
+			if authorized(c) {
+				rt.Fatalf("a replayed key authorized %+v (all %+v)", c, calls)
 			}
 		}
 	})
+}
+
+// The two ways Codex found: --open dev, esc then y held while connecting,
+// and the attach and a request arriving before the roster; and a held t
+// then y on a restored board with an outside card. Neither authorizes;
+// a live y once the request has been drawn ArmDelay does.
+func TestHeldEscYAndTYAuthorizeNothing(t *testing.T) {
+	clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+	var calls []call
+	m := New(callConn{calls: &calls, clock: &clock}, "").Open("dev")
+	m.clock = func() time.Time { return clock }
+	m = update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, key("esc"), key("y"))
+	clock = clock.Add(2 * time.Second)
+	roles := []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}
+	m = update(m, ev(core.HubConnected{At: clock}), ev(core.Attached{At: clock, Role: "dev", Session: "s1"}),
+		ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)}), ev(core.RosterUpdate{At: clock, Roles: roles}))
+	if len(calls) != 0 || core.HubSurface(m.hub).Kind != core.SurfaceRequest || m.hub.Notice != core.ReplayedNote {
+		t.Fatalf("calls %+v surface %+v notice %q", calls, core.HubSurface(m.hub), m.hub.Notice)
+	}
+	clock = clock.Add(core.ArmDelay)
+	if m = update(m, key("y")); len(calls) != 1 || calls[0].option != "allow" {
+		t.Fatalf("a live y once armed: %+v", calls)
+	}
+
+	calls = nil
+	cards := navCards()
+	cards[0].Labels, cards[0].SHA256 = core.Labels{Contaminated: true}, "abc"
+	saved := core.View{Hub: &core.HubView{Focus: "dev", Cursor: "dev"}, PaneFocus: true, Card: 1}
+	m = New(callConn{calls: &calls, clock: &clock}, "").Restore(saved, "")
+	m.clock = func() time.Time { return clock }
+	m = update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, key("t"), key("y"))
+	clock = clock.Add(2 * time.Second)
+	m = update(m, ev(core.HubConnected{At: clock}), ev(core.CardsLoaded{At: clock, Rev: 2, Cards: cards}),
+		ev(core.RosterUpdate{At: clock, Roles: roles}))
+	if len(calls) != 0 {
+		t.Fatalf("calls %+v", calls)
+	}
 }
 
 // While connecting, the screen says so, on the alternate screen so it

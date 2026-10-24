@@ -69,6 +69,7 @@ func TestBoardGolden(t *testing.T) {
 	cases["input"] = input
 	confirm := all
 	confirm.Board.Confirm = 1840
+	confirm = drawnLongAgo(confirm)
 	cases["confirm"] = confirm
 	none := boardState(true)
 	none.Board.Unavailable, none.Board.Loaded = true, false

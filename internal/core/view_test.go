@@ -30,7 +30,7 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 		FocusIndex{At: t0, Index: 1},
 		Pasted{At: t0, Text: "an email\nfrom outside"}, Pasted{At: t0, Text: "my own notes"})
 	b := h.Blanks[0].State
-	h, _ = apply(t, h, TrustPaste{At: t0, Draft: b.Pastes[1].Token()})
+	h, _ = apply(t, h, TrustPaste{At: t0.Add(ArmDelay), Draft: b.Pastes[1].Token()})
 	b = h.Blanks[0].State
 	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneEnter},
 		PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneRight})

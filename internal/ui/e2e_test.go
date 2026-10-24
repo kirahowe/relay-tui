@@ -758,10 +758,12 @@ func TestPasteGoesAsResource(t *testing.T) {
 func TestTrustedPaste(t *testing.T) {
 	h := startWith(t, "simple.jsonl", 80, 24, "", "-embedded")
 	h.waitIdle()
-	h.keys("\x19") // nothing to trust yet
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
+	h.keys("\x19")                                   // nothing to trust yet
 	h.waitScreen("the word", func(s string) bool { return strings.Contains(s, "no untrusted paste in the input to trust") })
 	h.keys(bracketed("trusted text"))
 	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "untrusted #1]") })
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
 	h.keys("\x19")
 	h.waitScreen("trusted", func(s string) bool {
 		return strings.Contains(s, "[pasted 1 line · trusted #1]") && !strings.Contains(s, "untrusted #1]")

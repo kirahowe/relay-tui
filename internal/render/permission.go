@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
-	"time"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 )
@@ -75,7 +74,7 @@ func howToAnswer(surf core.Surface) string {
 	return "to answer, go to its conversation"
 }
 
-func permissionBox(s core.State, now time.Time, width, room int) []string {
+func permissionBox(s core.State, armed bool, width, room int) []string {
 	p := s.Asks[0]
 	inner := InputWidth(width)
 	title := core.EscapeLabel(p.Label())
@@ -95,7 +94,6 @@ func permissionBox(s core.State, now time.Time, width, room int) []string {
 	for _, l := range capLines(wrapAll([]string{title}, inner), titleRows, inner) {
 		lines = append(lines, styled(bold, l))
 	}
-	armed := now.Sub(p.Since) >= core.ArmDelay
 	var opts []string
 	for i, o := range p.Options {
 		mark, st := "  ", style(0)

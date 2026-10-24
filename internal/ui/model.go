@@ -120,13 +120,16 @@ type Model struct {
 	saved     core.View
 	savedNote string
 	// holding says the kind is known but the screen input lands on is
-	// not yet (see connect.go).
-	holding bool
-	held    []heldMsg
-	size    *tea.WindowSizeMsg
-	caps0   *tea.KeyboardEnhancementsMsg
-	dropped int
-	exitWhy string
+	// not yet (see connect.go), and replaying that held input is being
+	// replayed. drawnSent is the surface last reported drawn, or about to
+	// be (see drawn).
+	holding, replaying bool
+	drawnSent          string
+	held               []heldMsg
+	size               *tea.WindowSizeMsg
+	caps0              *tea.KeyboardEnhancementsMsg
+	dropped            int
+	exitWhy            string
 }
 
 // now is the time by the model's clock.
@@ -282,9 +285,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		next, cmd := m.update(msg)
 		next, cmd2 := next.(Model).settled(msg)
-		return next, tea.Batch(cmd, cmd2)
+		return next.(Model).drawn(tea.Batch(cmd, cmd2))
 	}
-	return m.update(msg)
+	next, cmd := m.update(msg)
+	return next.(Model).drawn(cmd)
+}
+
+// drawLag is how long after an update its frame is taken to be on
+// screen: Bubble Tea draws the view at most a frame (about 16 ms) after
+// the update that changed it.
+const drawLag = 50 * time.Millisecond
+
+// drawnMsg says the frame showing the surface named surface has been
+// drawn.
+type drawnMsg struct{ surface string }
+
+// drawn tells the core, a frame after the surface that has the keys
+// changes, that it has been drawn as the active one: authorizing keys
+// are armed from then (see core/authority.go). Nothing is drawn while
+// input is held, as the screen is "connecting…" then.
+func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
+	if m.kind == kindUnknown || m.holding {
+		return m, cmd
+	}
+	id := m.surfaceID()
+	if id == m.drawnSent {
+		return m, cmd
+	}
+	m.drawnSent = id
+	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return drawnMsg{id} }))
+}
+
+// surfaceID names what has the keys, in either mode.
+func (m Model) surfaceID() string {
+	if m.kind == kindHub {
+		return core.HubSurfaceID(m.hub)
+	}
+	return core.SingleSurfaceID(m.one)
 }
 
 // update handles a message once input is no longer held.
@@ -314,14 +351,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Every key is the operator's, even one only the input box sees.
 		var cmd tea.Cmd
 		evs, cmd = m.key(msg, now)
-		evs = append([]core.Event{core.KeyPressed{At: now}}, evs...)
+		evs = append([]core.Event{core.KeyPressed{At: now, Replayed: m.replaying}}, evs...)
 		cmds = append(cmds, cmd)
 	case tea.MouseWheelMsg:
 		if m.one.State.Transcript.Open {
 			ev = m.wheel(msg, now)
 		}
 	case tea.PasteMsg:
-		evs = []core.Event{core.KeyPressed{At: now}, pasted(core.SingleSurface(m.one), now, msg.Content)}
+		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.SingleSurface(m.one), now, msg.Content)}
+	case drawnMsg:
+		ev = core.Drawn{At: now, Surface: msg.surface}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {

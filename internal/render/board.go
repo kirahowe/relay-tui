@@ -424,13 +424,17 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)
 		pr.foot = append(pr.foot, hint("enter send · esc cancel")...)
 	case b.Confirm != 0:
-		pr.foot = wrap(styled(bold, "Archive "+cardName(b, b.Confirm)+"?")+styled(faint, " y archive · any other key cancels"), width)
+		keys := " y archive · any other key cancels"
+		if !core.ConfirmArmed(a, s, now) {
+			keys = " y archive (wait a moment) · any other key cancels"
+		}
+		pr.foot = wrap(styled(bold, "Archive "+cardName(b, b.Confirm)+"?")+styled(faint, keys), width)
 	case b.Trust != nil:
 		pr.foot = wrap(styled(bold, "Trust "+cardName(b, b.Trust.Card)+"? It clears outside text from what it says now."), width)
 		switch {
 		case b.Trust.Sent:
 			pr.foot = append(pr.foot, hint("trusting…")...)
-		case now.Sub(b.Trust.Since) >= core.ArmDelay:
+		case core.ConfirmArmed(a, s, now):
 			pr.foot = append(pr.foot, wrap(styled(bold|accent, "y trust")+styled(faint, " · any other key cancels"), width)...)
 		default:
 			pr.foot = append(pr.foot, hint("y trust (wait a moment) · any other key cancels")...)

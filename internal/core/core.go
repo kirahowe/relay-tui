@@ -101,7 +101,12 @@ type (
 	// of whatever the key does, the keys the input box takes for itself
 	// included. It changes nothing but what waits on the operator: a
 	// restore in flight gives way to it (see pending).
-	KeyPressed struct{ At time.Time }
+	// Replayed says the key was held while connecting and is replayed: it
+	// may type and move, and authorizes nothing (see authority.go).
+	KeyPressed struct {
+		At       time.Time
+		Replayed bool
+	}
 )
 
 // Events from the shell.

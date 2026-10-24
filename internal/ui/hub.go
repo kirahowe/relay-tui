@@ -29,12 +29,14 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		evs, cmd = m.hubKey(msg, now)
 		// Every key is the operator's, even one only the input box sees.
-		evs = append([]core.Event{core.KeyPressed{At: now}}, evs...)
+		evs = append([]core.Event{core.KeyPressed{At: now, Replayed: m.replaying}}, evs...)
 		cmds = append(cmds, cmd)
 	case tea.MouseWheelMsg:
 		evs = m.hubWheel(msg, now)
 	case tea.PasteMsg:
-		evs = []core.Event{core.KeyPressed{At: now}, pasted(core.HubSurface(m.hub), now, msg.Content)}
+		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.HubSurface(m.hub), now, msg.Content)}
+	case drawnMsg:
+		evs = []core.Event{core.Drawn{At: now, Surface: msg.surface}}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {

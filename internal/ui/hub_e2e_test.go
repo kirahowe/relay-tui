@@ -310,6 +310,7 @@ func TestHubEndAsksFirstThenEnds(t *testing.T) {
 	}
 	h.keys("X")
 	h.waitScreen("the question", contains("End the conversation with Dev?"))
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // ending is armed a moment after the question is drawn
 	h.keys("y")
 	h.waitLog("end fh-dev-1")
 	h.waitScreen("gone", contains("No conversation with Dev"))
@@ -497,11 +498,13 @@ func TestHubTooSmallWindowCannotApprove(t *testing.T) {
 func TestHubCtrlYTrustsTheLatestPasteInTheInput(t *testing.T) {
 	h := startHub(t, threeRoles(), 100, 24, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
 	h.keys("\x19")
 	h.waitScreen("nothing to trust", contains("no untrusted paste in the input to trust"))
 	h.keys(bracketed("first"))
 	h.keys(bracketed("second"))
 	h.waitScreen("two placeholders", func(s string) bool { return strings.Contains(s, "untrusted #2]") })
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
 	h.keys("\x19")
 	h.waitScreen("only the latest", func(s string) bool {
 		return strings.Contains(s, "trusted #2]") && !strings.Contains(s, "untrusted #2]") && strings.Contains(s, "untrusted #1]")

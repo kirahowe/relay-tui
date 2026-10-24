@@ -337,8 +337,26 @@ func (SendSeen) effect()        {}
 // the keys are.
 func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	surf := HubSurface(h)
+	id := HubSurfaceID(h)
+	var st State
+	if c := h.Focused(); c != nil {
+		st = c.State
+	}
 	if !surf.takes(e) {
 		return h, nil
+	}
+	if need := authorityOf(e, surf, st); !h.App.mayTake(need, id, e.at()) {
+		h.Notice = h.App.refusal(need)
+		return h, nil
+	}
+	switch e := e.(type) {
+	case Drawn:
+		if e.Surface == id && h.App.Shown.Surface != id {
+			h.App.Shown = Shown{Surface: id, At: e.At}
+		}
+		return h, nil
+	case KeyPressed:
+		h.App.KeyReplayed = e.Replayed
 	}
 	h.Roles = slices.Clone(h.Roles)
 	h.Convs = slices.Clone(h.Convs)
@@ -359,6 +377,9 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	r.arm(offered, e.at())
 	r.keepCardTrust(view)
 	r.markSeen(e.at())
+	if HubSurfaceID(r.h) != id {
+		r.h.App.Shown = Shown{} // a new surface is armed only once drawn
+	}
 	return r.h, r.fx
 }
 

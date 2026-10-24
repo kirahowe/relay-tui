@@ -116,7 +116,8 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	r.keys(" and ")
 	r.keys(bracketed("my own words"))
 	r.waitScreen("two placeholders", contains("untrusted #2]"))
-	r.keys("\x19") // ctrl+y trusts the latest
+	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
+	r.keys("\x19")                                   // ctrl+y trusts the latest
 	r.waitScreen("trusted", contains("trusted #2]"))
 	r.escape()
 	r.keys("l\rj") // the board, Trip prep, open, its first item
