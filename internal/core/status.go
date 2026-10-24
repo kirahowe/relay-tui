@@ -54,9 +54,13 @@ type StatusLine struct {
 	Remote TurnState
 	// NoClock says no turn of ours runs, so there is no elapsed time to show.
 	NoClock bool
-	// Moving says the operator is moving, not typing (App.Moving). ShowMode
-	// says the status line names the mode; the panels name it elsewhere.
+	// Moving says the operator is moving, not typing. ShowMode says the
+	// status line names the mode; the panels name it elsewhere. The
+	// renderer sets Moving from the surface (see Surface).
 	Moving, ShowMode bool
+	// AnswerHint is how to get to the request waiting, when it is not
+	// what has the keys; the renderer sets it.
+	AnswerHint string
 }
 
 // Status describes conversation s, in app a, at time now.

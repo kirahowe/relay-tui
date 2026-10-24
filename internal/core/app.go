@@ -71,6 +71,11 @@ func (e Unbound) at() time.Time    { return e.At }
 // UnboundNote is what the status line says for an Unbound key.
 const UnboundNote = "i to type"
 
+// EditorPasteNote is what the status line says for a paste while the
+// board's editor is open. A card's text is the operator's own words, so
+// a paste, which may be anyone's, does not go into it.
+const EditorPasteNote = "a card's editor takes no paste: type the text"
+
 // settleMode keeps the mode true to the column: anywhere but the
 // conversation is moving.
 func settleMode(a *App) {
@@ -90,15 +95,17 @@ type Single struct {
 }
 
 // ReduceSingle applies one event. It never mutates x's slices in place,
-// so a caller may keep the old state.
+// so a caller may keep the old state. An operator's event that the
+// surface does not take (see SingleSurface) is dropped whole.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
-	switch e.(type) {
-	case PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll:
-		if !x.App.Moving {
-			return x, nil // a request is answered only while moving
-		}
+	surf := SingleSurface(x)
+	if !surf.takes(e) {
+		return x, nil
 	}
-	was := x.App.Moving
+	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
+		x.State.Message = Message{Text: EditorPasteNote, At: e.at()} // only a paste reaches the editor as Unbound
+		return x, nil
+	}
 	rs := pending(x.Restore, e)
 	a, s, fx := reduce(x.App, x.State, e, true)
 	out := Single{App: a, State: s, Restore: rs}
@@ -106,10 +113,11 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
 	settleMode(&out.App)
-	if !was && out.App.Moving && len(out.State.Asks) > 0 {
-		// The request has just become answerable: its delay starts now.
+	if surf.Kind != SurfaceRequest && SingleSurface(out).Kind == SurfaceRequest {
+		// The request has just become the surface: its delay starts now.
 		out.State.Asks = append([]Permission(nil), out.State.Asks...)
 		out.State.Asks[0].Since = e.at()
+		out.State.Pick = DefaultPick(out.State.Asks[0].Options)
 	}
 	return out, fx
 }

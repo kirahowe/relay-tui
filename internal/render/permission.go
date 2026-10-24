@@ -48,7 +48,7 @@ func optionKey(k core.OptionKind) string {
 // take. A request not yet armed shows its options faint.
 // requestNote is the line that says a request waits while the operator
 // types, and how to answer it.
-func requestNote(s core.State, width int) string {
+func requestNote(s core.State, surf core.Surface, width int) string {
 	p := s.Asks[0]
 	title := core.EscapeLabel(p.Label())
 	if p.Shown().Union(s.Labels).Contaminated {
@@ -58,7 +58,21 @@ func requestNote(s core.State, width int) string {
 	if n := len(s.Asks); n > 1 {
 		more = fmt.Sprintf(" (%d)", n)
 	}
-	return truncate(styled(bold|reverse, " permission needed"+more+" ")+" "+styled(bold, oneLine(title))+styled(faint, " · esc to answer"), width)
+	return truncate(styled(bold|reverse, " permission needed"+more+" ")+" "+styled(bold, oneLine(title))+styled(faint, " · "+howToAnswer(surf)), width)
+}
+
+// howToAnswer is how to get to the request from what has the keys: it
+// is answered only once it is the surface.
+func howToAnswer(surf core.Surface) string {
+	switch surf.Covered().Kind {
+	case core.SurfaceInput:
+		return "esc to answer"
+	case core.SurfaceEditor, core.SurfaceConfirm:
+		return "esc, then h to answer"
+	case core.SurfacePane:
+		return "h to answer"
+	}
+	return "to answer, go to its conversation"
 }
 
 func permissionBox(s core.State, now time.Time, width, room int) []string {

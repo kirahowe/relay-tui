@@ -450,9 +450,9 @@ func (r *reducer) apply(e Event) {
 			r.emit(Quit{})
 		}
 	case ShowTools:
-		r.show(&s.Transcript.Tools)
+		r.show(&s.Transcript.Tools, e.At)
 	case ShowThinking:
-		r.show(&s.Transcript.Thinking)
+		r.show(&s.Transcript.Thinking, e.At)
 	case TranscriptKey:
 		r.transcriptKey(e)
 	case ToggleHelp:

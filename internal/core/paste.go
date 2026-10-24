@@ -123,14 +123,10 @@ func (r *reducer) pasted(e Pasted) {
 	r.emit(InsertInput{Text: p.Token()})
 }
 
-// inputInPlay says the input box has the keys.
-func (r *reducer) inputInPlay() bool {
-	s := &r.s
-	// A request has the keys only while moving; while typing, the input
-	// keeps them.
-	asking := len(s.Asks) > 0 && r.a.Moving
-	return !(s.Phase == Exited || asking || r.a.PaneFocus || (s.Transcript.Open && !s.Shared))
-}
+// inputInPlay says the conversation can take what is typed. Whether the
+// input has the keys is the surface's to say (see Surface), and the
+// reducers drop a paste the surface does not take.
+func (r *reducer) inputInPlay() bool { return r.s.Phase != Exited }
 
 // trustPaste marks the latest paste still in the draft as trusted and has
 // the placeholder say so. Latest is by when it was pasted (Seq), not by

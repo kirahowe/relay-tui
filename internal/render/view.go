@@ -24,6 +24,8 @@ type Frame struct {
 	TooSmall bool
 	// DetailMax is how far the pane's detail view can scroll as drawn.
 	DetailMax int
+	// Active is what the frame drew as having the keys.
+	Active core.SurfaceKind
 }
 
 // View lays out the live part of the screen. It always fills height-1
@@ -50,40 +52,49 @@ type Frame struct {
 // permission request waits.
 func View(x core.Single, input, hint string, now time.Time, width, height int) Frame {
 	a, s := x.App, x.State
+	// What has the keys is what is drawn as active: core.SingleSurface
+	// decides it, and nothing here decides it again.
+	surf := core.SingleSurface(x)
 	help := func(w int) func(room int) []string {
-		if !s.Help || len(s.Asks) > 0 {
+		if surf.Kind != core.SurfaceHelp {
 			return nil
 		}
-		return func(room int) []string { return HelpLines(a.Moving, w, room) }
+		return func(room int) []string { return HelpLines(!surf.Covered().Typing(), w, room) }
 	}
 	if Side(width) {
-		f := view(a, s, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
+		f := view(a, s, surf, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
 		rows := max(height-1, 1)
 		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
 		f.DetailMax = mx
+		if a.PaneFocus && f.Active != core.SurfaceHelp {
+			f.Active = paneActive(a, s) // the pane is drawn with the keys
+		}
 		return f
 	}
 	if h := help(width); h != nil {
-		return view(a, s, input, hint, now, width, height, h, true)
+		return view(a, s, surf, input, hint, now, width, height, h, true)
 	}
-	if a.PaneFocus {
+	if surf.Column == core.ColumnPane {
 		mx := 0
-		f := view(a, s, input, hint, now, width, height, func(room int) []string {
+		f := view(a, s, surf, input, hint, now, width, height, func(room int) []string {
 			var lines []string
 			lines, mx = paneRender(a, s, now, width, room)
 			return lines
 		}, true)
 		f.DetailMax = mx
+		if a.PaneFocus {
+			f.Active = paneActive(a, s)
+		}
 		return f
 	}
-	return view(a, s, input, hint, now, width, height, nil, true)
+	return view(a, s, surf, input, hint, now, width, height, nil, true)
 }
 
 // view lays out the frame at width. over, when set, draws the rows
 // the transcript would have had; paneHint says the status line names the
 // pane's key.
-func view(a core.App, s core.State, input, hint string, now time.Time, width, height int, over func(room int) []string, paneHint bool) Frame {
+func view(a core.App, s core.State, surf core.Surface, input, hint string, now time.Time, width, height int, over func(room int) []string, paneHint bool) Frame {
 	lines, at := transcript(s, width, now)
 
 	var bottom []string
@@ -97,12 +108,13 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 	}
 	inputLines := strings.Split(input, "\n")
 	inputAt, x := 0, 0
-	if len(s.Asks) > 0 && !a.Moving {
-		// Typing: the request waits above the input, which keeps the keys,
-		// until esc moves to answer it.
-		bottom = append(bottom, "", requestNote(s, width))
+	asking := surf.Kind == core.SurfaceRequest
+	if len(s.Asks) > 0 && !asking {
+		// Something else has the keys: the request waits above the input
+		// until the operator moves to it.
+		bottom = append(bottom, "", requestNote(s, surf, width))
 	}
-	if len(s.Asks) > 0 && a.Moving {
+	if asking {
 		// The request takes the input box's place: every key is spoken for
 		// while it waits, and the room is better spent on the request. Its
 		// input shows in what is left of the screen after the status line,
@@ -121,15 +133,19 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 		bottom = append(bottom, box("", inputLines, width)...)
 	}
 	st := core.Status(a, s, now)
+	st.Moving = !surf.Covered().Typing()
+	if len(s.Asks) > 0 && !asking {
+		st.AnswerHint = howToAnswer(surf)
+	}
 	// With nothing to see the status line stays as it was, and a pane with
 	// the keys lists its own.
-	st.PaneHint = paneHint && st.PaneItems > 0 && !a.PaneFocus
+	st.PaneHint = paneHint && st.PaneItems > 0 && surf.Column != core.ColumnPane
 	bottom = append(bottom, StatusText(st, hint, now, width))
 
 	rows := max(height-1, 1)
 	// The inline view prints into scrollback, which is where v puts the
 	// whole request, so it needs no rows of conversation beyond the box.
-	if len(s.Asks) > 0 && a.Moving && !core.RequestFits(rows, len(bottom), 0) {
+	if asking && !core.RequestFits(rows, len(bottom), 0) {
 		lines := wrap(styled(bold, "Window too small to show this request."), width)
 		for _, l := range wrap("Make it larger. Allowing is off until then; esc still cancels.", width) {
 			lines = append(lines, styled(faint, l))
@@ -137,7 +153,7 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 		for len(lines) < rows {
 			lines = append([]string{""}, lines...)
 		}
-		return Frame{PrintTo: s.Printed, Content: strings.Join(lines[len(lines)-rows:], "\n"), TooSmall: true}
+		return Frame{PrintTo: s.Printed, Content: strings.Join(lines[len(lines)-rows:], "\n"), TooSmall: true, Active: core.SurfaceRequest}
 	}
 	room := rows - len(bottom)
 	if over != nil {
@@ -178,6 +194,16 @@ func view(a core.App, s core.State, input, hint string, now time.Time, width, he
 	}
 	f.Content = strings.Join(all, "\n")
 	f.InputX, f.InputY = x, max(y, 0)
+	switch {
+	case asking:
+		f.Active = core.SurfaceRequest
+	case over != nil && surf.Kind == core.SurfaceHelp:
+		f.Active = core.SurfaceHelp
+	case surf.Kind == core.SurfaceInput:
+		f.Active = core.SurfaceInput // the input box, with the cursor
+	default:
+		f.Active = core.SurfaceConversation
+	}
 	return f
 }
 

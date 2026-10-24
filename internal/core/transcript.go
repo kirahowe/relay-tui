@@ -53,11 +53,17 @@ func (e TranscriptKey) at() time.Time { return e.At }
 func (e ToggleHelp) at() time.Time    { return e.At }
 
 // show opens the transcript with one kind of block in full, or flips that
-// kind when it is already open.
-func (r *reducer) show(kind *bool) {
+// kind when it is already open. Against a single agent the transcript
+// covers the screen, so it does not open while a request waits: it could
+// not be drawn and the request too, and what has the keys is drawn.
+func (r *reducer) show(kind *bool, at time.Time) {
 	t := &r.s.Transcript
 	if t.Open {
 		*kind = !*kind
+		return
+	}
+	if !r.s.Shared && len(r.s.Asks) > 0 {
+		r.s.Message = Message{Text: "a request waits: answer it first (esc)", At: at}
 		return
 	}
 	t.Open, *kind, t.Scroll = true, true, 0

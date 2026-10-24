@@ -121,9 +121,11 @@ func TestPlainAgentFallsBackAndStopsAsking(t *testing.T) {
 	if len(items) != 2 || items[0].Kind != ProposalItem || items[0].Status != StatusWaitingProposal || items[1].Title != "local" {
 		t.Fatalf("items %#v", items)
 	}
-	s, _ = feed(s, key(t0, PaneToggle)) // refused: a request waits
-	if s.PaneFocus {
-		t.Error("the pane took focus while a request waited")
+	// The pane can still be entered: the request waits in the
+	// conversation, which has to have the keys to answer it.
+	s, _ = feed(s, key(t0, PaneToggle))
+	if !s.PaneFocus || SingleSurface(s).Kind != SurfacePane || len(s.Asks) != 1 {
+		t.Errorf("pane %v surface %+v asks %d", s.PaneFocus, SingleSurface(s), len(s.Asks))
 	}
 }
 
@@ -164,13 +166,19 @@ func TestPermissionFlowStillGuardsApproval(t *testing.T) {
 	s := focused(trustable)
 	s, _ = feed(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send", Preview: "does X at https://send.example.net/a",
 		Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
-	if s.PaneFocus {
-		t.Error("the pane kept focus under a request")
+	if !s.PaneFocus {
+		t.Error("the request took the keys from the pane")
 	}
-	// Keys for the pane do nothing while the request waits.
+	// Keys for the pane do nothing to the request.
 	s2, fx := feed(s, key(t0.Add(time.Hour), PaneYes), key(t0.Add(time.Hour), PaneEnter), key(t0.Add(time.Hour), PaneTrust))
-	if len(fx) != 0 || len(s2.Asks) != 1 {
+	if len(answers(fx)) != 0 || len(s2.Asks) != 1 {
 		t.Fatalf("pane keys changed a waiting request: %#v", fx)
+	}
+	// h gives the keys to the conversation, where the request is the
+	// surface: its delay starts then.
+	s, _ = feed(s, Move{At: t0, Delta: -1})
+	if SingleSurface(s).Kind != SurfaceRequest {
+		t.Fatalf("surface %+v", SingleSurface(s))
 	}
 	// The existing flow answers, after the arm delay, and the domains of
 	// what was approved become known.
@@ -229,7 +237,10 @@ func TestTrustFlow(t *testing.T) {
 }
 
 func TestTrustCancelsOnAnyOtherKey(t *testing.T) {
-	for _, a := range []PaneAction{PaneOther, PaneUp, PaneDown, PaneEsc, PaneEnter, PaneTrust, PaneToggle} {
+	// PaneToggle is not among them: the question has the keys, so the core
+	// takes no column move while it asks, and the shell sends h and l
+	// there as pane keys, which cancel.
+	for _, a := range []PaneAction{PaneOther, PaneUp, PaneDown, PaneEsc, PaneEnter, PaneTrust, PaneLeft} {
 		s := focused(trustable)
 		s, _ = feed(s, key(t0, PaneTrust))
 		s, fx := feed(s, key(t0.Add(time.Hour), a))

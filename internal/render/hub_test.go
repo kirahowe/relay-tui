@@ -50,10 +50,10 @@ func hubFixture() core.Hub {
 func TestHubGolden(t *testing.T) {
 	now := t0.Add(time.Minute)
 	h := hubFixture()
-	list := hubStep(h, core.Move{At: t0, Delta: -1})
+	list := hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})
 	asking := hubStep(h, core.FocusIndex{At: t0, Index: 1}, core.StopTyping{At: t0})
 	typingAsked := hubStep(h, core.FocusIndex{At: t0, Index: 1})
-	ending := hubStep(h, core.AskEnd{At: t0})
+	ending := hubStep(h, core.StopTyping{At: t0}, core.AskEnd{At: t0})
 	helped := hubStep(h, core.ToggleHelp{At: t0})
 	empty := hubStep(h, core.FocusIndex{At: t0, Index: 2})
 	for _, c := range []struct {
@@ -75,9 +75,9 @@ func TestHubFrameFits(t *testing.T) {
 	h := hubFixture()
 	views := map[string]core.Hub{
 		"conversation": h,
-		"list":         hubStep(h, core.Move{At: t0, Delta: -1}),
+		"list":         hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}),
 		"request":      hubStep(h, core.FocusIndex{At: t0, Index: 1}),
-		"ending":       hubStep(h, core.AskEnd{At: t0}),
+		"ending":       hubStep(h, core.StopTyping{At: t0}, core.AskEnd{At: t0}),
 		"help":         hubStep(h, core.ToggleHelp{At: t0}),
 		"none":         hubStep(h, core.FocusIndex{At: t0, Index: 2}),
 		"fresh":        core.NewHub(""),
@@ -106,7 +106,7 @@ func TestHubNarrowShowsOneOrTheOther(t *testing.T) {
 	if strings.Contains(conv, "Garden planner") || !strings.Contains(conv, "h roles") || !strings.Contains(conv, "dentist") {
 		t.Errorf("conversation screen:\n%s", conv)
 	}
-	list := HubView(hubStep(h, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content
+	list := HubView(hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content
 	if strings.Contains(list, "dentist") || !strings.Contains(list, "Garden planner") {
 		t.Errorf("list screen:\n%s", list)
 	}
@@ -138,7 +138,7 @@ func TestHubQueuedTurnIsSaid(t *testing.T) {
 	if !strings.Contains(f, "waiting for the role's scheduled work") {
 		t.Errorf("the queued turn is not said:\n%s", f)
 	}
-	list := ansi.Strip(HubView(hubStep(h, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content)
+	list := ansi.Strip(HubView(hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content)
 	if !strings.Contains(list, "waiting for scheduled work") {
 		t.Errorf("the list does not say it:\n%s", list)
 	}
@@ -454,8 +454,8 @@ func TestHubSaysWhenConversationsEndWithTheClient(t *testing.T) {
 		name string
 		h    core.Hub
 		w    int
-	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.Move{At: t0, Delta: -1}), 50},
-		{"wide list", hubStep(h, core.Move{At: t0, Delta: -1}), 100}} {
+	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 50},
+		{"wide list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 100}} {
 		got := ansi.Strip(HubView(v.h, "", "", t0, v.w, 20).Content)
 		if !strings.Contains(strings.Join(strings.Fields(got), " "), "relay service not running") {
 			t.Errorf("%s:\n%s", v.name, got)

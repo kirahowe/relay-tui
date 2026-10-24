@@ -58,9 +58,7 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	case core.StatusAsking:
 		lead = "?"
 		add("waiting for you")
-		if !l.Moving {
-			add("esc to answer")
-		}
+		add(l.AnswerHint)
 		if l.Asks > 1 {
 			add(strconv.Itoa(l.Asks) + " requests")
 		}
@@ -95,25 +93,43 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 			add(hint)
 		}
 	}
-	if l.ShowMode && l.Kind != core.StatusAsking {
-		// After what the agent is doing and how to type, so a narrow line
-		// keeps those first. While a request waits, its keys are the ones
-		// that count.
+	mode := -1
+	if l.ShowMode {
+		// On the line after what the agent is doing and how to type, but
+		// kept ahead of them when the line is short (see below).
+		mode = len(parts)
 		add(modeTag(l.Moving))
 	}
 	if idle {
 		add("? keys")
 	}
-	// The first part always shows, cut if it must be. Each later part
-	// shows only if it fits whole, so a narrow terminal loses the least
-	// important ones instead of showing half a word.
+	// The labels and the first part always show, the first part cut if
+	// it must be. The mode comes next: it shows whole whenever it fits
+	// after them, whatever else would have, since what a key does depends
+	// on it. Each other part shows only if it fits whole, so a narrow
+	// terminal loses the least important ones instead of showing half a
+	// word. The parts keep their order on the line.
 	if len(parts) == 0 {
 		parts = []string{""}
 	}
-	line := lead + " " + badges(l) + parts[0]
-	for _, p := range parts[1:] {
-		if next := line + " · " + p; ansi.StringWidth(next) <= width {
-			line = next
+	sep := ansi.StringWidth(" · ")
+	first := truncate(lead+" "+badges(l)+parts[0], width)
+	used := ansi.StringWidth(first)
+	keep := make([]bool, len(parts))
+	if mode > 0 && used+sep+ansi.StringWidth(parts[mode]) <= width {
+		keep[mode] = true
+		used += sep + ansi.StringWidth(parts[mode])
+	}
+	for i := 1; i < len(parts); i++ {
+		if w := sep + ansi.StringWidth(parts[i]); !keep[i] && i != mode && used+w <= width {
+			keep[i] = true
+			used += w
+		}
+	}
+	line := first
+	for i := 1; i < len(parts); i++ {
+		if keep[i] {
+			line += " · " + parts[i]
 		}
 	}
 	return styled(faint, truncate(line, width))

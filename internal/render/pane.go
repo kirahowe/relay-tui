@@ -634,6 +634,23 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	return selfContained(all), maxScroll
 }
 
+// paneActive is what the pane draws while it has the keys: its editor,
+// a question it asks, or itself.
+func paneActive(a core.App, s core.State) core.SurfaceKind {
+	b := a.Board
+	switch {
+	case b.Items:
+		if t := s.Pane.Trust; t != nil && !t.Sent {
+			return core.SurfaceConfirm // "Trust this?"
+		}
+	case b.Input != nil:
+		return core.SurfaceEditor // the prompt and its text
+	case b.Confirm != 0 || (b.Trust != nil && !b.Trust.Sent):
+		return core.SurfaceConfirm // "Archive …?" or "Trust …?"
+	}
+	return core.SurfacePane
+}
+
 // PaneLines is the pane drawn at width and height.
 func PaneLines(a core.App, s core.State, now time.Time, width, height int) []string {
 	lines, _ := paneRender(a, s, now, width, height)

@@ -335,22 +335,33 @@ func (Attach) effect()          {}
 func (EndConversation) effect() {}
 func (SendSeen) effect()        {}
 
-// ReduceHub applies one event. It never mutates h's slices in place.
+// ReduceHub applies one event. It never mutates h's slices in place. An
+// operator's event that the surface does not take (see HubSurface) is
+// dropped whole: whatever the shell made of a key, it acts only where
+// the keys are.
 func ReduceHub(h Hub, e Event) (Hub, []Effect) {
+	surf := HubSurface(h)
+	if !surf.takes(e) {
+		return h, nil
+	}
 	h.Roles = slices.Clone(h.Roles)
 	h.Convs = slices.Clone(h.Convs)
 	h.Ended = slices.Clone(h.Ended)
 	h.Blanks = slices.Clone(h.Blanks)
 	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
-	before, answerable, view := h.onScreen(), h.answerable(), h.view()
-	r.apply(e)
+	before, offered, view := h.onScreen(), h.offered(), h.view()
+	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
+		r.h.Notice = EditorPasteNote // only a paste reaches the editor as Unbound
+	} else {
+		r.apply(e)
+	}
 	r.restoreHub(e.at())
 	r.placeLoose()
 	r.settleColumn()
 	r.adoptBlanks()
 	r.settle(before, e.at())
-	r.arm(answerable, e.at())
+	r.arm(offered, e.at())
 	r.keepCardTrust(view)
 	r.markSeen(e.at())
 	return r.h, r.fx
@@ -423,25 +434,24 @@ func (r *hubReducer) settle(before string, at time.Time) {
 	}
 }
 
-// answerable is the session whose request on offer the keys can answer:
-// the conversation on screen, while moving. While typing every key goes
-// to the input, so no request is answerable.
-func (h Hub) answerable() string {
-	if !h.App.Moving {
+// offered is the session whose request on offer is the surface, or "".
+func (h Hub) offered() string {
+	if HubSurface(h).Kind != SurfaceRequest {
 		return ""
 	}
 	return h.onScreen()
 }
 
-// arm starts a request's delay afresh when it becomes answerable, by
-// esc, by moving to it, or by its arriving while moving, so a key typed
-// for that cannot answer it.
+// arm starts a request's delay afresh when it becomes the surface: by
+// esc out of typing, by moving to its role or its column, by what
+// covered it closing, or by its arriving while its conversation has the
+// keys. A key meant for something else cannot answer it.
 func (r *hubReducer) arm(was string, at time.Time) {
-	now := r.h.answerable()
+	now := r.h.offered()
 	if now == was || now == "" {
 		return
 	}
-	if i := r.sessionIndex(now); i >= 0 && len(r.h.Convs[i].State.Asks) > 0 {
+	if i := r.sessionIndex(now); i >= 0 {
 		r.toConv(i, Focused{At: at}, false)
 	}
 }
@@ -602,15 +612,11 @@ func (r *hubReducer) apply(e Event) {
 	case Viewport:
 		h.TooSmall = e.TooSmall
 	case PermissionConfirm, PermissionQuick:
-		if !h.TooSmall && h.App.Moving {
-			r.toFocused(e)
-		}
-	case PermissionMove, PermissionCancel, PermissionShowAll:
-		if h.App.Moving { // a request is answered only while moving
+		if !h.TooSmall {
 			r.toFocused(e)
 		}
 	case Pasted, TrustPaste:
-		if h.Help || h.EndAsk || h.List || h.Focus == "" {
+		if h.Focus == "" {
 			return // not at the input
 		}
 		if h.Focused() != nil {
@@ -648,33 +654,30 @@ func (r *hubReducer) apply(e Event) {
 	}
 }
 
-// The columns, left to right.
-const (
-	colList = iota
-	colConv
-	colPane
-)
-
-// col is the column with the keys.
-func (h Hub) col() int {
+// col is the column with the keys. With no role in focus there is no
+// conversation column, so the keys are in the list unless the pane has
+// them.
+func (h Hub) col() Column {
 	switch {
 	case h.List:
-		return colList
+		return ColumnList
 	case h.App.PaneFocus:
-		return colPane
+		return ColumnPane
+	case h.Focus == "":
+		return ColumnList
 	}
-	return colConv
+	return ColumnConversation
 }
 
 // has says a column has something in it: the conversation only with a
 // role in focus, the pane only with something to show.
-func (h Hub) has(col int) bool {
+func (h Hub) has(col Column) bool {
 	switch col {
-	case colList:
+	case ColumnList:
 		return true
-	case colConv:
+	case ColumnConversation:
 		return h.Focus != ""
-	case colPane:
+	case ColumnPane:
 		return h.PaneShown()
 	}
 	return false
@@ -690,31 +693,31 @@ func (r *hubReducer) column(delta int, at time.Time) {
 	if delta == 0 {
 		return
 	}
-	step := 1
+	step := Column(1)
 	if delta < 0 {
 		step = -1
 	}
 	to := h.col() + step
-	for to >= colList && to <= colPane && !h.has(to) {
+	for to >= ColumnList && to <= ColumnPane && !h.has(to) {
 		to += step
 	}
-	if to < colList || to > colPane {
+	if to < ColumnList || to > ColumnPane {
 		return
 	}
 	r.toColumn(to, at)
 }
 
 // toColumn gives the keys to column to.
-func (r *hubReducer) toColumn(to int, at time.Time) {
+func (r *hubReducer) toColumn(to Column, at time.Time) {
 	h := &r.h
-	if h.App.PaneFocus && to != colPane {
+	if h.App.PaneFocus && to != ColumnPane {
 		r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
 		if h.App.PaneFocus {
 			return // the pane is waiting on relay, and keeps the keys
 		}
 	}
 	switch to {
-	case colList:
+	case ColumnList:
 		if !h.List {
 			h.List = true
 			if h.Focus != "" {
@@ -722,16 +725,12 @@ func (r *hubReducer) toColumn(to int, at time.Time) {
 			}
 			r.clampCursor()
 		}
-	case colConv:
+	case ColumnConversation:
 		h.List = false
-	case colPane:
-		was := h.List
+	case ColumnPane:
 		h.List = false
 		if !h.App.PaneFocus {
 			r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
-		}
-		if !h.App.PaneFocus {
-			h.List = was // refused: a request has the keys
 		}
 	}
 }
@@ -745,8 +744,8 @@ func (r *hubReducer) startTyping(at time.Time) {
 		h.Notice = "no role in focus: pick one first"
 		return
 	}
-	r.toColumn(colConv, at)
-	if h.col() == colConv {
+	r.toColumn(ColumnConversation, at)
+	if h.col() == ColumnConversation {
 		h.App.Moving = false
 	}
 }
@@ -759,6 +758,9 @@ func (r *hubReducer) settleColumn() {
 	if h.Focus == "" && !h.List && !h.App.PaneFocus {
 		h.List = true
 		r.clampCursor()
+	}
+	if h.List {
+		h.App.PaneFocus = false // one column has the keys
 	}
 	if h.List || h.App.PaneFocus || h.Focus == "" {
 		h.App.Moving = true
@@ -1066,8 +1068,10 @@ func (r *hubReducer) roster(e RosterUpdate) {
 	r.clampCursor()
 	r.reconcile(old)
 	if h.Focus != "" && h.RoleByID(h.Focus) == nil {
+		// The pane keeps the keys if it had them; otherwise the list takes
+		// them (settleColumn).
 		h.Notice = "no role " + oneLineText(h.Focus)
-		h.Focus, h.List = "", true
+		h.Focus = ""
 	}
 }
 

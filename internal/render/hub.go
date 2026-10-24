@@ -73,6 +73,8 @@ type HubFrame struct {
 	// on offer, its options and the status line together. The frame then
 	// says so instead, and the keys that approve are off.
 	TooSmall bool
+	// Active is what the frame drew as having the keys.
+	Active core.SurfaceKind
 	// title and right are the header's parts, for a panel's top border.
 	title, right string
 }
@@ -376,8 +378,12 @@ func HubInputWidth(h core.Hub, width int) int {
 func HubView(h core.Hub, input, hint string, now time.Time, width, height int) HubFrame {
 	height = max(height, 2)
 	wide := HubWide(width)
-	if h.Help {
-		return withHelp(h, input, hint, now, width, height, wide)
+	// What has the keys is what is drawn as active: core.HubSurface
+	// decides it, and nothing here decides it again.
+	if core.HubSurface(h).Kind == core.SurfaceHelp {
+		f := withHelp(h, input, hint, now, width, height, wide)
+		f.Active = core.SurfaceHelp
+		return f
 	}
 	return hubFrame(h, input, hint, now, width, height, wide, nil)
 }
@@ -388,13 +394,14 @@ func withHelp(h core.Hub, input, hint string, now time.Time, width, height int, 
 		cw, _ := hubColumns(h, width)
 		mw = framed(cw)
 	}
+	moving := !core.HubSurface(h).Covered().Typing()
 	rows, title := TypingKeys, "typing keys"
-	if h.App.Moving {
+	if moving {
 		rows, title = MovingKeys, "moving keys"
 	}
 	help := helpBox(title, rows, mw)
 	var legend []string
-	if h.App.Moving {
+	if moving {
 		legend = append(legend, styled(faint, truncate(paneHelp, InputWidth(mw))))
 	}
 	for _, l := range hubLegend {
@@ -405,19 +412,20 @@ func withHelp(h core.Hub, input, hint string, now time.Time, width, height int, 
 }
 
 func hubFrame(h core.Hub, input, hint string, now time.Time, width, height int, wide bool, help []string) HubFrame {
+	surf := core.HubSurface(h)
 	if wide {
 		return panels(h, input, hint, now, width, height, help)
 	}
-	if !h.List && h.Focus == "" && h.App.PaneFocus {
+	if surf.Column == core.ColumnPane && h.Focus == "" && help == nil {
 		return paneScreen(h, now, width, height)
 	}
-	if h.List || h.Focus == "" {
+	if surf.Column == core.ColumnList || h.Focus == "" {
 		lines := listScreen(h, now, width, height)
 		if help != nil {
 			lines = append(lines[:max(height-len(help), 0)], help...)
 			lines = lines[:min(len(lines), height)]
 		}
-		return HubFrame{Content: strings.Join(lines, "\n")}
+		return HubFrame{Content: strings.Join(lines, "\n"), Active: core.SurfaceList}
 	}
 	return hubMain(h, input, hint, now, width, height, true, help)
 }
@@ -436,7 +444,7 @@ func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
 	lines = append(append(lines, pane...), foot...)
-	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx}
+	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx, Active: paneActive(h.App, core.State{})}
 }
 
 // elsewhere summarises the other roles that want the operator, for the
@@ -476,6 +484,9 @@ func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, n
 		pane, mx := paneRender(h.App, focusedChat(h), now, PaneWidth(width), height)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, mw), "\n")
 		f.DetailMax = mx
+		if h.App.PaneFocus && help == nil {
+			f.Active = paneActive(h.App, focusedChat(h)) // the pane is drawn with the keys
+		}
 		return f
 	}
 	return hubMainAt(h, input, hint, now, width, height, narrow, help, false)
@@ -497,6 +508,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	if conv != nil {
 		s = conv.State
 	}
+	surf := core.HubSurface(h)
+	asking := surf.Kind == core.SurfaceRequest
+	moving := !surf.Covered().Typing()
 
 	// The header.
 	title := paneLine(h.Focus, true) // a name that came from the command line, not the config
@@ -546,19 +560,25 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	bottom = append(bottom, "")
 	inputAt, x := 0, 0
 	showInput := false
+	active := core.SurfaceConversation
 	switch {
-	case h.EndAsk:
+	case surf.Kind == core.SurfaceEnd:
 		ask := fmt.Sprintf("End the conversation with %s? y to end it, n to keep it", title)
 		bottom = append(bottom, box("end conversation", wrap(ask, InputWidth(width)), width)...)
-	case len(s.Asks) > 0 && h.App.Moving:
+		active = core.SurfaceEnd
+	case asking:
 		bottom = append(bottom, permissionBox(s, now, width, height-1-len(bottom)-2)...)
+		active = core.SurfaceRequest
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.
 	default:
 		if len(s.Asks) > 0 {
-			// Typing: the request waits above the input, which keeps the
-			// keys, until esc moves to answer it.
-			bottom = append(bottom, requestNote(s, width))
+			// Something else has the keys: the request waits above the
+			// input until the operator moves to it.
+			bottom = append(bottom, requestNote(s, surf, width))
+		}
+		if surf.Kind == core.SurfaceInput {
+			active = core.SurfaceInput
 		}
 		if inPanel {
 			bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
@@ -574,7 +594,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		}
 		showInput = true
 	}
-	if len(s.Asks) > 0 && h.App.Moving && !h.EndAsk && !core.RequestFits(height, 1+len(bottom)+1, core.MinTranscriptRows) {
+	if asking && !core.RequestFits(height, 1+len(bottom)+1, core.MinTranscriptRows) {
 		lines := []string{truncate(head, width)}
 		for _, l := range wrap(styled(bold, "Window too small to show this request."), width) {
 			lines = append(lines, l)
@@ -585,18 +605,18 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		for len(lines) < height {
 			lines = append(lines, "")
 		}
-		return HubFrame{Content: strings.Join(lines[:height], "\n"), TooSmall: true, title: panelTitle}
+		return HubFrame{Content: strings.Join(lines[:height], "\n"), TooSmall: true, title: panelTitle, Active: core.SurfaceRequest}
 	}
 	var status string
 	mode := ""
 	if !inPanel {
-		mode = modeTag(h.App.Moving) + " · "
+		mode = modeTag(moving) + " · "
 	}
 	if h.Focus == "" {
 		status = styled(faint, truncate("  "+mode+"no role in focus · h roles · ? keys", width))
 	} else if conv == nil {
 		start := "type a message to start one"
-		if h.App.Moving {
+		if moving {
 			start = "i to type a message and start one"
 		}
 		status = styled(faint, truncate("  "+mode+"no conversation · "+start+" · ? keys", width))
@@ -608,8 +628,12 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 				st.Remote = role.Conv.Turn
 			}
 		}
-		st.PaneHint = st.PaneItems > 0 && !beside && !h.App.PaneFocus
+		st.PaneHint = st.PaneItems > 0 && !beside && surf.Column != core.ColumnPane
 		st.ShowMode = !inPanel // the panels name it in the row of keys
+		st.Moving = moving
+		if len(s.Asks) > 0 && !asking {
+			st.AnswerHint = howToAnswer(surf)
+		}
 		status = StatusText(st, hint, now, width)
 	}
 	bottom = append(bottom, status)
@@ -623,10 +647,11 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	var lines []string
 	mx, detailMax := 0, 0
 	switch {
-	case h.App.PaneFocus && len(s.Asks) == 0 && !beside:
+	case surf.Column == core.ColumnPane && !beside:
 		// The pane covers the conversation, or the place of one: the board
 		// works with none open.
 		lines, detailMax = paneRender(h.App, s, now, width, room)
+		active = paneActive(h.App, s)
 	case h.Focus == "":
 		lines = []string{styled(faint, "No role in focus. Pick one from the roles.")}
 	case conv == nil:
@@ -649,6 +674,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	if help != nil {
 		lines = append(lines, help...)
+		active = core.SurfaceHelp
 	}
 	if len(lines) > room {
 		lines = lines[len(lines)-room:]
@@ -669,8 +695,8 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	return HubFrame{
 		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax,
-		Cursor: showInput && help == nil && !h.App.PaneFocus && y >= 0, InputX: x, InputY: max(y, 0),
-		title: panelTitle, right: styled(faint, right),
+		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputX: x, InputY: max(y, 0),
+		title: panelTitle, right: styled(faint, right), Active: active,
 	}
 }
 
@@ -701,7 +727,8 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	if conv != nil {
 		s = conv.State
 	}
-	convKeys := !h.List && !h.App.PaneFocus
+	surf := core.HubSurface(h)
+	convKeys := surf.Column == core.ColumnConversation
 
 	f := hubConv(h, input, hint, now, framed(cw), mid-2, false, help, pw > 0, true)
 	main := panel(f.title, f.right, "", strings.Split(f.Content, "\n"), cw, mid, convKeys)
@@ -714,6 +741,12 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 		}
 		f.DetailMax = mx
 		keys = pk
+		if surf.Column == core.ColumnPane && help == nil {
+			f.Active = paneActive(h.App, s) // the pane is drawn with the keys
+		}
+	}
+	if surf.Column == core.ColumnList && help == nil {
+		f.Active = core.SurfaceList
 	}
 	right := ""
 	switch {
@@ -726,19 +759,21 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	if paneShown(h) {
 		pane = " · l " + paneView(h.App)
 	}
-	switch {
-	case h.List:
+	switch under := surf.Covered().Kind; {
+	case under == core.SurfaceList:
 		keys = "enter open · ↑↓ move" + right + " · 1 role · ? keys"
-	case h.App.PaneFocus && pw > 0:
-	case h.App.PaneFocus:
+	case surf.Column == core.ColumnPane && pw > 0:
+	case surf.Column == core.ColumnPane:
 		keys = "" // the pane, in the conversation's place, lists its own
-	case len(s.Asks) > 0 && h.App.Moving:
+	case under == core.SurfaceRequest:
 		keys = "h roles · 1 role" // the request's own keys are in its box
-	case len(s.Asks) > 0:
+	case under == core.SurfaceEnd:
+		keys = "y end it · n keep it"
+	case under == core.SurfaceInput && len(s.Asks) > 0:
 		keys = "esc answer · alt+1 role" // typing: the request waits for esc
-	case h.App.Moving && conv != nil:
+	case under == core.SurfaceConversation && conv != nil:
 		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · ? keys"
-	case h.App.Moving:
+	case under == core.SurfaceConversation:
 		keys = "i type · h roles" + pane + " · ? keys"
 	default:
 		keys = "enter send · esc move · alt+1 role · ctrl+t tools · ? keys"
@@ -747,7 +782,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	for i := 0; i < mid; i++ {
 		rows = append(rows, side[i]+sgr(0)+main[i])
 	}
-	rows = append(rows, modeRow(h.App.Moving, keys, width))
+	rows = append(rows, modeRow(!surf.Covered().Typing(), keys, width))
 	for i := range rows {
 		rows[i] = truncate(rows[i], width)
 	}
@@ -825,5 +860,5 @@ func rolesPanel(h core.Hub, now time.Time, width, height int) []string {
 	if len(h.Roles) > 0 {
 		count = styled(faint, fmt.Sprint(len(h.Roles)))
 	}
-	return panel(styled(bold, "Roles"), count, "", lines, width, height, h.List)
+	return panel(styled(bold, "Roles"), count, "", lines, width, height, core.HubSurface(h).Column == core.ColumnList)
 }

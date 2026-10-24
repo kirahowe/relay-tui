@@ -363,7 +363,10 @@ func TestRetryCountdown(t *testing.T) { bothSizes(t, testRetryCountdown) }
 func testRetryCountdown(t *testing.T, cols, rows int) {
 	h := start(t, "retry.jsonl", cols, rows)
 	h.keys("go\r")
-	h.waitScreen("retrying in 3s", func(s string) bool { return strings.Contains(s, "retrying in 3s · rate limit exceeded") })
+	// At 40 columns the mode takes the room the reason would have.
+	h.waitScreen("retrying in 3s", func(s string) bool {
+		return strings.Contains(s, "retrying in 3s · rate limit exceeded") || cols < 80 && strings.Contains(s, "retrying in 3s ·") && strings.Contains(s, "TYPING")
+	})
 	h.waitScreen("retrying in 2s", func(s string) bool { return strings.Contains(s, "retrying in 2s") })
 	h.waitAll("Sorry for the wait.")
 	if strings.Contains(h.all(), "Rate limited") {
@@ -455,7 +458,9 @@ func testNewlineKeys(t *testing.T, cols, rows int) {
 	h := start(t, "simple.jsonl", cols, rows)
 	h.waitIdle()
 	h.keys("\x1b[?1u") // claim kitty keyboard support, as Ghostty would
-	h.waitScreen("the kitty hint", func(s string) bool { return strings.Contains(s, "shift+enter for a new line") })
+	if cols >= 80 {    // at 40 columns the mode takes the hint's room
+		h.waitScreen("the kitty hint", func(s string) bool { return strings.Contains(s, "shift+enter for a new line") })
+	}
 	keys := map[string]string{
 		"ctrl+enter (modifyOtherKeys)": "\x1b[27;5;13~",
 		"ctrl+enter (kitty)":           "\x1b[13;5u",

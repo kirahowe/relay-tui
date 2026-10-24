@@ -15,7 +15,7 @@ import (
 // the effects into commands; everything drawn comes from render.HubView.
 
 func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
-	now := time.Now()
+	now := m.now()
 	var evs []core.Event
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
@@ -34,7 +34,7 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseWheelMsg:
 		evs = m.hubWheel(msg, now)
 	case tea.PasteMsg:
-		evs = []core.Event{core.KeyPressed{At: now}, pasted(m.hub.App, now, msg.Content)}
+		evs = []core.Event{core.KeyPressed{At: now}, pasted(core.HubSurface(m.hub), now, msg.Content)}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {
@@ -109,7 +109,7 @@ func (m *Model) hubEffect(f core.Effect) {
 		}
 		m.drafts[f.Role] = placed(f, m.drafts[f.Role])
 	default:
-		m.effect(f, time.Now())
+		m.effect(f, m.now())
 	}
 }
 
@@ -121,97 +121,184 @@ func (m Model) focusedState() core.State {
 	return core.State{}
 }
 
-// hubKey turns a key press into events. Moving between conversations
-// works whatever else is going on, even while a request waits.
+// hubKey turns a key press into events.
 func (m *Model) hubKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
-	if m.hub.Help {
-		// Any key closes the list of keys, and does only that: the list
-		// covers what the key would act on.
-		return []core.Event{core.ToggleHelp{At: now}}, nil
-	}
-	return m.hubKeyBody(k, now)
+	return m.routeKey(core.HubSurface(m.hub), k, now)
 }
 
-func (m *Model) hubKeyBody(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
+// routeKey turns a key press into events for the surface that has the
+// keys, in either mode, classifying it against that surface's keys and
+// no other. The core decides the surface (core.HubSurface,
+// core.SingleSurface), and drops whatever event it does not take, so a
+// key can only act where it is drawn to.
+func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
+	m.keysTo = surf
 	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
-	if m.hub.EndAsk {
+	a, index := ClassifyMoving(k)
+	switch surf.Kind {
+	case core.SurfaceHelp:
+		// Any key closes the list of keys, and does only that: the list
+		// covers what the key would act on.
+		return one(core.ToggleHelp{At: now})
+	case core.SurfaceEnd:
 		if answered, yes := ClassifyEnd(k); answered {
 			return one(core.ConfirmEnd{At: now, Yes: yes})
 		}
 		return nil, nil
-	}
-	st := m.focusedState()
-	a, index := ClassifyMoving(k)
-	if m.hub.App.Moving && !m.hub.List && !m.hub.App.PaneFocus && len(st.Asks) > 0 {
-		// While moving, the request has the keys: only its own keys
-		// answer it. Past those, the operator can still go to the list or
-		// another role and scroll; the request stays until answered, and
-		// the sidebar says so. While typing it takes no key at all: they
-		// go to the input, and esc moves to answer it.
+	case core.SurfaceTranscript:
+		return one(m.transcriptKey(k, m.input.Value() == "", now))
+	case core.SurfaceRequest:
+		// Only the request's own keys answer it. Past those, in hub mode,
+		// the operator can still go to the list or another role and
+		// scroll; the request stays until answered, and the sidebar says
+		// so.
 		if e := askKey(ClassifyAsk(k), now); e != nil {
 			return one(e)
 		}
-		switch a {
-		case MoveJump:
-			return one(core.FocusIndex{At: now, Index: index})
-		case MoveLeft:
-			return one(core.Move{At: now, Delta: -1})
-		case MovePageUp, MovePageDown:
-			return one(m.hubScroll(k, now))
+		if m.kind == kindHub {
+			switch a {
+			case MoveJump:
+				return one(core.FocusIndex{At: now, Index: index})
+			case MoveLeft:
+				return one(core.Move{At: now, Delta: -1})
+			case MovePageUp, MovePageDown:
+				return one(m.hubScroll(k, now))
+			}
 		}
 		return nil, nil
-	}
-	if !m.hub.App.Moving {
+	case core.SurfaceInput:
 		return m.typingKey(k, now)
-	}
-	switch {
-	case m.hub.List:
+	case core.SurfaceEditor:
+		return one(m.editorKey(k, now))
+	case core.SurfaceConfirm:
+		return one(m.confirmKey(k, now))
+	case core.SurfacePane:
+		return m.paneMoving(k, a, index, now)
+	case core.SurfaceList:
 		return one(m.listKey(k, a, index, now))
-	case m.hub.App.PaneFocus:
-		return m.paneMoving(k, a, index, st, now)
 	}
+	if m.kind == kindHub {
+		return one(m.hubConvKey(k, a, index, now))
+	}
+	return one(m.singleConvKey(k, a, now))
+}
+
+// hubConvKey is the event for a key pressed while moving in the
+// conversation column, in hub mode.
+func (m *Model) hubConvKey(k tea.KeyPressMsg, a MoveAction, index int, now time.Time) core.Event {
 	switch a {
 	case MoveLeft:
-		return one(core.Move{At: now, Delta: -1})
+		return core.Move{At: now, Delta: -1}
 	case MoveRight:
-		return one(core.Move{At: now, Delta: 1})
+		return core.Move{At: now, Delta: 1}
 	case MoveUp:
-		return one(m.scroll(core.TranscriptUp, now))
+		return m.scroll(core.TranscriptUp, now)
 	case MoveDown:
-		return one(m.scroll(core.TranscriptDown, now))
+		return m.scroll(core.TranscriptDown, now)
 	case MovePageUp:
-		return one(m.scroll(core.TranscriptPageUp, now))
+		return m.scroll(core.TranscriptPageUp, now)
 	case MovePageDown:
-		return one(m.scroll(core.TranscriptPageDown, now))
+		return m.scroll(core.TranscriptPageDown, now)
 	case MoveTop:
-		return one(m.scroll(core.TranscriptTop, now))
+		return m.scroll(core.TranscriptTop, now)
 	case MoveBottom:
-		return one(m.scroll(core.TranscriptBottom, now))
+		return m.scroll(core.TranscriptBottom, now)
 	case MoveEnter, MoveType:
-		return one(core.Type{At: now})
+		return core.Type{At: now}
 	case MoveJump:
-		return one(core.FocusIndex{At: now, Index: index})
+		return core.FocusIndex{At: now, Index: index}
 	case MoveEnd:
-		return one(core.AskEnd{At: now})
+		return core.AskEnd{At: now}
 	case MoveTools:
-		return one(core.ShowTools{At: now})
+		return core.ShowTools{At: now}
 	case MoveThinking:
-		return one(core.ShowThinking{At: now})
+		return core.ShowThinking{At: now}
 	case MoveHelp:
-		return one(core.ToggleHelp{At: now})
+		return core.ToggleHelp{At: now}
 	case MoveInterrupt:
-		return one(core.Interrupt{At: now, InputEmpty: true})
+		return core.Interrupt{At: now, InputEmpty: true}
 	case MoveEOF:
 		if m.input.Value() == "" {
-			return one(core.EOF{At: now})
+			return core.EOF{At: now}
 		}
-		return nil, nil
 	case MoveNone:
 		if printable(k) {
-			return one(core.Unbound{At: now})
+			return core.Unbound{At: now}
 		}
 	}
-	return nil, nil
+	return nil
+}
+
+// singleConvKey is the event for a key pressed while moving in the
+// conversation against a single agent. The conversation is printed into
+// the terminal's scrollback, so the terminal scrolls it, and ctrl+t or
+// ctrl+o opens the transcript.
+func (m *Model) singleConvKey(k tea.KeyPressMsg, a MoveAction, now time.Time) core.Event {
+	switch a {
+	case MoveLeft:
+		return core.Move{At: now, Delta: -1} // the edge: nothing
+	case MoveRight:
+		return core.Move{At: now, Delta: 1}
+	case MoveEnter, MoveType:
+		return core.Type{At: now}
+	case MoveTools:
+		return core.ShowTools{At: now}
+	case MoveThinking:
+		return core.ShowThinking{At: now}
+	case MoveHelp:
+		return core.ToggleHelp{At: now}
+	case MoveInterrupt:
+		return core.Interrupt{At: now, InputEmpty: true}
+	case MoveEOF:
+		if m.input.Value() == "" {
+			return core.EOF{At: now}
+		}
+	default:
+		if printable(k) {
+			return core.Unbound{At: now}
+		}
+	}
+	return nil
+}
+
+// editorKey is the event for a key pressed while the board's one-line
+// editor is open: it types, deletes, sends or cancels, and nothing else.
+// Ctrl-C stops a running turn, and otherwise cancels the editor.
+func (m *Model) editorKey(k tea.KeyPressMsg, now time.Time) core.Event {
+	if k.String() == "ctrl+c" {
+		return m.paneCtrlC(now)
+	}
+	a, text := ClassifyBoardInput(k)
+	return core.PaneKey{At: now, Action: a, Text: text}
+}
+
+// confirmKey is the event for a key pressed while the pane asks
+// something (archive a card, trust a card or a doc): every key goes to
+// the pane, so the next one answers or cancels the question and does
+// nothing else.
+func (m *Model) confirmKey(k tea.KeyPressMsg, now time.Time) core.Event {
+	if k.String() == "ctrl+c" {
+		return m.paneCtrlC(now)
+	}
+	return paneEvent(m.app(), m.paneState(), k, now, func() int { return m.paneDetailMax(now) })
+}
+
+// paneCtrlC is Ctrl-C while the pane's editor or question is open: it
+// stops a running turn, else cancels what is open.
+func (m *Model) paneCtrlC(now time.Time) core.Event {
+	if m.paneState().Phase == core.Busy {
+		return core.Interrupt{At: now, InputEmpty: true}
+	}
+	return core.PaneKey{At: now, Action: core.PaneEsc}
+}
+
+// paneState is the conversation the pane is drawn with: the one on
+// screen, or none.
+func (m Model) paneState() core.State {
+	if m.kind == kindHub {
+		return m.focusedState()
+	}
+	return m.one.State
 }
 
 // listKey is the event for a key pressed while moving in the list of
@@ -273,7 +360,7 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 	case Send:
 		text := m.input.Value()
 		if isBlank(text) {
-			if m.hubMode && m.hub.Focus != "" && m.hub.Focused() == nil {
+			if m.kind == kindHub && m.hub.Focus != "" && m.hub.Focused() == nil {
 				return one(core.StartConversation{At: now})
 			}
 			return nil, nil
@@ -285,7 +372,7 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 		return nil, nil
 	case Interrupt:
 		idle := m.one.State.Phase == core.Idle
-		if m.hubMode {
+		if m.kind == kindHub {
 			idle = m.hub.Focused() == nil || m.focusedState().Phase == core.Idle
 		}
 		if idle && !empty {
@@ -305,12 +392,12 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 	case StopTyping:
 		return one(core.StopTyping{At: now})
 	case Jump:
-		if m.hubMode {
+		if m.kind == kindHub {
 			return one(core.FocusIndex{At: now, Index: index})
 		}
 		return nil, nil
 	}
-	if m.hubMode {
+	if m.kind == kindHub {
 		if e := m.hubScroll(k, now); e != nil {
 			return one(e)
 		}
@@ -320,23 +407,14 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 	return nil, cmd
 }
 
-// paneMoving turns a key pressed while the pane has the keys into
-// events. What the pane has open comes first: its one-line input takes
-// every key, and a question it asks (archive, trust) is answered or
-// cancelled by the next key, so nothing else can act past it. Then the
-// keys that move between columns and roles, then the pane's own.
-func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, st core.State, now time.Time) ([]core.Event, tea.Cmd) {
+// paneMoving turns a key pressed while moving in the pane into events:
+// the keys that move between columns and roles, then the pane's own. Its
+// editor and its questions are surfaces of their own (editorKey,
+// confirmKey).
+func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, now time.Time) ([]core.Event, tea.Cmd) {
 	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
 	app := m.app()
-	busy := st.Phase == core.Busy
-	if k.String() == "ctrl+c" && (core.PaneAsking(app, st) || app.Board.Input != nil) {
-		if busy {
-			return one(core.Interrupt{At: now, InputEmpty: true})
-		}
-		return one(core.PaneKey{At: now, Action: core.PaneEsc}) // cancels what is open
-	}
-	if !core.PaneAsking(app, st) && app.Board.Input == nil && a.Global() &&
-		!((a == MoveLeft || a == MoveRight) && core.PaneSideKeys(app)) {
+	if a.Global() && !((a == MoveLeft || a == MoveRight) && core.PaneSideKeys(app)) {
 		switch a {
 		case MoveLeft:
 			return one(core.Move{At: now, Delta: -1})
@@ -345,7 +423,7 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, st core.S
 		case MoveType:
 			return one(core.Type{At: now})
 		case MoveJump:
-			if m.hubMode {
+			if m.kind == kindHub {
 				return one(core.FocusIndex{At: now, Index: index})
 			}
 			return nil, nil
@@ -360,8 +438,8 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, st core.S
 			return nil, nil
 		}
 	}
-	e := paneEvent(app, st, k, now, func() int { return m.paneDetailMax(now) })
-	if e.Action == core.PaneOther && printable(k) && app.Board.Input == nil && !core.PaneAsking(app, st) {
+	e := paneEvent(app, m.paneState(), k, now, func() int { return m.paneDetailMax(now) })
+	if e.Action == core.PaneOther && printable(k) {
 		return []core.Event{e, core.Unbound{At: now}}, nil
 	}
 	return one(e)
@@ -369,7 +447,7 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, st core.S
 
 // app is the connection's state, in either mode.
 func (m Model) app() core.App {
-	if m.hubMode {
+	if m.kind == kindHub {
 		return m.hub.App
 	}
 	return m.one.App
@@ -377,7 +455,7 @@ func (m Model) app() core.App {
 
 // paneDetailMax is how far the pane's detail view scrolls, as drawn.
 func (m Model) paneDetailMax(now time.Time) int {
-	if m.hubMode {
+	if m.kind == kindHub {
 		return m.hubFrame(now).DetailMax
 	}
 	return m.frame(now).DetailMax
@@ -446,7 +524,7 @@ func (m Model) hubView(now time.Time) tea.View {
 	v := tea.NewView(f.Content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
-	if f.Cursor && !m.hub.List && !m.hub.Help && !m.hub.EndAsk && m.hub.Focus != "" && !m.hub.App.Moving {
+	if f.Cursor && core.HubSurface(m.hub).Kind == core.SurfaceInput {
 		if c := m.input.Cursor(); c != nil {
 			c.Position.X += f.InputX
 			c.Position.Y += f.InputY

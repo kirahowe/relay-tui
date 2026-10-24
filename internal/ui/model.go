@@ -93,21 +93,42 @@ type Model struct {
 	// is printed meanwhile: Bubble Tea would write the lines into the
 	// alternate screen, and they would never reach scrollback.
 	alt, back bool
-	// hubMode is set once the agent has said it is relay's hub. The
+	// kind is kindHub once the agent has said it is relay's hub. The
 	// screen is then the hub's, drawn whole on the alternate screen,
-	// and core is not used. open is the role --open named, and drafts
+	// and one is not used. open is the role --open named, and drafts
 	// the input each role not in focus had when it was left.
-	hubMode bool
-	hub     core.Hub
-	open    string
-	drafts  map[string]string
+	kind   agentKind
+	hub    core.Hub
+	open   string
+	drafts map[string]string
 	// inputRole is the role whose draft the input box holds.
 	inputRole string
 	// onView is told the saved view whenever it changes; seen is the
 	// last one it was told.
 	onView func(core.View)
 	seen   core.View
+	// keysTo is the surface the last key was routed to, for tests, and
+	// clock the time, which tests set (nil is the real clock).
+	keysTo core.Surface
+	clock  func() time.Time
 }
+
+// now is the time by the model's clock.
+func (m Model) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
+}
+
+// agentKind is what the agent turned out to be.
+type agentKind int
+
+const (
+	kindUnknown agentKind = iota
+	kindSingle
+	kindHub
+)
 
 // New returns the model for a conversation with conn. title names the
 // session in the banner; empty means use the agent's own title or name.
@@ -145,7 +166,7 @@ func (m Model) Open(role string) Model {
 func (m Model) Restore(v core.View, note string) Model {
 	m.one = core.RestoreSingle(m.one, v)
 	if note != "" {
-		m.one.State.Message = core.Message{Text: note, At: time.Now()}
+		m.one.State.Message = core.Message{Text: note, At: m.now()}
 	}
 	return m
 }
@@ -160,7 +181,7 @@ func (m Model) OnView(f func(core.View)) Model {
 
 // SavedView is the view to save: where the operator is now.
 func (m Model) SavedView() core.View {
-	if m.hubMode {
+	if m.kind == kindHub {
 		drafts := make(map[string]string, len(m.drafts)+1)
 		for role, text := range m.drafts {
 			drafts[role] = text
@@ -188,7 +209,7 @@ func (m *Model) tellView() {
 // conversations when this client goes (known is false when it did not
 // say, or when the agent is not the hub).
 func (m Model) Keeps() (known, keeps bool) {
-	if !m.hubMode {
+	if m.kind != kindHub {
 		return false, false
 	}
 	return m.hub.KeepsKnown, m.hub.Keeps
@@ -196,7 +217,7 @@ func (m Model) Keeps() (known, keeps bool) {
 
 // Died reports whether the agent exited on its own, and why.
 func (m Model) Died() (bool, string) {
-	if m.hubMode {
+	if m.kind == kindHub {
 		return m.died, m.hub.Exit
 	}
 	return m.died, m.one.State.Exit
@@ -221,8 +242,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if em, ok := msg.(EventMsg); ok {
-		if _, ok := em.Event.(core.HubConnected); ok && !m.hubMode {
-			m.hubMode, m.hub = true, core.NewHub(m.open)
+		if _, ok := em.Event.(core.HubConnected); ok && m.kind != kindHub {
+			m.kind, m.hub = kindHub, core.NewHub(m.open)
 			// What was typed and pasted so far is the hub's now, for the
 			// first role in focus.
 			m.hub = core.HubFromSingle(m.hub, m.one, m.input.Value())
@@ -233,13 +254,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.SetWidth(render.HubInputWidth(m.hub, m.width()))
 		}
 	}
-	if m.hubMode {
+	if m.kind == kindHub {
 		next, cmd := m.updateHub(msg)
 		nm := next.(Model)
 		nm.tellView()
 		return nm, cmd
 	}
-	now := time.Now()
+	now := m.now()
 	var ev core.Event
 	var evs []core.Event
 	var cmds []tea.Cmd
@@ -265,7 +286,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ev = m.wheel(msg, now)
 		}
 	case tea.PasteMsg:
-		evs = []core.Event{core.KeyPressed{At: now}, pasted(m.one.App, now, msg.Content)}
+		evs = []core.Event{core.KeyPressed{At: now}, pasted(core.SingleSurface(m.one), now, msg.Content)}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {
@@ -322,7 +343,8 @@ func (m *Model) stop() tea.Cmd {
 // and no print is in flight, and back when it closes. Leaving, it waits
 // readyDelay for the inline frame to be drawn before anything prints.
 func (m *Model) screen() tea.Cmd {
-	switch open := m.one.State.Transcript.Open && len(m.one.State.Asks) == 0; {
+	surf := core.SingleSurface(m.one)
+	switch open := surf.Under == core.SurfaceTranscript; {
 	case open && !m.alt && !m.printing:
 		m.alt = true
 	case !open && m.alt:
@@ -347,64 +369,17 @@ func (m *Model) wheel(w tea.MouseWheelMsg, now time.Time) core.Event {
 
 // key turns a key press into events, or passes it to the input box.
 func (m *Model) key(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.Cmd) {
-	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
-	if len(m.one.State.Asks) > 0 && m.one.App.Moving {
-		// While moving the request has every key; while typing none, and
-		// esc moves to answer it.
-		return one(askKey(ClassifyAsk(k), now))
-	}
-	empty := m.input.Value() == ""
-	if m.one.State.Help {
-		// Any key closes the list of keys, and does only that.
-		return one(core.ToggleHelp{At: now})
-	}
-	if m.one.State.Transcript.Open {
-		return one(m.transcriptKey(k, empty, now))
-	}
-	if !m.one.App.Moving {
-		return m.typingKey(k, now)
-	}
-	a, index := ClassifyMoving(k)
-	if m.one.App.PaneFocus {
-		return m.paneMoving(k, a, index, m.one.State, now)
-	}
-	// The conversation, moving. It is printed into the terminal's
-	// scrollback, so the terminal scrolls it, and ctrl+t or ctrl+o opens
-	// the transcript.
-	switch a {
-	case MoveLeft:
-		return one(core.Move{At: now, Delta: -1}) // the edge: nothing
-	case MoveRight:
-		return one(core.Move{At: now, Delta: 1})
-	case MoveEnter, MoveType:
-		return one(core.Type{At: now})
-	case MoveTools:
-		return one(core.ShowTools{At: now})
-	case MoveThinking:
-		return one(core.ShowThinking{At: now})
-	case MoveHelp:
-		return one(core.ToggleHelp{At: now})
-	case MoveInterrupt:
-		return one(core.Interrupt{At: now, InputEmpty: true})
-	case MoveEOF:
-		if empty {
-			return one(core.EOF{At: now})
-		}
-	default:
-		if printable(k) {
-			return one(core.Unbound{At: now})
-		}
-	}
-	return nil, nil
+	return m.routeKey(core.SingleSurface(m.one), k, now)
 }
 
-// pasted is the event for a paste: into the input while typing, and a
-// word on how to type otherwise, so nothing pasted is lost unseen.
-func pasted(a core.App, now time.Time, text string) core.Event {
-	if a.Moving {
+// pasted is the event for a paste: into the input while typing there,
+// and a word on how to type otherwise, so nothing pasted is lost unseen.
+// The board's editor takes no paste (core.EditorPasteNote).
+func pasted(surf core.Surface, now time.Time, text string) core.Event {
+	if surf.Kind != core.SurfaceInput {
 		return core.Unbound{At: now}
 	}
-	return core.Pasted{At: now, Text: text} // the core drops it when the input is not in play
+	return core.Pasted{At: now, Text: text}
 }
 
 // transcriptKey is the event for a key pressed in the transcript view.
@@ -610,7 +585,7 @@ func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
 }
 
 func (m Model) View() tea.View {
-	if m.hubMode {
+	if m.kind == kindHub {
 		return m.hubView(time.Now())
 	}
 	if m.alt {
@@ -621,7 +596,7 @@ func (m Model) View() tea.View {
 	}
 	f := m.frame(time.Now())
 	v := tea.NewView(f.Content)
-	if c := m.input.Cursor(); c != nil && !m.one.App.PaneFocus && !m.one.State.Help && !m.one.App.Moving {
+	if c := m.input.Cursor(); c != nil && core.SingleSurface(m.one).Kind == core.SurfaceInput {
 		c.Position.X += f.InputX
 		c.Position.Y += f.InputY
 		v.Cursor = c

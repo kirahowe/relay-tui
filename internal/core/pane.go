@@ -537,8 +537,8 @@ func (r *reducer) paneKey(e PaneKey) {
 	s := &r.s
 	p := &s.Pane
 	if e.Action == PaneToggle {
-		if len(s.Asks) > 0 || (p.Trust != nil && p.Trust.Sent) {
-			return
+		if p.Trust != nil && p.Trust.Sent {
+			return // the pane waits on relay's answer, and keeps the keys
 		}
 		p.Trust, p.Message, p.Failure, p.Command = nil, "", "", ""
 		// An open input stays, so a request that takes the keys meanwhile
@@ -559,7 +559,7 @@ func (r *reducer) paneKey(e PaneKey) {
 		}
 		return
 	}
-	if !r.a.PaneFocus || len(s.Asks) > 0 {
+	if !r.a.PaneFocus {
 		return
 	}
 	if t := p.Trust; t != nil {
@@ -640,15 +640,6 @@ func (r *reducer) startTrust(at time.Time, i int) {
 	default:
 		p.Message = "Trust is not available here. It needs relay chat."
 	}
-}
-
-// PaneAsking says the pane asks the operator something its next key
-// answers: whether to archive a card, or to trust a card or an item. That
-// key goes to the pane, whatever it is, so it answers or cancels the
-// question and does nothing else. A trust already sent asks nothing.
-func PaneAsking(a App, s State) bool {
-	b, p := a.Board, s.Pane
-	return b.Confirm != 0 || (b.Trust != nil && !b.Trust.Sent) || (p.Trust != nil && !p.Trust.Sent)
 }
 
 // PaneSideKeys says the pane takes left and right (h and l) for itself:

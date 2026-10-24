@@ -249,7 +249,7 @@ func TestBadgesGolden(t *testing.T) {
 			out = append(out, StatusText(core.StatusLine{Kind: core.StatusIdle, Labels: l, Context: 12, HasContext: true}, "ctrl+j for a new line", t0, w))
 		}
 	}
-	out = append(out, StatusText(core.StatusLine{Kind: core.StatusAsking, Asks: 2, Labels: core.Labels{Private: true}}, "", t0, 60))
+	out = append(out, StatusText(core.StatusLine{Kind: core.StatusAsking, Asks: 2, Labels: core.Labels{Private: true}, AnswerHint: "esc to answer"}, "", t0, 60))
 	requireGolden(t, strings.Join(out, "\n"))
 }
 

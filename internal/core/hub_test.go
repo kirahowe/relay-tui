@@ -126,7 +126,7 @@ func TestHubReplayBeforeTheAnswerIsKept(t *testing.T) {
 
 func TestHubQueuedTextSurvivesAReplayThatCameFirst(t *testing.T) {
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}})
-	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Submit{At: t0, Text: "first"})
+	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Type{At: t0}, Submit{At: t0, Text: "first"})
 	h, fx := apply(t, h, routed("s9", TextChunk{At: t0, Text: "old"}), Attached{At: t0, Role: "dev", Session: "s9"})
 	if len(h.Convs) != 1 {
 		t.Fatalf("convs %d", len(h.Convs))
@@ -225,7 +225,7 @@ func TestHubSeenIsSentOnceWhenTheLatestTurnIsOnScreen(t *testing.T) {
 		t.Fatalf("%v", fx)
 	}
 	r.Conv.Turn = TurnIdle
-	hl, _ := apply(t, h, Move{At: t0, Delta: -1})
+	hl, _ := apply(t, h, StopTyping{At: t0}, Move{At: t0, Delta: -1})
 	_, fx = apply(t, hl, RosterUpdate{At: t0, Roles: []Role{r}})
 	if len(fx) != 0 {
 		t.Fatalf("list open: %v", fx)
@@ -251,7 +251,7 @@ func TestHubQueuedTurnShowsInTheRoster(t *testing.T) {
 func TestHubEndAsksFirst(t *testing.T) {
 	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"},
 		RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}})
-	h, fx := apply(t, h, AskEnd{At: t0})
+	h, fx := apply(t, h, StopTyping{At: t0}, AskEnd{At: t0})
 	if !h.EndAsk || len(fx) != 0 {
 		t.Fatalf("asks first: %+v %v", h.EndAsk, fx)
 	}
@@ -703,10 +703,12 @@ func answerCount(fx []Effect) int {
 // uncovered it answers nothing.
 func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 	ask := PermissionAsked{At: t0, Permission: Permission{ID: 4, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
+	// The request has the keys, so only its own keys and the moves past
+	// it reach the core: the end question and the help cannot cover it.
 	paths := map[string][2][]Event{
 		"list": {{Move{Delta: -1}}, {Move{Delta: 1}}},
-		"end":  {{AskEnd{}}, {ConfirmEnd{Yes: false}}},
-		"help": {{ToggleHelp{}}, {ToggleHelp{}}},
+		"pane": {{Move{Delta: 1}}, {Move{Delta: -1}}},
+		"role": {{FocusIndex{Index: 1}}, {FocusIndex{Index: 0}}},
 	}
 	for name, p := range paths {
 		t.Run(name, func(t *testing.T) {
@@ -715,6 +717,9 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 				for _, e := range es {
 					switch e := e.(type) {
 					case Move:
+						e.At = t0.Add(d)
+						out = append(out, e)
+					case FocusIndex:
 						e.At = t0.Add(d)
 						out = append(out, e)
 					case AskEnd:
@@ -749,7 +754,7 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
 	for name, leave := range map[string]Event{"switch": FocusIndex{At: t0, Index: 1}, "list": Move{At: t0, Delta: -1}, "pane": Move{At: t0, Delta: 1}, "help": ToggleHelp{At: t0}, "end": AskEnd{At: t0}} {
 		t.Run(name, func(t *testing.T) {
-			h := loadedHub(t)
+			h, _ := apply(t, loadedHub(t), StopTyping{At: t0})
 			h.Convs = slices.Clone(h.Convs)
 			h.Convs[0].State.Pane.Trust = &TrustPrompt{Since: t0}
 			h, _ = apply(t, h, leave)
@@ -779,7 +784,7 @@ func TestHubLoadedFromTheRosterCountsAsListed(t *testing.T) {
 
 func TestHubEndQuestionIsAboutOneSession(t *testing.T) {
 	h := loadedHub(t)
-	h, _ = apply(t, h, AskEnd{At: t0})
+	h, _ = apply(t, h, StopTyping{At: t0}, AskEnd{At: t0})
 	if !h.EndAsk || h.EndSession != "s1" {
 		t.Fatalf("%+v", h)
 	}
@@ -797,7 +802,7 @@ func TestHubEndQuestionIsAboutOneSession(t *testing.T) {
 	}
 	// And with the question open when the session is replaced under it.
 	h = loadedHub(t)
-	h, _ = apply(t, h, AskEnd{At: t0})
+	h, _ = apply(t, h, StopTyping{At: t0}, AskEnd{At: t0})
 	h.Convs = slices.Clone(h.Convs)
 	h.Convs[0].Session = "s9" // the focused conversation is another one now
 	_, fx = apply(t, h, ConfirmEnd{At: t0, Yes: true})
@@ -854,7 +859,7 @@ func TestHubSeenWaitsForEverythingThatCoversTheConversation(t *testing.T) {
 	r := role("dev", "s1")
 	r.Conv.Turns, r.Conv.Unread = 2, true
 	base := func() Hub {
-		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"})
+		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"}, StopTyping{At: t0})
 		return h
 	}
 	hasSeen := func(fx []Effect) bool {
@@ -945,7 +950,7 @@ func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
 		t.Fatalf("single-session says %q", Status(App{}, s, t0).Message)
 	}
 	// With no conversation the role's draft says it through the notice.
-	hb, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, TrustPaste{At: t0, Draft: ""})
+	hb, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0}, TrustPaste{At: t0, Draft: ""})
 	if hb.Notice == "" {
 		t.Fatal("no notice for a role with no conversation")
 	}
@@ -955,7 +960,7 @@ func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
 // that conversation comes to be.
 func TestHubBlankPastesAreAdoptedWhenTheRoleGainsAConversationByAnyPath(t *testing.T) {
 	blank := func() (Hub, string) {
-		h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0})
+		h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
 		h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
 		tok, _ := insertText(fx)
 		return h, tok
@@ -983,7 +988,7 @@ func TestHubBlankPastesAreAdoptedWhenTheRoleGainsAConversationByAnyPath(t *testi
 
 func TestHubPasteToARoleWithNoConversationIsKept(t *testing.T) {
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true},
-		RosterUpdate{At: t0, Roles: []Role{role("dev", ""), role("mail", "")}}, FocusIndex{At: t0, Index: 0})
+		RosterUpdate{At: t0, Roles: []Role{role("dev", ""), role("mail", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
 	if h.Focused() != nil {
 		t.Fatal("moving opened a conversation")
 	}

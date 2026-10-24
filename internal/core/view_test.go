@@ -25,7 +25,7 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 	t.Helper()
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()},
-		FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"},
+		FocusIndex{At: t0, Index: 0}, Type{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"},
 		Pasted{At: t0, Text: "dev paste"},
 		FocusIndex{At: t0, Index: 1},
 		Pasted{At: t0, Text: "an email\nfrom outside"}, Pasted{At: t0, Text: "my own notes"})
@@ -311,7 +311,7 @@ func TestRestoreSingle(t *testing.T) {
 		t.Fatalf("board %+v", y.Board)
 	}
 	// The restored draft sends its paste as it was: untrusted, attached.
-	y, fx = feedS(y, PaneKey{At: t0, Action: PaneToggle}, Submit{At: t0, Text: draft})
+	y, fx = feedS(y, Type{At: t0}, Submit{At: t0, Text: draft})
 	if p := effectsOf[SendPrompt](fx); len(p) != 1 || len(p[0].Attachments) != 1 || p[0].Attachments[0].Text != "outside" {
 		t.Fatalf("sent %v", fx)
 	}
@@ -383,6 +383,18 @@ func sentAs(text string, ps []Paste) map[string]string {
 	return out
 }
 
+// trustedWords is the words of the pastes that go as trusted text when
+// text is sent.
+func trustedWords(text string, ps []Paste) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range ps {
+		if p.Trusted && strings.Contains(text, p.Token()) {
+			out[p.Text] = true
+		}
+	}
+	return out
+}
+
 // A saved draft comes back exactly, and a damaged one can only come back
 // less trusted: every paste that would go as trusted text went as
 // trusted text, with the same words, before.
@@ -395,10 +407,13 @@ func TestRestoredDraftIsNeverMoreTrusted(t *testing.T) {
 		}
 		m := mangle(t, d)
 		text, pastes, next = restoredDraft(m)
-		before := sentAs(d.Text, d.Pastes)
-		for words, how := range sentAs(text, pastes) {
-			if how == "trusted" && before[words] != "trusted" {
-				t.Fatalf("%q came back trusted, was %q\nsaved %+v\ndamaged %+v\nrestored %q %+v", words, before[words], d, m, text, pastes)
+		// By the words: two pastes may hold the same words, one trusted
+		// and one not, so what counts is whether those words went as
+		// trusted text before at all.
+		before := trustedWords(d.Text, d.Pastes)
+		for words := range trustedWords(text, pastes) {
+			if !before[words] {
+				t.Fatalf("%q came back trusted, was not\nsaved %+v\ndamaged %+v\nrestored %q %+v", words, d, m, text, pastes)
 			}
 		}
 		for _, p := range pastes {

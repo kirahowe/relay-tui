@@ -250,9 +250,9 @@ func (r *hubReducer) restoreLayout(v View, at time.Time) {
 	h.List = hv.List || h.Focus == ""
 	// Back in a conversation is typing in it; anywhere else is moving.
 	defer func() { h.App.Moving = h.List || h.App.PaneFocus || h.Focus == "" }()
-	if c := h.Focused(); !v.PaneFocus || h.Focus != hv.Focus || !h.PaneShown() || (c != nil && len(c.State.Asks) > 0) {
+	if !v.PaneFocus || h.Focus != hv.Focus || !h.PaneShown() {
 		// The pane had the keys over a role that has gone, or has
-		// nothing to show, or a request has the keys.
+		// nothing to show.
 		return
 	}
 	h.App.PaneFocus, h.List = true, false
@@ -328,7 +328,7 @@ func restoreSingle(x Single, at time.Time, fx []Effect) (Single, []Effect) {
 		}
 		if rs.Layout {
 			rs.Layout = false
-			if rs.View.PaneFocus && len(x.State.Asks) == 0 && x.State.Phase != Exited {
+			if rs.View.PaneFocus && x.State.Phase != Exited {
 				x.App.PaneFocus, x.App.Moving = true, true
 			}
 		}

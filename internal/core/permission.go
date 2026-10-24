@@ -199,14 +199,8 @@ func (r *reducer) permission(e Event) {
 			s.Turn.LastEvent = e.At
 			s.Turn.Retry = nil
 		}
-		// The request takes the keys, so the pane lets go of them, when the
-		// conversation is the one on screen.
-		if r.shown {
-			r.a.PaneFocus = false
-		}
-		if t := s.Pane.Trust; t != nil && !t.Sent {
-			s.Pane.Trust = nil
-		}
+		// The request moves no keys and closes nothing: it waits until its
+		// conversation has the keys while moving (see Surface).
 		p := e.Permission
 		p.Options = onceOptions(p.Options)
 		if len(s.Asks) == 0 {

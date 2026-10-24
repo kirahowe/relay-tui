@@ -22,9 +22,15 @@ type recConn struct {
 	calls *[]string
 }
 
-func (c recConn) CardOp(int64, core.CardOp)                { *c.calls = append(*c.calls, "card-op") }
-func (c recConn) CardTrust(int64, int64, string)           { *c.calls = append(*c.calls, "card-trust") }
-func (c recConn) Answer(core.AnswerPermission)             { *c.calls = append(*c.calls, "answer") }
+func (c recConn) CardOp(int64, core.CardOp)      { *c.calls = append(*c.calls, "card-op") }
+func (c recConn) CardTrust(int64, int64, string) { *c.calls = append(*c.calls, "card-trust") }
+func (c recConn) Answer(a core.AnswerPermission) {
+	if a.Cancelled {
+		*c.calls = append(*c.calls, "cancel-answer") // esc on a request, at any time
+		return
+	}
+	*c.calls = append(*c.calls, "answer")
+}
 func (c recConn) Prompt(string, string, []core.Attachment) { *c.calls = append(*c.calls, "prompt") }
 
 func navCards() []core.Card {
@@ -272,17 +278,17 @@ func TestNoKeyAnswersARequestWhileTypingOrUnarmed(t *testing.T) {
 			if s := k.String(); s == "ctrl+c" || s == "ctrl+d" {
 				continue
 			}
-			wasMoving := m.hub.App.Moving
+			was := core.HubSurface(m.hub)
 			before := answered(calls)
 			m = update(m, k)
-			if !wasMoving && answered(calls) > before {
+			if was.Typing() && answered(calls) > before {
 				rt.Fatalf("key %q while typing answered: %v", k.String(), calls)
 			}
-			if !wasMoving && m.hub.App.Moving {
-				answerable = time.Now()
+			if answered(calls) > before && time.Since(answerable) < core.ArmDelay {
+				rt.Fatalf("key %q answered within the delay of the request becoming the surface: %v", k.String(), calls)
 			}
-			if wasMoving && answered(calls) > before && time.Since(answerable) < core.ArmDelay {
-				rt.Fatalf("key %q answered within the delay of esc: %v", k.String(), calls)
+			if was.Kind != core.SurfaceRequest && core.HubSurface(m.hub).Kind == core.SurfaceRequest {
+				answerable = time.Now()
 			}
 		}
 	})
