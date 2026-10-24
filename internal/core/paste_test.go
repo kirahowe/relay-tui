@@ -9,9 +9,9 @@ import (
 	"pgregory.net/rapid"
 )
 
-func idleState(embedded bool) State {
-	s, _ := Reduce(State{}, Connected{At: t0, Embedded: embedded})
-	return s
+func idleState(embedded bool) Single {
+	x, _ := feedS(Single{}, Connected{At: t0, Embedded: embedded})
+	return x
 }
 
 func prompts(fx []Effect) []SendPrompt {
@@ -37,7 +37,7 @@ func TestPasteAlwaysAttached(t *testing.T) {
 		n := 0
 		apply := func(e Event) []Effect {
 			var fx []Effect
-			s, fx = Reduce(s, e)
+			s, fx = feedS(s, e)
 			for _, f := range fx {
 				switch f := f.(type) {
 				case InsertInput:
@@ -68,7 +68,7 @@ func TestPasteAlwaysAttached(t *testing.T) {
 				}
 				held[secret] = tok
 			case 2:
-				apply(TrustPaste{At: t0, Draft: input})
+				apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input})
 			case 3:
 				input += "typed "
 			case 4: // delete a placeholder
@@ -141,7 +141,7 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	var input string
 	apply := func(e Event) []Effect {
 		var fx []Effect
-		s, fx = Reduce(s, e)
+		s, fx = feedS(s, e)
 		for _, f := range fx {
 			switch f := f.(type) {
 			case InsertInput:
@@ -160,19 +160,19 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	}
 	// Ctrl+y trusts that one only.
 	apply(Pasted{At: t0, Text: "second"})
-	apply(TrustPaste{At: t0, Draft: input})
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input})
 	if !strings.Contains(input, "untrusted #1]") || !strings.Contains(input, "[pasted 1 line · trusted #2]") {
 		t.Fatalf("only the latest should be trusted: %q", input)
 	}
 	// Again: the earlier one. Again: none left, and it says so.
-	apply(TrustPaste{At: t0, Draft: input})
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input})
 	if strings.Contains(input, "untrusted") {
 		t.Fatalf("%q", input)
 	}
 	before := input
-	apply(TrustPaste{At: t0, Draft: input})
-	if input != before || Status(App{}, s, t0).Message == "" || Status(App{}, s, t0.Add(time.Hour)).Message != "" {
-		t.Fatalf("no-op: input %q, message %q", input, Status(App{}, s, t0).Message)
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input})
+	if input != before || Status(s.App, s.State, t0.Add(ArmDelay)).Message == "" || Status(s.App, s.State, t0.Add(time.Hour)).Message != "" {
+		t.Fatalf("no-op: input %q, message %q", input, Status(s.App, s.State, t0.Add(ArmDelay)).Message)
 	}
 	// A paste whose placeholder was deleted is not the latest in the input.
 	s = idleState(true)
@@ -180,7 +180,7 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	apply(Pasted{At: t0, Text: "one"})
 	apply(Pasted{At: t0, Text: "two"})
 	input = strings.Replace(input, "[pasted 1 line · untrusted #2]", "", 1)
-	apply(TrustPaste{At: t0, Draft: input})
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input})
 	if !strings.Contains(input, "[pasted 1 line · trusted #1]") {
 		t.Fatalf("%q", input)
 	}
@@ -189,7 +189,7 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	input = ""
 	apply(Pasted{At: t0, Text: "plain words"})
 	apply(Pasted{At: t0, Text: "an email"})
-	apply(TrustPaste{At: t0, Draft: input}) // trusts the email, the latest
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: input}) // trusts the email, the latest
 	fx := apply(Submit{At: t0, Text: input})
 	p := prompts(fx)[0]
 	if !strings.Contains(p.Text, "an email") || len(p.Attachments) != 1 || p.Attachments[0].Text != "plain words" {
@@ -201,7 +201,7 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 	// A draft that still reads untrusted is attached, whatever was marked.
 	s = idleState(true)
 	apply(Pasted{At: t0, Text: "secret"})
-	apply(TrustPaste{At: t0, Draft: "[pasted 1 line · untrusted #1]"})
+	apply(TrustPaste{At: t0.Add(ArmDelay), Draft: "[pasted 1 line · untrusted #1]"})
 	fx = apply(Submit{At: t0, Text: "[pasted 1 line · untrusted #1]"})
 	if p := prompts(fx)[0]; len(p.Attachments) != 1 || strings.Contains(p.Text, "secret") {
 		t.Fatalf("%+v", p)
@@ -213,9 +213,9 @@ func TestTrustPasteMarksTheLatestUntrustedPasteInTheInput(t *testing.T) {
 func TestPasteInlinedWithoutEmbeddedContext(t *testing.T) {
 	s := idleState(false)
 	var tok string
-	s, fx := Reduce(s, Pasted{At: t0, Text: "SECRET"})
+	s, fx := feedS(s, Pasted{At: t0, Text: "SECRET"})
 	tok = fx[0].(InsertInput).Text
-	s, fx = Reduce(s, Submit{At: t0, Text: "read " + tok})
+	s, fx = feedS(s, Submit{At: t0, Text: "read " + tok})
 	ps := prompts(fx)
 	if len(ps) != 1 || ps[0].Text != "read SECRET" || len(ps[0].Attachments) != 0 {
 		t.Fatalf("prompt %+v", ps)
@@ -234,32 +234,32 @@ func TestPasteInlinedWithoutEmbeddedContext(t *testing.T) {
 // message goes back to the input.
 func TestPasteSurvivesQueue(t *testing.T) {
 	s := idleState(true)
-	s, _ = Reduce(s, Submit{At: t0, Text: "first"})
-	s, fx := Reduce(s, Pasted{At: t0, Text: "SECRET"})
+	s, _ = feedS(s, Submit{At: t0, Text: "first"})
+	s, fx := feedS(s, Pasted{At: t0, Text: "SECRET"})
 	tok := fx[0].(InsertInput).Text
-	s, _ = Reduce(s, Submit{At: t0, Text: "second " + tok})
-	_, fx = Reduce(s, PromptDone{At: t0, Stop: EndTurn})
+	s, _ = feedS(s, Submit{At: t0, Text: "second " + tok})
+	_, fx = feedS(s, PromptDone{At: t0, Stop: EndTurn})
 	ps := prompts(fx)
 	if len(ps) != 1 || ps[0].Text != "second [paste:1]" || len(ps[0].Attachments) != 1 || ps[0].Attachments[0].Text != "SECRET" {
 		t.Fatalf("prompt %+v", ps)
 	}
 	// Failure: the text returns to the input, and the paste is still held.
-	s2, fx := Reduce(s, PromptFailed{At: t0, Message: "x"})
-	if len(prompts(fx)) != 0 || len(s2.Pastes) != 1 {
-		t.Fatalf("effects %+v pastes %+v", fx, s2.Pastes)
+	s2, fx := feedS(s, PromptFailed{At: t0, Message: "x"})
+	if len(prompts(fx)) != 0 || len(s2.Draft.Pastes) != 1 {
+		t.Fatalf("effects %+v pastes %+v", fx, s2.Draft.Pastes)
 	}
 }
 
 // While moving a request has the keys, so a paste goes nowhere; while
 // typing the input keeps them, request or not, and the paste lands.
 func TestPasteIgnoredWhileAsking(t *testing.T) {
-	x := Single{State: idleState(true)}
+	x := idleState(true)
 	x, _ = feedS(x, Submit{At: t0, Text: "go"}, PermissionAsked{At: t0, Permission: Permission{ID: 1}})
-	if typed, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 1 || len(typed.Pastes) != 1 {
+	if typed, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 1 || len(typed.Draft.Pastes) != 1 {
 		t.Fatalf("typing: the paste did not land: %+v", fx)
 	}
 	x, _ = feedS(x, StopTyping{At: t0})
-	if s2, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 0 || len(s2.Pastes) != 0 {
+	if s2, fx := feedS(x, Pasted{At: t0, Text: "x"}); len(fx) != 0 || len(s2.Draft.Pastes) != 0 {
 		t.Fatalf("moving: a paste got through: %+v", fx)
 	}
 }

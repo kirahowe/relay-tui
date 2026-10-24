@@ -94,13 +94,15 @@ func TestTypingNeverReachesTheBoardOrARequest(t *testing.T) {
 // holds, and the drafts kept for the others.
 func drafts(m Model) map[string]string {
 	out := map[string]string{}
-	for role, text := range m.drafts {
-		if text != "" {
-			out[role] = text
+	for _, d := range m.hub.Drafts {
+		if d.Text != "" {
+			out[d.Role] = d.Text
 		}
 	}
 	if v := m.input.Value(); v != "" {
 		out[m.inputRole] = v
+	} else {
+		delete(out, m.inputRole)
 	}
 	return out
 }

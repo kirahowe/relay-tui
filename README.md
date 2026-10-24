@@ -500,6 +500,12 @@ makes egress need your approval from then on. Delete a placeholder from
 the input and that paste is not sent. A terminal that does not do
 bracketed paste types the text in as keys, and relay-tui cannot tell.
 
+A draft belongs to its role, not to a conversation: its text and its
+pastes stay as they are when the conversation ends, here or on another
+device, or fails to open, and a message that could not be sent comes
+back to it with its pastes. A paste's number is never used again in
+the same draft.
+
 A paste is always untrusted when it arrives. To send one block as trusted
 text, paste it and then press Ctrl-Y: it marks the latest paste still in
 the input, and its placeholder changes to `[pasted 42 lines · trusted #1]`.

@@ -119,10 +119,12 @@ type Hub struct {
 	// Notice is a note for the status line, cleared by the next key.
 	Notice string
 	Help   bool
-	// TooSmall: see State.TooSmall. Blanks hold the paste state of roles
-	// with no conversation yet, so what is pasted there is kept.
+	// TooSmall: see State.TooSmall.
 	TooSmall bool
-	Blanks   []Blank
+	// Drafts are what the operator is writing to each role: the text, as
+	// the shell last wrote it back, and the pastes it names. A role owns
+	// its draft; its conversations come and go without touching it.
+	Drafts []Draft
 	// Restore is a saved view still on its way back (see view.go).
 	Restore *Restore
 	// Exit is why the connection went away, once Gone.
@@ -137,14 +139,6 @@ const maxEnded = 64
 func (h Hub) noteEnded(session string) []string {
 	out := append(slices.Clone(h.Ended), session)
 	return out[max(len(out)-maxEnded, 0):]
-}
-
-// Blank is the state of pastes made to a role that has no conversation:
-// they wait, as placeholders in its draft, for the first message to start
-// one.
-type Blank struct {
-	Role  string
-	State State
 }
 
 // NewHub is the state at start: open names the role to focus, or "".
@@ -359,7 +353,7 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	h.Roles = slices.Clone(h.Roles)
 	h.Convs = slices.Clone(h.Convs)
 	h.Ended = slices.Clone(h.Ended)
-	h.Blanks = slices.Clone(h.Blanks)
+	h.Drafts = slices.Clone(h.Drafts)
 	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
 	before, offered, view := h.onScreen(), h.offered(), h.view()
@@ -370,7 +364,6 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	}
 	r.restoreHub(e.at())
 	r.settleColumn()
-	r.adoptBlanks()
 	r.settle(before, e.at())
 	r.arm(offered, e.at())
 	r.keepCardTrust(view)
@@ -384,31 +377,34 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	return r.h, r.fx
 }
 
-// blank is the paste state for a role with no conversation, made when
-// asked.
-func (r *hubReducer) blank(role string) *Blank {
-	for i := range r.h.Blanks {
-		if r.h.Blanks[i].Role == role {
-			return &r.h.Blanks[i]
+// draftOf is the role's draft, made when asked.
+func (r *hubReducer) draftOf(role string) *Draft {
+	for i := range r.h.Drafts {
+		if r.h.Drafts[i].Role == role {
+			return &r.h.Drafts[i]
 		}
 	}
-	r.h.Blanks = append(r.h.Blanks, Blank{Role: role})
-	return &r.h.Blanks[len(r.h.Blanks)-1]
+	r.h.Drafts = append(r.h.Drafts, Draft{Role: role})
+	return &r.h.Drafts[len(r.h.Drafts)-1]
 }
 
-// adoptBlanks gives each role that now has a conversation the pastes that
-// waited for it, however the conversation came to be: a message, the
-// roster, --open or a load.
-func (r *hubReducer) adoptBlanks() {
-	for i := len(r.h.Blanks) - 1; i >= 0; i-- {
-		b := r.h.Blanks[i]
-		j := r.convIndex(b.Role)
-		if j < 0 {
-			continue
+// DraftOf is the role's draft (empty for none yet).
+func (h Hub) DraftOf(role string) Draft {
+	for _, d := range h.Drafts {
+		if d.Role == role {
+			return d
 		}
-		adoptWaiting(&r.h.Convs[j].State, b.State)
-		r.h.Blanks = slices.Delete(r.h.Blanks, i, i+1)
 	}
+	return Draft{Role: role}
+}
+
+// SetDraftText is h with the text of role's draft as the shell's input
+// holds it: the one path by which typed text reaches the core.
+func SetDraftText(h Hub, role, text string) Hub {
+	h.Drafts = slices.Clone(h.Drafts)
+	r := &hubReducer{h: h}
+	r.draftOf(role).Text = text
+	return r.h
 }
 
 // onScreen is the session of the conversation the operator can see the
@@ -629,27 +625,22 @@ func (r *hubReducer) apply(e Event) {
 		if !h.TooSmall {
 			r.toFocused(e)
 		}
-	case Pasted, TrustPaste:
-		if h.Focus == "" {
+	case Pasted:
+		if h.Focus == "" || e.Text == "" || r.focusedExited() {
 			return // not at the input
 		}
-		if h.Focused() != nil {
-			r.toFocused(e)
+		p := r.draftOf(h.Focus).paste(&h.App, e.Text)
+		r.emit(InsertInput{Role: h.Focus, Text: p.Token()})
+	case TrustPaste:
+		if h.Focus == "" || r.focusedExited() {
 			return
 		}
-		// No conversation yet: the paste waits in the role's draft.
-		b := r.blank(h.Focus)
-		var fx []Effect
-		h.App, b.State, fx = reduce(h.App, b.State, e, true) // the app counts the paste
-		for _, f := range fx {
-			switch f.(type) {
-			case InsertInput, ReplaceInput:
-				r.emit(f)
-			}
+		old, new, note := r.draftOf(h.Focus).trust(e.Draft)
+		if note != "" {
+			h.Notice = note
+			return
 		}
-		if m := b.State.Message; m.Text != "" && m.At.Equal(e.at()) {
-			h.Notice = m.Text
-		}
+		r.emit(ReplaceInput{Role: h.Focus, Old: old, New: new})
 	case Submit:
 		if strings.TrimSpace(e.Text) == "" || h.Focus == "" || h.List {
 			return
@@ -657,13 +648,13 @@ func (r *hubReducer) apply(e Event) {
 		if h.RosterLoaded && h.RoleByID(h.Focus) == nil {
 			// The role has gone: nothing to send to. The text goes back.
 			h.Notice = "no role " + oneLineText(h.Focus) + ": nothing was sent"
-			r.emit(RestoreInput{Text: e.Text})
+			r.emit(RestoreInput{Role: h.Focus, Text: e.Text})
 			return
 		}
 		if h.Focused() == nil {
 			r.ensureAttached(h.Focus, true)
 		}
-		r.adoptBlanks() // the pastes must be in before the message resolves
+		e.Pastes = r.draftOf(h.Focus).take(e.Text) // the message carries its pastes
 		r.toFocused(e)
 	case Interrupt:
 		r.interrupt(e)
@@ -841,16 +832,8 @@ func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	case RequestCards, SendCardOp, SendCardTrust:
 		// The board's calls are the connection's, about no conversation.
 		r.emit(f)
-	case InsertInput, RestoreInput, ReplaceInput:
-		if c.Role == r.h.Focus && c.Role != "" {
-			r.emit(f)
-		} else if ri, ok := f.(RestoreInput); ok {
-			// Not the conversation on screen, so there is no input to put
-			// it in. It stays where the operator will find it.
-			i := slices.IndexFunc(r.h.Convs, func(x Conv) bool { return x.Session == c.Session && x.Role == c.Role })
-			r.h.Convs[i].State.Entries = append(slices.Clone(r.h.Convs[i].State.Entries),
-				Entry{Kind: Note, Text: "not sent: " + oneLineText(ri.Text), Final: true})
-		}
+	case RestoreInput:
+		r.giveBack(c.Role, f)
 	case Quit:
 		if user {
 			r.emit(f)
@@ -998,17 +981,7 @@ func (r *hubReducer) attached(e Attached) {
 			return x.Role == e.Role && !x.Attached && (x.Session == "" || x.Session == e.Session)
 		})
 		if i >= 0 {
-			s := h.Convs[i].State
-			h.Convs = slices.Delete(h.Convs, i, i+1)
-			// The role has no conversation again: the pastes its input or
-			// queue still name wait in its blank, as before it had one.
-			if len(s.Pastes) > 0 || s.NextPaste > 0 {
-				b := r.blank(e.Role)
-				adoptWaiting(&b.State, State{Pastes: s.Pastes, NextPaste: s.NextPaste})
-			}
-			if len(s.Queue) > 0 && h.Focus == e.Role {
-				r.emit(RestoreInput{Text: strings.Join(s.Queue, "\n\n")})
-			}
+			r.dropConv(i)
 		}
 		if e.Session != "" {
 			// Not live any more, whatever a roster still in flight says.
@@ -1024,9 +997,9 @@ func (r *hubReducer) attached(e Attached) {
 	bySession := r.sessionIndex(e.Session)
 	switch {
 	case bySession >= 0 && byRole >= 0:
-		// The replay got here first and made a conversation of its own;
-		// the one that was waiting gives it what the operator put in it.
-		adoptWaiting(&h.Convs[bySession].State, h.Convs[byRole].State)
+		// The replay got here first and made a conversation of its own:
+		// the two are one, and the messages that waited go first.
+		h.Convs[bySession].State.Queue = append(slices.Clone(h.Convs[byRole].State.Queue), h.Convs[bySession].State.Queue...)
 		h.Convs = slices.Delete(h.Convs, byRole, byRole+1)
 		bySession = r.sessionIndex(e.Session)
 	case bySession < 0 && byRole >= 0:
@@ -1047,21 +1020,33 @@ func (r *hubReducer) attached(e Attached) {
 	}
 }
 
-// adoptWaiting folds into dst what the operator gave src, a
-// conversation that waited for its attach: its queue, ahead of dst's,
-// and its pastes with their counter, so the placeholders in the input
-// and the queue still send their text and no number is used twice. A
-// paste of dst's with a number of src's gives way to src's, whose
-// placeholder is the one in the input.
-func adoptWaiting(dst *State, src State) {
-	dst.Queue = append(slices.Clone(src.Queue), dst.Queue...)
-	pastes := slices.Clone(src.Pastes)
-	for _, p := range dst.Pastes {
-		if !slices.ContainsFunc(src.Pastes, func(q Paste) bool { return q.ID == p.ID }) {
-			pastes = append(pastes, p)
-		}
+// giveBack puts a message that was not sent back where the operator
+// will find it: its pastes in the role's draft, its text (by the shell)
+// in the role's input.
+func (r *hubReducer) giveBack(role string, f RestoreInput) {
+	if role == "" {
+		return
 	}
-	dst.Pastes, dst.NextPaste = pastes, max(dst.NextPaste, src.NextPaste)
+	r.draftOf(role).giveBack(f.Pastes)
+	r.emit(RestoreInput{Role: role, Text: f.Text})
+}
+
+// dropConv removes conversation i; what it still had queued goes back to
+// its role.
+func (r *hubReducer) dropConv(i int) {
+	c := r.h.Convs[i]
+	r.h.Convs = slices.Delete(r.h.Convs, i, i+1)
+	if len(c.State.Queue) > 0 {
+		q := joinQueued(c.State.Queue)
+		r.giveBack(c.Role, RestoreInput{Text: q.Text, Pastes: q.Pastes})
+	}
+}
+
+// focusedExited says the conversation in focus has exited, so its input
+// takes nothing.
+func (r *hubReducer) focusedExited() bool {
+	c := r.h.Focused()
+	return c != nil && c.State.Phase == Exited
 }
 
 func (r *hubReducer) ended(e ConversationEnded) {
@@ -1072,7 +1057,7 @@ func (r *hubReducer) ended(e ConversationEnded) {
 		return
 	}
 	if i := r.sessionIndex(e.Session); i >= 0 {
-		h.Convs = slices.Delete(h.Convs, i, i+1)
+		r.dropConv(i)
 	}
 	h.Ended = h.noteEnded(e.Session)
 	h.EndAsk = false
@@ -1142,7 +1127,7 @@ func (r *hubReducer) reconcile(old []Role) {
 			if c.Role == h.Focus {
 				h.Notice = "the conversation ended"
 			}
-			h.Convs = slices.Delete(h.Convs, i, i+1)
+			r.dropConv(i)
 		}
 	}
 	// What a conversation left open can be closed once relay says no turn

@@ -123,13 +123,13 @@ func TestRestoreLandsInTheModeOfTheColumn(t *testing.T) {
 		"pane":                {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}, Move{At: t0, Delta: 1}); return h }(), true},
 		"list":                {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}, Move{At: t0, Delta: -1}); return h }(), true},
 	} {
-		g, _ := reopen(t, SaveHub(c.h, nil), []Role{role("dev", "s1"), role("mail", "")}, viewCards())
+		g, _ := reopen(t, SaveHub(c.h), []Role{role("dev", "s1"), role("mail", "")}, viewCards())
 		if g.App.Moving != c.moving || g.col() != c.h.col() {
 			t.Errorf("%s: moving %v column %d, want %v %d", name, g.App.Moving, g.col(), c.moving, c.h.col())
 		}
 	}
 	x, _ := feedS(Single{}, Connected{At: t0}, StopTyping{At: t0}, Move{At: t0, Delta: 1})
-	y, _ := feedS(RestoreSingle(Single{}, SaveSingle(x, "")), Connected{At: t0})
+	y, _ := feedS(RestoreSingle(Single{}, SaveSingle(x)), Connected{At: t0})
 	if !y.App.PaneFocus || !y.App.Moving {
 		t.Fatalf("single pane: pane %v moving %v", y.App.PaneFocus, y.App.Moving)
 	}

@@ -111,15 +111,7 @@ func TestSavedHubFocusComesBackAlone(t *testing.T) {
 
 // pastesOf is the pastes the hub holds for a role.
 func pastesOf(m Model, role string) []core.Paste {
-	if c := m.hub.ConvOf(role); c != nil {
-		return c.State.Pastes
-	}
-	for _, b := range m.hub.Blanks {
-		if b.Role == role {
-			return b.State.Pastes
-		}
-	}
-	return nil
+	return m.hub.DraftOf(role).Pastes
 }
 
 func typeText(m Model, s string) Model {
@@ -185,7 +177,7 @@ func TestEnterBeforeTheHubIsKnownIsSent(t *testing.T) {
 	m = typeText(m, "hi")
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = update(m, ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
-	if c := m.hub.ConvOf("dev"); c == nil || len(c.State.Queue) != 1 || c.State.Queue[0] != "hi" {
+	if c := m.hub.ConvOf("dev"); c == nil || len(c.State.Queue) != 1 || c.State.Queue[0].Text != "hi" {
 		t.Fatalf("not queued: %+v", m.hub.Convs)
 	}
 	m = update(m, ev(core.Attached{At: now, Role: "dev", Session: "s1"}))

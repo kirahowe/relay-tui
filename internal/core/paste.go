@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -87,12 +88,13 @@ type (
 func (e Pasted) at() time.Time     { return e.At }
 func (e TrustPaste) at() time.Time { return e.At }
 
-// InsertInput asks the shell to insert text at the input's cursor.
-type InsertInput struct{ Text string }
+// InsertInput asks the shell to insert text at the cursor of Role's
+// input ("" against a single agent).
+type InsertInput struct{ Role, Text string }
 
-// ReplaceInput asks the shell to replace the first Old in the input with
-// New, where it stands.
-type ReplaceInput struct{ Old, New string }
+// ReplaceInput asks the shell to replace the first Old in Role's input
+// with New, where it stands.
+type ReplaceInput struct{ Role, Old, New string }
 
 func (InsertInput) effect()  {}
 func (ReplaceInput) effect() {}
@@ -106,64 +108,94 @@ type Message struct {
 // MessageFor is how long a Message shows.
 const MessageFor = 6 * time.Second
 
-func (r *reducer) pasted(e Pasted) {
-	s := &r.s
-	if !r.inputInPlay() || e.Text == "" {
-		return // nothing pasted while a request waits or something else has the keys goes anywhere
+// paste holds text pasted into the draft, numbered after every paste the
+// draft has had (numbers are never used twice), and counted on the app,
+// so the latest paste of the run can be told (Paste.Seq).
+func (d *Draft) paste(a *App, text string) Paste {
+	d.Pastes = slices.Clone(d.Pastes)
+	for _, q := range d.Pastes {
+		d.NextPaste = max(d.NextPaste, q.ID)
+		a.PasteSeq = max(a.PasteSeq, q.Seq)
 	}
-	s.NextPaste++
-	// After every paste of the run, and every one this conversation
-	// holds, even reduced with no app around it.
-	for _, q := range s.Pastes {
-		r.a.PasteSeq = max(r.a.PasteSeq, q.Seq)
-	}
-	r.a.PasteSeq++
-	p := Paste{ID: s.NextPaste, Text: e.Text, Seq: r.a.PasteSeq}
-	s.Pastes = append(s.Pastes, p)
-	r.emit(InsertInput{Text: p.Token()})
+	d.NextPaste++
+	a.PasteSeq++
+	p := Paste{ID: d.NextPaste, Text: text, Seq: a.PasteSeq}
+	d.Pastes = append(d.Pastes, p)
+	return p
 }
 
-// inputInPlay says the conversation can take what is typed. Whether the
-// input has the keys is the surface's to say (see Surface), and the
-// reducers drop a paste the surface does not take.
-func (r *reducer) inputInPlay() bool { return r.s.Phase != Exited }
-
-// trustPaste marks the latest paste still in the draft as trusted and has
-// the placeholder say so. Latest is by when it was pasted (Seq), not by
-// number or place in the list, which a restore can reorder. Only a paste
-// made in this run can be trusted: one restored from a saved view is
-// never marked, so trusting it means pasting it again. With none to mark
-// it says so on the status line.
-func (r *reducer) trustPaste(e TrustPaste) {
-	s := &r.s
-	if !r.inputInPlay() {
-		return
-	}
+// trust marks the latest paste still in the input, whose text is input,
+// as trusted, and gives the placeholder before and after. Latest is by
+// when it was pasted (Seq), not by number or place in the list, which a
+// restore can reorder. Only a paste made in this run can be trusted: one
+// restored from a saved view is never marked, so trusting it means
+// pasting it again. With none to mark, note says why.
+func (d *Draft) trust(input string) (old, new, note string) {
 	best, restored := -1, false
-	for i, p := range s.Pastes {
-		if p.Trusted || !strings.Contains(e.Draft, p.Token()) {
+	for i, p := range d.Pastes {
+		if p.Trusted || !strings.Contains(input, p.Token()) {
 			continue
 		}
 		if p.Seq == 0 {
 			restored = true
 			continue
 		}
-		if best < 0 || p.Seq > s.Pastes[best].Seq {
+		if best < 0 || p.Seq > d.Pastes[best].Seq {
 			best = i
 		}
 	}
 	if best < 0 {
-		text := "no untrusted paste in the input to trust"
 		if restored {
-			text = "a paste from before cannot be trusted: paste it again"
+			return "", "", "a paste from before cannot be trusted: paste it again"
 		}
-		s.Message = Message{Text: text, At: e.At}
-		return
+		return "", "", "no untrusted paste in the input to trust"
 	}
-	old := s.Pastes[best].Token()
-	s.Pastes[best].Trusted = true
-	r.emit(ReplaceInput{Old: old, New: s.Pastes[best].Token()})
-	s.Message = Message{}
+	d.Pastes = slices.Clone(d.Pastes)
+	old = d.Pastes[best].Token()
+	d.Pastes[best].Trusted = true
+	return old, d.Pastes[best].Token(), ""
+}
+
+// take removes from the draft, and gives back, the pastes text names: a
+// message sent or queued carries its pastes with it.
+func (d *Draft) take(text string) []Paste {
+	took := referenced(d.Pastes, text)
+	d.Pastes = slices.DeleteFunc(slices.Clone(d.Pastes), func(p Paste) bool {
+		return slices.ContainsFunc(took, func(q Paste) bool { return q.ID == p.ID })
+	})
+	return took
+}
+
+// giveBack puts pastes a message carried back in the draft, with the text
+// that names them (the shell puts the text in the input): numbers are
+// the draft's own, so none clashes.
+func (d *Draft) giveBack(ps []Paste) {
+	d.Pastes = slices.Clone(d.Pastes)
+	for _, p := range ps {
+		if !slices.ContainsFunc(d.Pastes, func(q Paste) bool { return q.ID == p.ID }) {
+			d.Pastes = append(d.Pastes, p)
+		}
+		d.NextPaste = max(d.NextPaste, p.ID)
+	}
+}
+
+// Queued is a message submitted while the conversation could not take it
+// yet: its text, and the pastes it names, which it carries until sent.
+type Queued struct {
+	Text   string
+	Pastes []Paste
+}
+
+// joinQueued is queued messages as one: their texts, and all their
+// pastes.
+func joinQueued(qs []Queued) Queued {
+	var texts []string
+	var pastes []Paste
+	for _, q := range qs {
+		texts = append(texts, q.Text)
+		pastes = append(pastes, q.Pastes...)
+	}
+	return Queued{Text: strings.Join(texts, "\n\n"), Pastes: pastes}
 }
 
 // resolve turns the text of a prompt into what is sent: the placeholders
@@ -171,16 +203,14 @@ func (r *reducer) trustPaste(e TrustPaste) {
 // takes no embedded context, the pasted text itself. Pastes whose
 // placeholder was deleted are not sent. inlined counts the pastes that
 // went in as plain text.
-func (r *reducer) resolve(text string) (out string, atts []Attachment, inlined, trusted int) {
-	s := &r.s
-	var rest []Paste
-	for _, p := range s.Pastes {
+func resolve(text string, pastes []Paste, embedded bool) (out string, atts []Attachment, inlined, trusted int) {
+	for _, p := range pastes {
 		// What the placeholder says decides, so a draft that still shows
 		// "untrusted" is sent as an attachment whatever was marked.
 		switch {
 		case strings.Contains(text, p.untrustedToken()):
 			tok := p.untrustedToken()
-			if s.Embedded {
+			if embedded {
 				text = strings.ReplaceAll(text, tok, p.Ref())
 				atts = append(atts, Attachment{URI: p.URI(), Text: p.Text})
 			} else {
@@ -190,10 +220,7 @@ func (r *reducer) resolve(text string) (out string, atts []Attachment, inlined, 
 		case p.Trusted && strings.Contains(text, p.Token()):
 			text = strings.ReplaceAll(text, p.Token(), p.Text)
 			trusted++
-		default:
-			rest = append(rest, p)
 		}
 	}
-	s.Pastes = rest
 	return text, atts, inlined, trusted
 }

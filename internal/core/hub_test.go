@@ -153,7 +153,7 @@ func TestHubAttachFailureRestoresTheText(t *testing.T) {
 	if len(h.Convs) != 0 || !strings.Contains(h.Notice, "no such role") {
 		t.Fatalf("%+v", h)
 	}
-	if !slices.Contains(fx, Effect(RestoreInput{Text: "typed"})) {
+	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Role != "dev" || ri[0].Text != "typed" {
 		t.Fatalf("effects %v", fx)
 	}
 }
@@ -824,8 +824,8 @@ func TestHubPastesWorkInAConversation(t *testing.T) {
 			ins = append(ins, i)
 		}
 	}
-	if len(ins) != 1 || !strings.Contains(ins[0].Text, "untrusted") || len(h.Convs[0].State.Pastes) != 1 {
-		t.Fatalf("%v %+v", fx, h.Convs[0].State.Pastes)
+	if len(ins) != 1 || !strings.Contains(ins[0].Text, "untrusted") || len(h.DraftOf("dev").Pastes) != 1 {
+		t.Fatalf("%v %+v", fx, h.DraftOf("dev").Pastes)
 	}
 	// It goes out as an attachment.
 	h, fx = apply(t, h, Submit{At: t0, Text: ins[0].Text})
@@ -845,7 +845,7 @@ func TestHubPastesWorkInAConversation(t *testing.T) {
 	h, fx = apply(t, h, Pasted{At: t0, Text: "plain"})
 	tok, _ := insertText(fx)
 	_, fx = apply(t, h, TrustPaste{At: t0.Add(ArmDelay), Draft: "x " + tok})
-	if !slices.Contains(fx, Effect(ReplaceInput{Old: tok, New: strings.Replace(tok, "untrusted", "trusted", 1)})) {
+	if !slices.Contains(fx, Effect(ReplaceInput{Role: "dev", Old: tok, New: strings.Replace(tok, "untrusted", "trusted", 1)})) {
 		t.Fatalf("trusting a paste: %v", fx)
 	}
 	// Under the help, nothing goes in.
@@ -942,14 +942,13 @@ func TestHubPastesAreAlwaysUntrustedOnArrival(t *testing.T) {
 
 func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
 	h, _ := apply(t, loadedHub(t), TrustPaste{At: t0.Add(time.Second), Draft: "typed only"})
-	st := Status(h.App, h.Convs[0].State, t0.Add(time.Second))
-	if st.Message == "" {
+	if h.Notice == "" {
 		t.Fatal("no word on the status line")
 	}
 	// Both modes: the same event does the same.
-	s, _ := Reduce(State{Phase: Idle}, TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
-	if Status(App{}, s, t0).Message != st.Message {
-		t.Fatalf("single-session says %q", Status(App{}, s, t0).Message)
+	s, _ := feedS(Single{}, Connected{At: t0}, TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
+	if s.State.Message.Text != h.Notice {
+		t.Fatalf("single-session says %q, the hub %q", s.State.Message.Text, h.Notice)
 	}
 	// With no conversation the role's draft says it through the notice.
 	hb, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0}, TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
@@ -958,9 +957,10 @@ func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
 	}
 }
 
-// The pastes that wait for a role's first conversation go to it however
-// that conversation comes to be.
-func TestHubBlankPastesAreAdoptedWhenTheRoleGainsAConversationByAnyPath(t *testing.T) {
+// A paste made before the role has a conversation stays the role's, and
+// goes out with the message that names it, however the conversation
+// comes to be.
+func TestHubPastesBeforeAConversationGoOutWithIt(t *testing.T) {
 	blank := func() (Hub, string) {
 		h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
 		h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
@@ -970,8 +970,8 @@ func TestHubBlankPastesAreAdoptedWhenTheRoleGainsAConversationByAnyPath(t *testi
 	// The roster: another device opens the conversation.
 	h, tok := blank()
 	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: []Role{role("dev", "s7")}})
-	if len(attachesIn(fx)) != 1 || len(h.Blanks) != 0 {
-		t.Fatalf("not adopted: %v %v", fx, h.Blanks)
+	if len(attachesIn(fx)) != 1 || len(h.DraftOf("dev").Pastes) != 1 {
+		t.Fatalf("the draft changed when the conversation came: %v %v", fx, h.DraftOf("dev"))
 	}
 	h, _ = apply(t, h, Attached{At: t0, Role: "dev", Session: "s7"})
 	_, fx = apply(t, h, Submit{At: t0, Text: "read " + tok})
@@ -1224,8 +1224,8 @@ func TestHubPastesSurviveAnyAttachOrder(t *testing.T) {
 }
 
 // An attach that fails leaves the role with no conversation; the queued
-// text comes back to the input and the pastes it names wait in the
-// role's blank, so it sends as typed once a conversation opens.
+// text comes back to the input and the pastes it names to the role's
+// draft, so it sends as typed once a conversation opens.
 func TestHubAttachFailureKeepsThePastes(t *testing.T) {
 	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0, Embedded: true})
 	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})

@@ -229,7 +229,7 @@ func TestQueueLossless(t *testing.T) {
 		steps := genSession(t)
 		var submitted, out []string
 		for _, st := range steps {
-			if e, ok := st.event.(Submit); ok && strings.TrimSpace(e.Text) != "" && st.before.Phase != Exited {
+			if e, ok := st.event.(Submit); ok && strings.TrimSpace(e.Text) != "" {
 				submitted = append(submitted, e.Text)
 			}
 			for _, f := range st.effects {
@@ -241,7 +241,9 @@ func TestQueueLossless(t *testing.T) {
 				}
 			}
 		}
-		out = append(out, final(steps).Queue...)
+		for _, q := range final(steps).Queue {
+			out = append(out, q.Text)
+		}
 		if !reflect.DeepEqual(out, submitted) {
 			t.Fatalf("submitted %q\nbut sent, restored or queued %q", submitted, out)
 		}
@@ -449,7 +451,7 @@ func TestCancelRestoresQueueAndSendsNothing(t *testing.T) {
 
 func TestFailureRestoresQueue(t *testing.T) {
 	_, fx := run(Connected{At: t0}, Submit{At: t0, Text: "a"}, Submit{At: t0, Text: "b"}, PromptFailed{At: t0, Message: "x"})
-	if want := (RestoreInput{Text: "b"}); fx[len(fx)-1] != want {
+	if want := (RestoreInput{Text: "b"}); !reflect.DeepEqual(fx[len(fx)-1], Effect(want)) {
 		t.Fatalf("effects %#v", fx)
 	}
 }

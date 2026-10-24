@@ -88,8 +88,8 @@ func TestDroppedPasteLeavesNothing(t *testing.T) {
 		s, _ := feedS(Single{}, Connected{At: t0, Embedded: true})
 		s = away(s)
 		s, fx := ReduceSingle(s, Pasted{At: t0, Text: "dropped"})
-		if len(s.Pastes) != 0 || len(fx) != 0 {
-			t.Errorf("%s: pastes %v, effects %+v", name, s.Pastes, fx)
+		if len(s.Draft.Pastes) != 0 || len(fx) != 0 {
+			t.Errorf("%s: pastes %v, effects %+v", name, s.Draft.Pastes, fx)
 		}
 	}
 }

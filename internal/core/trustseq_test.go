@@ -48,17 +48,7 @@ func (m *mailRun) apply(t interface{ Helper() }, es ...Event) []Effect {
 	return all
 }
 
-func (m *mailRun) pastes() []Paste {
-	if c := m.h.ConvOf("mail"); c != nil {
-		return c.State.Pastes
-	}
-	for _, b := range m.h.Blanks {
-		if b.Role == "mail" {
-			return b.State.Pastes
-		}
-	}
-	return nil
-}
+func (m *mailRun) pastes() []Paste { return m.h.DraftOf("mail").Pastes }
 
 func openMail(t interface{ Helper() }, v *View) *mailRun {
 	h := NewHub("mail")
@@ -77,7 +67,7 @@ func TestCtrlYAfterARestoreTrustsThisRunsPaste(t *testing.T) {
 	m.apply(t, RosterUpdate{At: t0, Roles: viewRoster()})
 	m.input = "read "
 	m.apply(t, Pasted{At: t0, Text: "an email from outside"})
-	v := SaveHub(m.h, map[string]string{"mail": m.input})
+	v := SaveHub(SetDraftText(m.h, "mail", m.input))
 
 	m = openMail(t, &v)
 	m.input = "mine: "
@@ -100,8 +90,8 @@ func TestCtrlYAfterARestoreTrustsThisRunsPaste(t *testing.T) {
 			t.Fatalf("a restored paste was trusted: %+v", m.pastes())
 		}
 	}
-	if c := m.h.ConvOf("mail"); c == nil || !strings.Contains(c.State.Message.Text, "paste it again") {
-		t.Fatalf("no word on why: %+v", c)
+	if !strings.Contains(m.h.Notice, "paste it again") {
+		t.Fatalf("no word on why: %q", m.h.Notice)
 	}
 }
 
@@ -126,7 +116,7 @@ func TestCtrlYOnlyEverTrustsTheLatestPasteOfThisRun(t *testing.T) {
 			case 4:
 				// Close and open again: what was saved comes back, and is
 				// no longer this run's.
-				v := SaveHub(m.h, map[string]string{"mail": m.input})
+				v := SaveHub(SetDraftText(m.h, "mail", m.input))
 				m, order = openMail(t, &v), nil
 			case 5:
 				before := slices.Clone(m.pastes())

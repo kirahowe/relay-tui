@@ -104,7 +104,7 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 
 	var bottom []string
 	for _, q := range s.Queue {
-		first, _, more := strings.Cut(strings.TrimSpace(q), "\n")
+		first, _, more := strings.Cut(strings.TrimSpace(q.Text), "\n")
 		first = oneLine(first)
 		if more {
 			first += "…"

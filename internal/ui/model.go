@@ -96,12 +96,12 @@ type Model struct {
 	alt, back bool
 	// kind is kindHub once the agent has said it is relay's hub. The
 	// screen is then the hub's, drawn whole on the alternate screen,
-	// and one is not used. open is the role --open named, and drafts
-	// the input each role not in focus had when it was left.
-	kind   agentKind
-	hub    core.Hub
-	open   string
-	drafts map[string]string
+	// and one is not used. open is the role --open named. Every draft
+	// is the core's (core.Draft); the input box shows the one of
+	// inputRole, and its text goes back to the core through syncDraft.
+	kind agentKind
+	hub  core.Hub
+	open string
 	// inputRole is the role whose draft the input box holds.
 	inputRole string
 	// onView is told the saved view whenever it changes; seen is the
@@ -211,16 +211,11 @@ func (m Model) SavedView() core.View {
 		return m.saved
 	}
 	if m.kind == kindHub {
-		drafts := make(map[string]string, len(m.drafts)+1)
-		for role, text := range m.drafts {
-			drafts[role] = text
-		}
-		if m.inputRole != "" {
-			drafts[m.inputRole] = m.input.Value()
-		}
-		return core.SaveHub(m.hub, drafts)
+		m.syncDraft()
+		return core.SaveHub(m.hub)
 	}
-	return core.SaveSingle(m.one, m.input.Value())
+	m.syncDraft()
+	return core.SaveSingle(m.one)
 }
 
 // tellView tells onView the saved view if it has changed.
@@ -427,6 +422,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if ev != nil {
 		evs = append(evs, ev)
 	}
+	m.syncDraft()
 	for _, e := range evs {
 		if e == nil {
 			continue
@@ -437,6 +433,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.effect(f, now))
 		}
 	}
+	m.syncDraft()
 	if len(m.one.State.Asks) > 0 || m.one.State.TooSmall {
 		if f := m.frame(now); f.TooSmall != m.one.State.TooSmall {
 			m.one, _ = core.ReduceSingle(m.one, core.Viewport{At: now, TooSmall: f.TooSmall})
@@ -587,17 +584,45 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 	case core.AnswerPermission:
 		m.conn.Answer(f)
 	case core.InsertInput:
-		m.input.InsertString(f.Text)
+		m.editDraft(f.Role, func(s string) string { return s + f.Text }, func() { m.input.InsertString(f.Text) })
 	case core.RestoreInput:
-		m.input.SetValue(ahead(f.Text, m.input.Value()))
+		m.editDraft(f.Role, func(s string) string { return ahead(f.Text, s) }, nil)
 	case core.RestoreDraft:
-		m.input.SetValue(ahead(f.Text, m.input.Value()))
+		m.editDraft(f.Role, func(s string) string { return ahead(f.Text, s) }, nil)
 	case core.ReplaceInput:
-		m.input.SetValue(strings.Replace(m.input.Value(), f.Old, f.New, 1))
+		m.editDraft(f.Role, func(s string) string { return strings.Replace(s, f.Old, f.New, 1) }, nil)
 	case core.Quit:
 		m.quitting = true // stop ends the program
 	}
 	return nil
+}
+
+// syncDraft writes the input box's text back to the core, as the draft
+// of the role it shows: the one path by which typed text reaches it.
+func (m *Model) syncDraft() {
+	text := m.input.Value()
+	switch {
+	case m.kind == kindHub && m.inputRole != "" && m.hub.DraftOf(m.inputRole).Text != text:
+		m.hub = core.SetDraftText(m.hub, m.inputRole, text)
+	case m.kind == kindSingle:
+		m.one.Draft.Text = text
+	}
+}
+
+// editDraft applies a change the core asked for to role's draft: in the
+// input box when it shows that draft (by box, at the cursor, if given;
+// else by edit on the whole text), and in the core otherwise.
+func (m *Model) editDraft(role string, edit func(string) string, box func()) {
+	if m.kind != kindHub || role == m.inputRole {
+		if box != nil {
+			box()
+		} else {
+			m.input.SetValue(edit(m.input.Value()))
+		}
+		m.syncDraft()
+		return
+	}
+	m.hub = core.SetDraftText(m.hub, role, edit(m.hub.DraftOf(role).Text))
 }
 
 // ahead is text put back ahead of what has been typed since.

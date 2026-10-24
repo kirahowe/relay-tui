@@ -210,8 +210,8 @@ func (r *hubReducer) restoreLayout(v View, at time.Time) {
 }
 
 // restoreDrafts puts back the drafts of the roles still in the roster:
-// their pastes into the role's conversation, or into its blank when it
-// has none yet, and their text into the shell's inputs.
+// their pastes into the role's draft, and their text (by the shell)
+// into its input.
 func (r *hubReducer) restoreDrafts(ds []Draft) {
 	h := &r.h
 	lost := 0
@@ -229,16 +229,11 @@ func (r *hubReducer) restoreDrafts(ds []Draft) {
 			continue
 		}
 		if len(pastes) > 0 {
-			var s *State
-			if i := r.convIndex(d.Role); i >= 0 {
-				s = &h.Convs[i].State
-			} else {
-				s = &r.blank(d.Role).State
-			}
 			// Pasted into since the start: the saved pastes take the
 			// numbers after the new ones.
-			text, pastes, next = afterPastes(text, pastes, next, s.Pastes, s.NextPaste)
-			s.Pastes, s.NextPaste = append(slices.Clone(s.Pastes), pastes...), max(next, s.NextPaste)
+			dr := r.draftOf(d.Role)
+			text, pastes, next = afterPastes(text, pastes, next, dr.Pastes, dr.NextPaste)
+			dr.Pastes, dr.NextPaste = append(slices.Clone(dr.Pastes), pastes...), max(next, dr.NextPaste)
 		}
 		r.emit(RestoreDraft{Role: d.Role, Text: text})
 	}
@@ -279,8 +274,9 @@ func restoreSingle(x Single, at time.Time, fx []Effect) (Single, []Effect) {
 					continue
 				}
 				if len(pastes) > 0 {
-					text, pastes, next = afterPastes(text, pastes, next, x.State.Pastes, x.State.NextPaste)
-					x.State.Pastes, x.State.NextPaste = append(slices.Clone(x.State.Pastes), pastes...), max(next, x.State.NextPaste)
+					dr := &x.Draft
+					text, pastes, next = afterPastes(text, pastes, next, dr.Pastes, dr.NextPaste)
+					dr.Pastes, dr.NextPaste = append(slices.Clone(dr.Pastes), pastes...), max(next, dr.NextPaste)
 				}
 				fx = append(fx, RestoreDraft{Text: text})
 			}
@@ -437,42 +433,34 @@ func afterPastes(text string, pastes []Paste, next int, have []Paste, haveNext i
 	return text, out, next + off
 }
 
-// SaveHub is the saved view of a hub. drafts is the text of each role's
-// input, the one in focus included.
-func SaveHub(h Hub, drafts map[string]string) View {
+// SaveHub is the saved view of a hub, its drafts as the shell last wrote
+// them back (SetDraftText).
+func SaveHub(h Hub) View {
 	v := appView(h.App)
 	v.Hub = &HubView{Focus: h.Focus, Cursor: h.Cursor, List: h.List}
-	roles := make([]string, 0, len(drafts))
-	for role := range drafts {
-		roles = append(roles, role)
-	}
-	slices.Sort(roles)
-	for _, role := range roles {
-		text := drafts[role]
-		if role == "" || strings.TrimSpace(text) == "" {
-			continue
+	ds := slices.Clone(h.Drafts)
+	slices.SortFunc(ds, func(a, b Draft) int { return strings.Compare(a.Role, b.Role) })
+	for _, d := range ds {
+		if d.Role != "" && strings.TrimSpace(d.Text) != "" {
+			v.Drafts = append(v.Drafts, savedDraft(d))
 		}
-		d := Draft{Role: role, Text: text}
-		var s *State
-		if c := h.ConvOf(role); c != nil {
-			s = &c.State
-		} else if i := slices.IndexFunc(h.Blanks, func(b Blank) bool { return b.Role == role }); i >= 0 {
-			s = &h.Blanks[i].State
-		}
-		if s != nil {
-			d.Pastes, d.NextPaste = referenced(s.Pastes, text), s.NextPaste
-		}
-		v.Drafts = append(v.Drafts, d)
 	}
 	return carry(v, h.Restore)
 }
 
-// SaveSingle is the saved view against a single agent. draft is the
-// input's text.
-func SaveSingle(x Single, draft string) View {
+// SaveSingle is the saved view against a single agent.
+func SaveSingle(x Single) View {
 	v := appView(x.App)
-	if strings.TrimSpace(draft) != "" {
-		v.Drafts = []Draft{{Text: draft, Pastes: referenced(x.State.Pastes, draft), NextPaste: x.State.NextPaste}}
+	if strings.TrimSpace(x.Draft.Text) != "" {
+		d := x.Draft
+		d.Role = ""
+		v.Drafts = []Draft{savedDraft(d)}
 	}
 	return carry(v, x.Restore)
+}
+
+// savedDraft is a draft as saved: the pastes its text names, and its
+// counter, so a reopened draft numbers on from it.
+func savedDraft(d Draft) Draft {
+	return Draft{Role: d.Role, Text: d.Text, Pastes: referenced(d.Pastes, d.Text), NextPaste: d.NextPaste}
 }

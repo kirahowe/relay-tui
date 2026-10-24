@@ -88,9 +88,12 @@ type (
 
 // Events from the user.
 type (
+	// Submit is a message to send. Pastes are the pastes its placeholders
+	// name, taken from the draft by the hub or ReduceSingle.
 	Submit struct {
-		At   time.Time
-		Text string
+		At     time.Time
+		Text   string
+		Pastes []Paste
 	}
 	Interrupt struct {
 		At         time.Time
@@ -150,10 +153,14 @@ type (
 		Attachments []Attachment
 	}
 	SendCancel struct{}
-	// RestoreInput puts text that was queued but never sent back into the
-	// input box, ahead of whatever is there.
-	RestoreInput struct{ Text string }
-	Quit         struct{}
+	// RestoreInput puts text that was queued but never sent back into
+	// Role's input, ahead of whatever is there; Pastes are the pastes it
+	// names, which go back into the draft.
+	RestoreInput struct {
+		Role, Text string
+		Pastes     []Paste
+	}
+	Quit struct{}
 )
 
 func (SendPrompt) effect()   {}
@@ -296,7 +303,7 @@ type State struct {
 	Entries []Entry
 	Printed Cursor   // everything before it is in scrollback
 	Turn    Turn     // meaningful only while Busy
-	Queue   []string // submitted while starting or busy, oldest first
+	Queue   []Queued // submitted while starting or busy, oldest first
 	Ready   bool     // the terminal has drawn its first frame
 	Exit    string   // why the agent went away, once Exited
 	// Labels is everything the session has seen, as far as the agent has
@@ -306,12 +313,10 @@ type State struct {
 	// first; the first is on offer and Pick is its highlighted option.
 	Asks []Permission
 	Pick int
-	// Embedded says the agent takes embedded context. Pastes holds the
-	// pastes whose placeholders may still be in the input, or in a queued
-	// message; NextPaste numbers them.
-	Embedded  bool
-	Pastes    []Paste
-	NextPaste int
+	// Embedded says the agent takes embedded context, so a paste goes as
+	// an attachment. The pastes themselves are the draft's (see Draft),
+	// and a queued message carries its own.
+	Embedded bool
 	// Message is a word for the status line that shows for a few seconds.
 	Message Message
 	// Pane is the conversation's part of the workspace pane: its items.
@@ -368,10 +373,6 @@ func (r *reducer) apply(e Event) {
 				s.Spend = &c
 			}
 		}
-	case Pasted:
-		r.pasted(e)
-	case TrustPaste:
-		r.trustPaste(e)
 	case ItemsLoaded, CitationResolved, TrustDone, PaneKey, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
 		r.pane(e)
 	case PermissionAsked:
@@ -435,11 +436,15 @@ func (r *reducer) apply(e Event) {
 		if strings.TrimSpace(e.Text) == "" {
 			return
 		}
+		q := Queued{Text: e.Text, Pastes: e.Pastes}
 		switch s.Phase {
 		case Idle:
-			r.send(e.Text, e.At)
+			r.send(q, e.At)
 		case Starting, Busy:
-			s.Queue = append(s.Queue, e.Text)
+			s.Queue = append(s.Queue, q)
+		default:
+			// Nothing to send it to: it goes back, pastes and all.
+			r.emit(RestoreInput{Text: q.Text, Pastes: q.Pastes})
 		}
 	case Interrupt:
 		switch {
@@ -659,7 +664,8 @@ func (r *reducer) endTurn(at time.Time, sendNext bool, note string) {
 // is lost.
 func (r *reducer) restoreQueue() {
 	if len(r.s.Queue) > 0 {
-		r.emit(RestoreInput{Text: strings.Join(r.s.Queue, "\n\n")})
+		q := joinQueued(r.s.Queue)
+		r.emit(RestoreInput{Text: q.Text, Pastes: q.Pastes})
 		r.s.Queue = nil
 	}
 }
@@ -667,17 +673,17 @@ func (r *reducer) restoreQueue() {
 // sendQueue sends everything queued as one prompt.
 func (r *reducer) sendQueue(at time.Time) {
 	if len(r.s.Queue) > 0 {
-		text := strings.Join(r.s.Queue, "\n\n")
+		q := joinQueued(r.s.Queue)
 		r.s.Queue = nil
-		r.send(text, at)
+		r.send(q, at)
 	}
 }
 
-func (r *reducer) send(text string, at time.Time) {
-	r.add(Entry{Kind: User, Text: text, Final: true})
+func (r *reducer) send(q Queued, at time.Time) {
+	r.add(Entry{Kind: User, Text: q.Text, Final: true})
 	r.s.Phase = Busy
 	r.s.Turn = Turn{Started: at, LastEvent: at}
-	sent, atts, inlined, trusted := r.resolve(text)
+	sent, atts, inlined, trusted := resolve(q.Text, q.Pastes, r.s.Embedded)
 	if trusted > 0 {
 		r.add(Entry{Kind: Note, Text: fmt.Sprintf("! %d paste(s) went in as trusted text, not labelled", trusted), Final: true})
 	}

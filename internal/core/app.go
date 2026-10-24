@@ -2,6 +2,7 @@ package core
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -99,6 +100,10 @@ func settleMode(a *App) {
 type Single struct {
 	App
 	State
+	// Draft is what is being written to the agent: the input's text, as
+	// the shell last wrote it back, and the pastes it names. It is the
+	// operator's, apart from the conversation.
+	Draft Draft
 	// Restore is a saved view still on its way back (see view.go).
 	Restore *Restore
 }
@@ -122,14 +127,44 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true
+	case Pasted:
+		if x.State.Phase == Exited || e.Text == "" {
+			return x, nil
+		}
+		p := x.Draft.paste(&x.App, e.Text)
+		return x, []Effect{InsertInput{Text: p.Token()}}
+	case TrustPaste:
+		if x.State.Phase == Exited {
+			return x, nil
+		}
+		old, new, note := x.Draft.trust(e.Draft)
+		x.State.Message = Message{Text: note, At: e.At}
+		if note != "" {
+			return x, nil
+		}
+		return x, []Effect{ReplaceInput{Old: old, New: new}}
+	case Submit:
+		if strings.TrimSpace(e.Text) != "" {
+			e.Pastes = x.Draft.take(e.Text)
+		}
+		return reduceSingle(x, e, surf, id)
 	}
+	return reduceSingle(x, e, surf, id)
+}
+
+func reduceSingle(x Single, e Event, surf Surface, id string) (Single, []Effect) {
 	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
 		x.State.Message = Message{Text: EditorPasteNote, At: e.at()} // only a paste reaches the editor as Unbound
 		return x, nil
 	}
 	rs := pending(x.Restore, e)
 	a, s, fx := reduce(x.App, x.State, e, true)
-	out := Single{App: a, State: s, Restore: rs}
+	out := Single{App: a, State: s, Draft: x.Draft, Restore: rs}
+	for _, f := range fx {
+		if ri, ok := f.(RestoreInput); ok {
+			out.Draft.giveBack(ri.Pastes) // a message not sent: its pastes are the draft's again
+		}
+	}
 	if rs != nil {
 		out, fx = restoreSingle(out, e.at(), fx)
 	}
@@ -169,9 +204,8 @@ func reduce(a App, s State, e Event, shown bool) (App, State, []Effect) {
 			s.Entries[i].Calls = append([]Call(nil), s.Entries[i].Calls...)
 		}
 	}
-	s.Queue = append([]string(nil), s.Queue...)
+	s.Queue = slices.Clone(s.Queue)
 	s.Asks = append([]Permission(nil), s.Asks...)
-	s.Pastes = append([]Paste(nil), s.Pastes...)
 	s.Pane.Server = append([]Item(nil), s.Pane.Server...)
 	s.Pane.Local = append([]Item(nil), s.Pane.Local...)
 	s.Pane.Cites = append([]Citation(nil), s.Pane.Cites...)

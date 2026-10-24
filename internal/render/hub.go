@@ -552,7 +552,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		}
 	}
 	for _, q := range s.Queue {
-		first, _, more := strings.Cut(strings.TrimSpace(q), "\n")
+		first, _, more := strings.Cut(strings.TrimSpace(q.Text), "\n")
 		first = oneLine(first)
 		if more {
 			first += "…"

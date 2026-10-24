@@ -29,12 +29,12 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 		Pasted{At: t0, Text: "dev paste"},
 		FocusIndex{At: t0, Index: 1},
 		Pasted{At: t0, Text: "an email\nfrom outside"}, Pasted{At: t0, Text: "my own notes"})
-	b := h.Blanks[0].State
+	b := h.DraftOf("mail")
 	h, _ = apply(t, h, TrustPaste{At: t0.Add(ArmDelay), Draft: b.Pastes[1].Token()})
-	b = h.Blanks[0].State
+	b = h.DraftOf("mail")
 	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneEnter},
 		PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneRight})
-	devPaste := h.ConvOf("dev").State.Pastes[0]
+	devPaste := h.DraftOf("dev").Pastes[0]
 	drafts := map[string]string{
 		"mail": "see " + b.Pastes[0].Token() + " and " + b.Pastes[1].Token(),
 		"dev":  "hello " + devPaste.Token(),
@@ -45,7 +45,7 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 
 func TestSaveHubDerivesWhereTheOperatorWas(t *testing.T) {
 	h, drafts := leftHub(t)
-	v := SaveHub(h, drafts)
+	v := saveHub(h, drafts)
 	want := HubView{Focus: "mail", Cursor: "mail"}
 	if v.Hub == nil || *v.Hub != want || !v.PaneFocus || v.Items {
 		t.Fatalf("layout %+v pane %v items %v", v.Hub, v.PaneFocus, v.Items)
@@ -61,7 +61,7 @@ func TestSaveHubDerivesWhereTheOperatorWas(t *testing.T) {
 		t.Fatalf("mail's pastes %+v", mail)
 	}
 	// A paste whose placeholder is gone from the draft is not saved.
-	v = SaveHub(h, map[string]string{"mail": "only " + mail.Pastes[1].Token()})
+	v = saveHub(h, map[string]string{"mail": "only " + mail.Pastes[1].Token()})
 	if ps := v.Drafts[0].Pastes; len(ps) != 1 || ps[0].ID != 2 {
 		t.Fatalf("pastes %+v", ps)
 	}
@@ -85,7 +85,7 @@ func restoredDrafts(fx []Effect) map[string]string {
 
 func TestRestoreHubPutsTheViewBack(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, fx := reopen(t, v, viewRoster(), viewCards())
 	if h.Restore != nil {
 		t.Fatalf("still restoring: %+v", h.Restore)
@@ -100,15 +100,14 @@ func TestRestoreHubPutsTheViewBack(t *testing.T) {
 	if !reflect.DeepEqual(got, map[string]string{"mail": drafts["mail"], "dev": drafts["dev"]}) {
 		t.Fatalf("drafts %q", got)
 	}
-	mail := slices.IndexFunc(h.Blanks, func(b Blank) bool { return b.Role == "mail" })
-	if mail < 0 || !reflect.DeepEqual(h.Blanks[mail].State.Pastes, unseq(left.Blanks[0].State.Pastes)) || h.Blanks[mail].State.NextPaste != 2 {
-		t.Fatalf("mail's pastes %+v", h.Blanks)
+	if mail := h.DraftOf("mail"); !reflect.DeepEqual(mail.Pastes, unseq(left.DraftOf("mail").Pastes)) || mail.NextPaste != 2 {
+		t.Fatalf("mail's pastes %+v", mail)
 	}
-	// Dev's pastes wait in its blank, and go to its conversation when it
+	// Dev's pastes are its draft's, and stay so when its conversation
 	// attaches.
 	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"})
-	if c := h.ConvOf("dev"); c == nil || !reflect.DeepEqual(c.State.Pastes, unseq(left.ConvOf("dev").State.Pastes)) {
-		t.Fatalf("dev's pastes %+v", c)
+	if d := h.DraftOf("dev"); !reflect.DeepEqual(d.Pastes, unseq(left.DraftOf("dev").Pastes)) {
+		t.Fatalf("dev's pastes %+v", d)
 	}
 	// Nothing restored counts as sent, asked or confirmed.
 	if len(effectsOf[SendPrompt](fx))+len(effectsOf[SendCardOp](fx))+len(effectsOf[SendCardTrust](fx))+len(effectsOf[AnswerPermission](fx)) != 0 {
@@ -120,7 +119,7 @@ func TestRestoreHubPutsTheViewBack(t *testing.T) {
 // nothing is put back from the connection's first answer alone.
 func TestRestoreHubWaitsForTheRosterAndTheBoard(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, fx := apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0})
 	if h.Focus != "" || !h.List || len(effectsOf[RestoreDraft](fx)) != 0 || h.App.PaneFocus {
 		t.Fatalf("before the roster: focus %q list %v pane %v %v", h.Focus, h.List, h.App.PaneFocus, fx)
@@ -154,7 +153,7 @@ func TestRestoreHubWaitsForTheRosterAndTheBoard(t *testing.T) {
 // layout and the card are not put back over it, but the drafts are.
 func TestRestoreHubKeyBeforeTheRosterKeepsOnlyTheDrafts(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, _ := apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0}, ListMove{At: t0, Delta: 1})
 	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: viewRoster()}, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if h.Focus != "" || !h.List || h.App.PaneFocus || h.App.Board.SelID != 10 || h.App.Board.Detail {
@@ -169,7 +168,7 @@ func TestRestoreHubKeyBeforeTheRosterKeepsOnlyTheDrafts(t *testing.T) {
 // archived, a conversation ended.
 func TestRestoreHubFallsBackForWhatHasGone(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, fx := reopen(t, v, []Role{role("dev", "s1"), role("news", "")}, []Card{checklist(10, 10)})
 	if h.Focus != "" || !h.List || h.Cursor != "dev" || h.App.PaneFocus {
 		t.Fatalf("mail removed: focus %q list %v cursor %q pane %v", h.Focus, h.List, h.Cursor, h.App.PaneFocus)
@@ -180,8 +179,8 @@ func TestRestoreHubFallsBackForWhatHasGone(t *testing.T) {
 	if got := restoredDrafts(fx); len(got) != 1 || got["dev"] == "" || h.Notice != "a saved draft could not be put back" {
 		t.Fatalf("drafts %q notice %q", got, h.Notice)
 	}
-	if len(h.Blanks) != 1 || h.Blanks[0].Role != "dev" {
-		t.Fatalf("blanks %+v", h.Blanks)
+	if len(h.DraftOf("dev").Pastes) != 1 || len(h.DraftOf("mail").Pastes) != 0 {
+		t.Fatalf("drafts %+v", h.Drafts)
 	}
 	// Dev in focus, its conversation since ended: Dev shows none, and none
 	// is opened.
@@ -201,7 +200,7 @@ func TestRestoreHubFallsBackForWhatHasGone(t *testing.T) {
 // way to it; the card and the drafts still come back.
 func TestRestoreHubOpenFlagWins(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, fx := apply(t, RestoreHub(NewHub("news"), v), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if h.Focus != "news" || h.List || h.App.PaneFocus || h.App.Board.SelID != 20 || len(effectsOf[RestoreDraft](fx)) != 2 {
@@ -214,7 +213,7 @@ func TestRestoreHubOpenFlagWins(t *testing.T) {
 func TestRestoreHubBoardWithNoRole(t *testing.T) {
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()}, ListMove{At: t0, Delta: 2}, Move{At: t0, Delta: 1})
-	v := SaveHub(h, nil)
+	v := saveHub(h, nil)
 	g, _ := reopen(t, v, viewRoster(), viewCards())
 	if g.Focus != "" || g.List || !g.App.PaneFocus || g.Cursor != "news" || !g.App.Moving {
 		t.Fatalf("focus %q list %v pane %v cursor %q moving %v", g.Focus, g.List, g.App.PaneFocus, g.Cursor, g.App.Moving)
@@ -229,9 +228,9 @@ func TestRestoreHubBoardWithNoRole(t *testing.T) {
 // it had been given, not the defaults it showed meanwhile.
 func TestSaveHubKeepsWhatHasNotComeBackYet(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, _ := apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0})
-	if got := SaveHub(h, nil); !reflect.DeepEqual(got, v) {
+	if got := saveHub(h, nil); !reflect.DeepEqual(got, v) {
 		t.Fatalf("saved\n%+v\nwant\n%+v", got, v)
 	}
 }
@@ -241,19 +240,19 @@ func TestSaveHubKeepsWhatHasNotComeBackYet(t *testing.T) {
 // both come back.
 func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	v.Hub = nil
 	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
 	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: viewRoster()})
 	got := restoredDrafts(fx)
-	saved := left.Blanks[0].State.Pastes // #1 untrusted, #2 trusted
+	saved := left.DraftOf("mail").Pastes // #1 untrusted, #2 trusted
 	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
 	if want := "see " + moved[0].Token() + " and " + moved[1].Token(); got["mail"] != want || h.Notice != "" {
 		t.Fatalf("mail %q want %q notice %q", got["mail"], want, h.Notice)
 	}
-	c := h.ConvOf("mail")
-	if c == nil || !reflect.DeepEqual(c.State.Pastes, append([]Paste{{ID: 1, Text: "new", Seq: 1}}, moved...)) || c.State.NextPaste != 3 {
-		t.Fatalf("mail %+v", c)
+	d := h.DraftOf("mail")
+	if !reflect.DeepEqual(d.Pastes, append([]Paste{{ID: 1, Text: "new", Seq: 1}}, moved...)) || d.NextPaste != 3 {
+		t.Fatalf("mail %+v", d)
 	}
 }
 
@@ -262,12 +261,12 @@ func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
 // neither: not the text, not the pastes, not their trust.
 func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	v.Hub = nil
-	saved := left.Blanks[0].State.Pastes
+	saved := left.DraftOf("mail").Pastes
 	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
-	newer := h.ConvOf("mail").State.Pastes[0]
-	got := SaveHub(h, map[string]string{"mail": "n " + newer.Token()})
+	newer := h.DraftOf("mail").Pastes[0]
+	got := saveHub(h, map[string]string{"mail": "n " + newer.Token()})
 	i := slices.IndexFunc(got.Drafts, func(d Draft) bool { return d.Role == "mail" })
 	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
 	want := Draft{Role: "mail", Text: "see " + moved[0].Token() + " and " + moved[1].Token() + "\nn " + newer.Token(),
@@ -277,12 +276,12 @@ func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
 	}
 	// Reopened from that, it all comes back.
 	g, fx := reopen(t, got, viewRoster(), viewCards())
-	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.Blanks[slices.IndexFunc(g.Blanks, func(b Blank) bool { return b.Role == "mail" })].State.Pastes, unseq(want.Pastes)) {
-		t.Fatalf("reopened %v %+v", fx, g.Blanks)
+	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.DraftOf("mail").Pastes, unseq(want.Pastes)) {
+		t.Fatalf("reopened %v %+v", fx, g.Drafts)
 	}
 	// Against a single agent, typed text with no pastes.
 	x := RestoreSingle(Single{}, View{Drafts: []Draft{{Text: "old draft"}}})
-	if d := SaveSingle(x, "n").Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
+	if d := saveSingle(x, "n").Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
 		t.Fatalf("single %+v", d)
 	}
 }
@@ -290,21 +289,21 @@ func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
 func TestRestoreSingle(t *testing.T) {
 	x, _ := feedS(Single{}, Connected{At: t0, Embedded: true}, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()},
 		Pasted{At: t0, Text: "outside"}, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneEnter})
-	draft := "read " + x.State.Pastes[0].Token()
-	v := SaveSingle(x, draft)
+	draft := "read " + x.Draft.Pastes[0].Token()
+	v := saveSingle(x, draft)
 	if v.Hub != nil || !v.PaneFocus || v.Card != 10 || !v.Detail || len(v.Drafts) != 1 || len(v.Drafts[0].Pastes) != 1 {
 		t.Fatalf("saved %+v", v)
 	}
 	y := RestoreSingle(Single{}, v)
-	if got := SaveSingle(y, ""); !reflect.DeepEqual(got, v) {
+	if got := saveSingle(y, ""); !reflect.DeepEqual(got, v) {
 		t.Fatalf("before the session: %+v", got)
 	}
 	y, fx := feedS(y, Connected{At: t0, Embedded: true})
 	if d := effectsOf[RestoreDraft](fx); len(d) != 1 || d[0] != (RestoreDraft{Text: draft}) || !y.PaneFocus {
 		t.Fatalf("after the session: pane %v %v", y.PaneFocus, fx)
 	}
-	if !reflect.DeepEqual(y.State.Pastes, unseq(x.State.Pastes)) || y.State.NextPaste != 1 {
-		t.Fatalf("pastes %+v", y.State.Pastes)
+	if !reflect.DeepEqual(y.Draft.Pastes, unseq(x.Draft.Pastes)) || y.Draft.NextPaste != 1 {
+		t.Fatalf("pastes %+v", y.Draft.Pastes)
 	}
 	y, _ = feedS(y, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if y.Board.SelID != 10 || !y.Board.Detail || y.Restore != nil {
@@ -459,7 +458,7 @@ func TestRestoredDraftExamples(t *testing.T) {
 // layout and the card do not.
 func TestHubRestoreAfterAKey(t *testing.T) {
 	left, drafts := leftHub(t)
-	v := SaveHub(left, drafts)
+	v := saveHub(left, drafts)
 	h, fx := apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0}, KeyPressed{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if h.Focus != "" || h.App.Board.Detail || len(effectsOf[RestoreDraft](fx)) != 2 {
@@ -536,4 +535,20 @@ func unseq(ps []Paste) []Paste {
 		out[i].Seq = 0
 	}
 	return out
+}
+
+// saveHub is SaveHub with each role's input text as the shell would have
+// written it back.
+func saveHub(h Hub, texts map[string]string) View {
+	for role, text := range texts {
+		h = SetDraftText(h, role, text)
+	}
+	return SaveHub(h)
+}
+
+// saveSingle is SaveSingle with the input's text as the shell would have
+// written it back.
+func saveSingle(x Single, text string) View {
+	x.Draft.Text = text
+	return SaveSingle(x)
 }
