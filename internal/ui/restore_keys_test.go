@@ -31,33 +31,44 @@ func letter(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: stri
 
 var restoreRoles = []core.Role{{ID: "dev", Title: "Dev"}, {ID: "mail", Title: "Mail"}}
 
-// A letter the input box takes for itself is a key like any other: the
-// layout saved with the pane's keys does not come back over it, so the
-// next letter cannot reach the board.
-func TestTypingBeforeTheRestoreKeepsTheKeys(t *testing.T) {
+// A key typed while connecting waits until the screen it lands on is
+// known, so it does not cancel the restore: it acts on the restored
+// screen. Against a plain agent that is once the session exists; against
+// the hub, once the first roster has come. A key pressed after that,
+// before the board has come, still cancels the card's part.
+func TestTypingWhileConnectingLandsOnTheRestoredScreen(t *testing.T) {
 	now := time.Now()
 	saved := core.View{PaneFocus: true}
-	// A plain agent: initialize answers, the letter is replayed, and the
-	// session comes after.
-	m := update(New(nopConn{}, "").Restore(saved, ""), letter('n'), ev(core.Initialized{At: now}), ev(core.Connected{At: now}))
-	if m.one.App.PaneFocus {
-		t.Fatalf("single: the pane took the keys after a letter was typed")
+	m := update(New(nopConn{}, "").Restore(saved, ""), letter('n'), ev(core.Connected{At: now}))
+	if !m.one.App.PaneFocus || m.input.Value() != "" || m.one.State.Message.Text != core.UnboundNote {
+		t.Fatalf("single: pane %v input %q message %q", m.one.App.PaneFocus, m.input.Value(), m.one.State.Message.Text)
 	}
-	if got := m.input.Value(); got != "n" {
-		t.Fatalf("single: input %q", got)
+	saved = core.View{Hub: &core.HubView{Focus: "mail", Cursor: "mail"}, PaneFocus: true, Card: 1, Detail: true}
+	m = update(New(nopConn{}, "").Restore(saved, ""), ev(core.HubConnected{At: now}), letter('n'))
+	if m.Known() || len(m.held) != 1 {
+		t.Fatalf("hub: the letter was handled before the roster: known %v held %d", m.Known(), len(m.held))
 	}
-	saved = core.View{Hub: &core.HubView{Focus: "mail", Cursor: "mail"}, PaneFocus: true}
-	// In hub mode the list has the keys until the roster comes, and takes
-	// no letters; the letter still counts.
-	m = update(New(nopConn{}, "").Restore(saved, ""), ev(core.HubConnected{At: now}), letter('n'),
-		ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
-	if m.hub.App.PaneFocus || m.hub.Focus != "" || !m.hub.List {
-		t.Fatalf("hub: pane %v focus %q list %v", m.hub.App.PaneFocus, m.hub.Focus, m.hub.List)
+	m = update(m, ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
+	if !m.hub.App.PaneFocus || m.hub.Focus != "mail" || m.hub.Notice != core.UnboundNote {
+		t.Fatalf("hub: pane %v focus %q notice %q", m.hub.App.PaneFocus, m.hub.Focus, m.hub.Notice)
+	}
+	// The letter came after the roster but before the board: the card is
+	// not put back over it.
+	m = update(m, ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}))
+	if m.hub.App.Board.Detail {
+		t.Fatal("hub: the card came back over a key")
+	}
+	// A roster that fails releases what was held onto the default
+	// screen, with a note.
+	m = update(New(nopConn{}, "").Open("mail").Restore(saved, ""), ev(core.HubConnected{At: now}), letter('n'))
+	m = update(m, ev(core.RosterUpdate{At: now, Err: "boom"}))
+	if !m.Known() || m.input.Value() != "n" || !strings.Contains(m.hub.Notice, "no roster: boom") {
+		t.Fatalf("failed roster: known %v input %q notice %q", m.Known(), m.input.Value(), m.hub.Notice)
 	}
 }
 
-// A letter typed before the saved draft is back does not push the saved
-// draft out of the next save.
+// A letter typed while connecting does not push the saved draft out of
+// the next save, and nothing is saved before the screen is known.
 func TestSavedDraftSurvivesTypingBeforeTheRestore(t *testing.T) {
 	saved := core.View{Drafts: []core.Draft{{Text: "old draft"}}}
 	m := update(New(nopConn{}, "").Restore(saved, ""), letter('n'))
@@ -65,13 +76,16 @@ func TestSavedDraftSurvivesTypingBeforeTheRestore(t *testing.T) {
 	if v := m.SavedView(); m.Known() || !reflect.DeepEqual(v, saved) {
 		t.Fatalf("before initialize: known %v saved %+v", m.Known(), v)
 	}
-	m = update(m, ev(core.Initialized{At: time.Now()}))
-	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
+	// Replayed onto the restored screen, the letter goes on where the
+	// saved draft ends, as one typed just then would.
+	m = update(m, ev(core.Connected{At: time.Now()}))
+	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Text != "old draftn" {
 		t.Fatalf("single: saved %+v", d)
 	}
 	saved = core.View{Drafts: []core.Draft{{Role: "mail", Text: "old draft"}}}
-	m = update(New(nopConn{}, "").Open("mail").Restore(saved, ""), ev(core.HubConnected{At: time.Now()}), letter('n'))
-	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Role != "mail" || d[0].Text != "old draft\nn" {
+	m = update(New(nopConn{}, "").Open("mail").Restore(saved, ""), ev(core.HubConnected{At: time.Now()}),
+		ev(core.RosterUpdate{At: time.Now(), Roles: restoreRoles}), letter('n'))
+	if d := m.SavedView().Drafts; len(d) != 1 || d[0].Role != "mail" || d[0].Text != "old draftn" {
 		t.Fatalf("hub: saved %+v", d)
 	}
 }
@@ -107,11 +121,10 @@ func typeText(m Model, s string) Model {
 	return m
 }
 
-// What is typed and pasted before the agent says it is the hub is held,
-// and replayed once it does, through the normal path: with --open it
-// lands in that role's input, pastes and their trust included, after
-// the saved draft that comes back with the roster, and ahead of what is
-// typed since.
+// What is typed and pasted before the screen is known is held, and
+// replayed once the roster has come, through the normal path: with
+// --open it lands in that role's input, pastes and their trust
+// included, on after the saved draft that came back with the roster.
 func TestTypingBeforeTheHubIsKnownIsReplayed(t *testing.T) {
 	now := time.Now()
 	roles := []core.Role{{ID: "dev", Title: "Dev"}, {ID: "mail", Title: "Mail"}}
@@ -125,7 +138,7 @@ func TestTypingBeforeTheHubIsKnownIsReplayed(t *testing.T) {
 	m = update(m, ev(core.HubConnected{At: now}))
 	m = typeText(m, " more")
 	m = update(m, ev(core.RosterUpdate{At: now, Roles: roles}))
-	want := "old draft\nnew [pasted 1 line · trusted #1] more"
+	want := "old draftnew [pasted 1 line · trusted #1] more" // typed on where the saved draft ends
 	if m.hub.Focus != "mail" || m.input.Value() != want {
 		t.Fatalf("focus %q input %q, want %q", m.hub.Focus, m.input.Value(), want)
 	}
@@ -161,7 +174,7 @@ func TestEnterBeforeTheHubIsKnownIsSent(t *testing.T) {
 	m := update(New(recConn{calls: &calls}, "").Open("dev"), tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = typeText(m, "hi")
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = update(m, ev(core.HubConnected{At: now}))
+	m = update(m, ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
 	if c := m.hub.ConvOf("dev"); c == nil || len(c.State.Queue) != 1 || c.State.Queue[0] != "hi" {
 		t.Fatalf("not queued: %+v", m.hub.Convs)
 	}
@@ -180,7 +193,7 @@ func TestEnterBeforeTheHubIsKnownIsSent(t *testing.T) {
 func TestAPasteBeforeTheAttachSurvivesAReplayThatCameFirst(t *testing.T) {
 	now := time.Now()
 	m := update(New(nopConn{}, "").Open("dev"), tea.WindowSizeMsg{Width: 120, Height: 30},
-		tea.PasteMsg{Content: "an email"}, ev(core.HubConnected{At: now, Embedded: true}))
+		tea.PasteMsg{Content: "an email"}, ev(core.HubConnected{At: now, Embedded: true}), ev(core.RosterUpdate{At: now, Roles: restoreRoles}))
 	tok := m.input.Value()
 	m = update(m, ev(core.Routed{Session: "s1", Event: core.TextChunk{At: now, Text: "earlier"}}),
 		ev(core.Attached{At: now, Role: "dev", Session: "s1"}))
@@ -209,7 +222,8 @@ func TestAReplayedKeyAnswersNothing(t *testing.T) {
 		}
 		clock = clock.Add(time.Duration(rapid.IntRange(0, 2000).Draw(rt, "ms")) * time.Millisecond)
 		ask := core.Routed{Session: "s1", Event: askEvent(clock, 1)}
-		m = update(m, ev(core.HubConnected{At: clock}), ev(core.Attached{At: clock, Role: "dev", Session: "s1"}), ev(ask))
+		m = update(m, ev(core.HubConnected{At: clock}), ev(core.RosterUpdate{At: clock, Roles: restoreRoles}),
+			ev(core.Attached{At: clock, Role: "dev", Session: "s1"}), ev(ask))
 		for _, c := range calls {
 			if c.what == "answer" {
 				rt.Fatalf("answered: %+v", calls)
@@ -218,13 +232,13 @@ func TestAReplayedKeyAnswersNothing(t *testing.T) {
 	})
 }
 
-// While connecting, the screen says so and how much is held; past
+// While connecting, the screen says so, and how much is held; past
 // maxHeld keys more are dropped, and the status line says how many once
 // the agent answers.
 func TestHeldInputIsBounded(t *testing.T) {
 	m := update(New(nopConn{}, ""), tea.WindowSizeMsg{Width: 80, Height: 20})
-	if !strings.Contains(m.View().Content, "connecting…") {
-		t.Fatalf("screen %q", m.View().Content)
+	if v := m.View(); !strings.Contains(v.Content, "connecting…") {
+		t.Fatalf("screen %q", v.Content)
 	}
 	for range maxHeld + 3 {
 		m = update(m, letter('a'))
@@ -232,7 +246,7 @@ func TestHeldInputIsBounded(t *testing.T) {
 	if len(m.held) != maxHeld || !strings.Contains(m.View().Content, fmt.Sprint(maxHeld, " typed")) {
 		t.Fatalf("held %d, screen %q", len(m.held), m.View().Content)
 	}
-	m = update(m, ev(core.Initialized{At: time.Now()}))
+	m = update(m, ev(core.Connected{At: time.Now()}))
 	if got := m.input.Value(); len(got) != maxHeld || m.one.State.Message.Text != "3 keys typed while connecting were dropped" {
 		t.Fatalf("input %d long, message %q", len(got), m.one.State.Message.Text)
 	}

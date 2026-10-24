@@ -48,9 +48,9 @@ type Agent struct {
 // Start launches command in dir and begins the handshake in the
 // background. emit receives every event, from any goroutine, in order for
 // each source; it may block (it does: Bubble Tea's Send). Against a
-// plain agent Initialized follows initialize's answer and Connected the
-// session; against relay's hub HubConnected follows initialize's answer.
-// AgentExited follows a failed handshake or the process ending.
+// plain agent Connected follows the session; against relay's hub
+// HubConnected follows initialize's answer. AgentExited follows a failed
+// handshake or the process ending.
 func Start(command []string, dir string, stderr io.Writer, emit func(core.Event)) (*Agent, error) {
 	if len(command) == 0 {
 		return nil, errors.New("no agent command")
@@ -115,9 +115,6 @@ func (a *Agent) handshake(dir string) error {
 		a.emit(wire.Roster(raw, err, time.Now()))
 		return nil
 	}
-	// A plain agent: the client can build its state now, before the
-	// session, which a slow agent may take a while to make.
-	a.emit(core.Initialized{At: time.Now()})
 	sess, err := a.proc.Connection.NewSession(ctx, acp.NewSessionRequest{Cwd: dir, McpServers: []acp.McpServer{}})
 	if err != nil {
 		return err

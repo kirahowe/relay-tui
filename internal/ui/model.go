@@ -119,11 +119,14 @@ type Model struct {
 	// keys did not fit, and exitWhy why the agent went away, if it did.
 	saved     core.View
 	savedNote string
-	held      []heldMsg
-	size      *tea.WindowSizeMsg
-	caps0     *tea.KeyboardEnhancementsMsg
-	dropped   int
-	exitWhy   string
+	// holding says the kind is known but the screen input lands on is
+	// not yet (see connect.go).
+	holding bool
+	held    []heldMsg
+	size    *tea.WindowSizeMsg
+	caps0   *tea.KeyboardEnhancementsMsg
+	dropped int
+	exitWhy string
 }
 
 // now is the time by the model's clock.
@@ -197,7 +200,7 @@ func (m Model) OnView(f func(core.View)) Model {
 // agent has said what it is, nothing has happened, so it is the view
 // as loaded (see Known).
 func (m Model) SavedView() core.View {
-	if m.kind == kindUnknown {
+	if m.kind == kindUnknown || m.holding {
 		return m.saved
 	}
 	if m.kind == kindHub {
@@ -215,7 +218,7 @@ func (m Model) SavedView() core.View {
 
 // tellView tells onView the saved view if it has changed.
 func (m *Model) tellView() {
-	if m.onView == nil || m.kind == kindUnknown {
+	if m.onView == nil || m.kind == kindUnknown || m.holding {
 		return
 	}
 	if v := m.SavedView(); !reflect.DeepEqual(v, m.seen) {
@@ -245,10 +248,11 @@ func (m Model) Died() (bool, string) {
 	return m.died, m.one.State.Exit
 }
 
-// Known says the agent said what it is (initialize answered), so the
-// model has a state of its own and a view to save. A model closed
-// before then saves nothing: the saved view stays as it was.
-func (m Model) Known() bool { return m.kind != kindUnknown }
+// Known says the screen input lands on is known and the held input has
+// been replayed, so the model has a state of its own and a view to save.
+// A model closed before then saves nothing: the saved view stays as it
+// was.
+func (m Model) Known() bool { return m.kind != kindUnknown && !m.holding }
 
 // Init does nothing: the first size message starts the ticks.
 // Init asks the terminal for its colours. A terminal that never answers
@@ -271,6 +275,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.kind == kindUnknown {
 		return m.connecting(msg)
 	}
+	if m.holding {
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.PasteMsg:
+			return m.holdOrQuit(msg, m.now())
+		}
+		next, cmd := m.update(msg)
+		next, cmd2 := next.(Model).settled(msg)
+		return next, tea.Batch(cmd, cmd2)
+	}
+	return m.update(msg)
+}
+
+// update handles a message once input is no longer held.
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.kind == kindHub {
 		next, cmd := m.updateHub(msg)
 		nm := next.(Model)
@@ -590,7 +608,7 @@ func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
 }
 
 func (m Model) View() tea.View {
-	if m.kind == kindUnknown {
+	if m.kind == kindUnknown || m.holding {
 		return tea.NewView(connectingLine(len(m.held), m.width()))
 	}
 	if m.kind == kindHub {

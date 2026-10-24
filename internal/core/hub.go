@@ -501,7 +501,7 @@ func newConv(session, role string) Conv {
 func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
-	case Tick, TerminalReady, Printed, Initialized, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
+	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
 		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited, Viewport:
 	default:
 		h.Notice = "" // a key was pressed
@@ -560,7 +560,7 @@ func (r *hubReducer) apply(e Event) {
 			r.toConv(i, e, false)
 		}
 		r.emit(Quit{})
-	case Tick, TerminalReady, Printed, KeyPressed, Initialized:
+	case Tick, TerminalReady, Printed, KeyPressed:
 	case FocusIndex:
 		if e.Index >= 0 && e.Index < len(h.Roles) {
 			r.focus(h.Roles[e.Index].ID, false, e.At)

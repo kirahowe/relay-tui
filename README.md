@@ -432,24 +432,30 @@ list and the drafts when relay has sent the roster, the card when it has
 sent the board. Anything that has gone since falls back to the default.
 A removed role is not focused and its draft is dropped, with a note. An
 archived card is not selected. A role whose conversation has ended
-shows none, and opening the view opens no conversation. If you press a
-key before those arrive, what you did stands: the layout and the card
-are not put back over it, and only the drafts come back. A saved draft
+shows none, and opening the view opens no conversation. Keys wait for
+the roster (see below), so only the card can be overtaken: if you press
+a key after the roster but before the board arrives, what you did
+stands and the card is not put back over it. A saved draft
 goes ahead of anything you typed for that role meanwhile, and its
 pastes take the numbers after any you made, so neither is lost, even if
 you close relay-tui before it came back. `--open ROLE` wins over the
 saved focus.
 
-Until the agent has answered `initialize`, relay-tui does not know
-whether it is relay's hub, so it handles nothing you type: the screen
-says "connecting…", and your keys and pastes wait, in order. Once the
-agent answers, relay-tui puts back the saved view for that kind of
-agent and then replays them as if you had just typed them, at the times
-you pressed them: with `--open` they land in that role's input, and on
-the list they are the list's keys. Ctrl-C quits while connecting. If the
-agent exits before it answers, the saved view is left as it was. A view
-saved against the other kind of agent puts back what it can, and a
-draft with nowhere to go is not put back, with a note.
+Until relay-tui knows the screen your keys will land on, it handles
+nothing you type: the screen says "connecting…", and your keys and
+pastes wait, in order. Against a plain agent that is once its session
+exists; against relay's hub, once the roles have come and the saved
+view has been put back (or found nothing to put back). relay-tui then
+replays them as if you had just typed them on that screen, at the times
+you pressed them, so they do not stop the saved view coming back: with
+`--open`, or a saved role in focus, they land in that role's input
+after its saved draft, and on the list they are the list's keys. Only
+the card, which waits for the board, can still be cancelled by them.
+If the roles fail to load, your keys go to the list, with a note.
+Ctrl-C quits while connecting. If the agent exits before then, the
+saved view is left as it was. A view saved against the other kind of
+agent puts back what it can, and a draft with nowhere to go is not put
+back, with a note.
 
 A restored paste is never more trusted than it was. One you trusted
 with Ctrl-Y comes back trusted, the rest untrusted, and anything about
