@@ -169,8 +169,8 @@ func New(conn Conn, title string) Model {
 	return Model{input: ta, conn: conn, one: core.Single{State: core.State{Title: title}}}
 }
 
-// Open makes the model focus the role at the start, when the agent turns
-// out to be relay's hub.
+// Open makes the model focus the role at the start, if the agent says it
+// is relay's hub.
 func (m Model) Open(role string) Model {
 	m.open = role
 	return m
@@ -486,25 +486,13 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 	case core.RestoreInput:
 		m.input.SetValue(ahead(f.Text, m.input.Value()))
 	case core.RestoreDraft:
-		m.input.SetValue(placed(f, m.input.Value()))
+		m.input.SetValue(ahead(f.Text, m.input.Value()))
 	case core.ReplaceInput:
 		m.input.SetValue(strings.Replace(m.input.Value(), f.Old, f.New, 1))
 	case core.Quit:
 		m.quitting = true // stop ends the program
 	}
 	return nil
-}
-
-// placed is a restored draft put in an input that holds typed: ahead of
-// it, or after it.
-func placed(f core.RestoreDraft, typed string) string {
-	if f.After && typed != "" {
-		return ahead(typed, f.Text)
-	}
-	if f.After {
-		return f.Text
-	}
-	return ahead(f.Text, typed)
 }
 
 // ahead is text put back ahead of what has been typed since.

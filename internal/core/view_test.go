@@ -455,19 +455,17 @@ func TestRestoredDraftExamples(t *testing.T) {
 	_ = fmt.Sprint
 }
 
-// The agent turns out to be the hub after a key: the drafts still come
-// back, the layout does not.
-func TestHubFromSingleAfterAKey(t *testing.T) {
+// A key before the roster has come: the drafts still come back, the
+// layout and the card do not.
+func TestHubRestoreAfterAKey(t *testing.T) {
 	left, drafts := leftHub(t)
 	v := SaveHub(left, drafts)
-	x, _ := feedS(RestoreSingle(Single{}, v), ToggleHelp{At: t0})
-	h, fx := apply(t, HubFromSingle(NewHub(""), x, ""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
+	h, fx := apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0}, KeyPressed{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
 		CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
 	if h.Focus != "" || h.App.Board.Detail || len(effectsOf[RestoreDraft](fx)) != 2 {
 		t.Fatalf("focus %q board %+v %v", h.Focus, h.App.Board, fx)
 	}
-	h, _ = apply(t, HubFromSingle(NewHub(""), RestoreSingle(Single{}, v), ""), HubConnected{At: t0},
-		RosterUpdate{At: t0, Roles: viewRoster()})
+	h, _ = apply(t, RestoreHub(NewHub(""), v), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
 	if h.Focus != "mail" {
 		t.Fatalf("no key: focus %q", h.Focus)
 	}
@@ -514,23 +512,20 @@ func TestCarryKeepsBothDrafts(t *testing.T) {
 	})
 }
 
-// A view with nothing but the hub's layout (a conversation in focus, an
-// empty board, no drafts) survives the start, which does not yet know
-// the agent is the hub.
-func TestHubLayoutAloneSurvivesTheStart(t *testing.T) {
-	v := View{Hub: &HubView{Focus: "mail", Cursor: "mail"}}
-	x := RestoreSingle(Single{}, v)
-	if x.Restore == nil || !x.Restore.Layout {
-		t.Fatalf("restore %+v", x.Restore)
+// A view saved against the other kind of agent: its layout means
+// nothing here and goes quietly, and a draft with nowhere to go (a role's
+// against a single agent, one with no role against the hub) is not put
+// back, and the status line says so.
+func TestAViewOfTheOtherKind(t *testing.T) {
+	hubView := View{Hub: &HubView{Focus: "mail", Cursor: "mail"}, Drafts: []Draft{{Role: "mail", Text: "for mail"}}}
+	x, fx := feedS(RestoreSingle(Single{}, hubView), Connected{At: t0})
+	if x.Restore != nil || x.App.PaneFocus || len(effectsOf[RestoreDraft](fx)) != 0 || x.State.Message.Text != "a saved draft could not be put back" {
+		t.Fatalf("single: %+v pane %v %v %q", x.Restore, x.App.PaneFocus, fx, x.State.Message.Text)
 	}
-	h, _ := apply(t, HubFromSingle(NewHub(""), x, ""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
-	if h.Focus != "mail" || h.List {
-		t.Fatalf("focus %q list %v", h.Focus, h.List)
-	}
-	// Against a single agent the hub's part means nothing, and goes.
-	x, _ = feedS(x, Connected{At: t0})
-	if x.Restore != nil || x.App.PaneFocus {
-		t.Fatalf("single: %+v pane %v", x.Restore, x.App.PaneFocus)
+	singleView := View{Drafts: []Draft{{Text: "for the agent"}}}
+	h, fx := apply(t, RestoreHub(NewHub(""), singleView), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()})
+	if len(effectsOf[RestoreDraft](fx)) != 0 || h.Notice != "a saved draft could not be put back" {
+		t.Fatalf("hub: %v %q", fx, h.Notice)
 	}
 }
 

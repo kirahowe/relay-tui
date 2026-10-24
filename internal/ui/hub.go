@@ -101,13 +101,13 @@ func (m *Model) hubEffect(f core.Effect) {
 	case core.RestoreDraft:
 		// The input holds inputRole's draft until swapDraft runs.
 		if f.Role == m.inputRole {
-			m.input.SetValue(placed(f, m.input.Value()))
+			m.input.SetValue(ahead(f.Text, m.input.Value()))
 			return
 		}
 		if m.drafts == nil {
 			m.drafts = map[string]string{}
 		}
-		m.drafts[f.Role] = placed(f, m.drafts[f.Role])
+		m.drafts[f.Role] = ahead(f.Text, m.drafts[f.Role])
 	default:
 		m.effect(f, m.now())
 	}
