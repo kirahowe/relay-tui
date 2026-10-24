@@ -30,7 +30,11 @@ func (c *testClient) HandleExtensionMethod(_ context.Context, method string, par
 // connect plays a client against the fake hub over pipes.
 func connect(t *testing.T, cfg Config) (*acp.ClientSideConnection, *testClient) {
 	t.Helper()
-	h := New(cfg, io.Discard)
+	return connectHub(t, New(cfg, io.Discard))
+}
+
+func connectHub(t *testing.T, h *Hub) (*acp.ClientSideConnection, *testClient) {
+	t.Helper()
 	cr, aw := io.Pipe()
 	ar, cw := io.Pipe()
 	agentConn := acp.NewAgentSideConnection(h, aw, ar)
@@ -94,7 +98,10 @@ func TestEveryNewSessionEndsWithTheReplayedMarker(t *testing.T) {
 
 // A second prompt while a turn runs is refused, as relay's hub does.
 func TestSecondPromptWhileATurnRunsIsRefused(t *testing.T) {
-	conn, _ := connect(t, Config{Roles: []RoleConfig{{ID: "dev", Title: "Dev"}}})
+	h := New(Config{Roles: []RoleConfig{{ID: "dev", Title: "Dev"}}}, io.Discard)
+	busy := make(chan string, 4)
+	h.busy = busy
+	conn, _ := connectHub(t, h)
 	ctx := context.Background()
 	resp, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: "/", McpServers: []acp.McpServer{}, Meta: roleMeta("dev")})
 	if err != nil {
@@ -106,7 +113,7 @@ func TestSecondPromptWhileATurnRunsIsRefused(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- prompt("slow") }()
-	time.Sleep(200 * time.Millisecond)
+	<-busy // the first prompt has the conversation
 	err = prompt("again")
 	var re *acp.RequestError
 	if !asRequestError(err, &re) || re.Code != -32000 {
@@ -132,7 +139,10 @@ func asRequestError(err error, target **acp.RequestError) bool {
 // The roster learns that a turn ended a moment after the prompt's answer,
 // as relay's does, so clients meet that ordering.
 func TestRosterTurnEndsAfterThePromptAnswer(t *testing.T) {
-	conn, _ := connect(t, Config{Roles: []RoleConfig{{ID: "dev", Title: "Dev"}}})
+	h := New(Config{Roles: []RoleConfig{{ID: "dev", Title: "Dev"}}}, io.Discard)
+	busy := make(chan string, 4)
+	h.busy = busy
+	conn, _ := connectHub(t, h)
 	ctx := context.Background()
 	resp, err := conn.NewSession(ctx, acp.NewSessionRequest{Cwd: "/", McpServers: []acp.McpServer{}, Meta: roleMeta("dev")})
 	if err != nil {

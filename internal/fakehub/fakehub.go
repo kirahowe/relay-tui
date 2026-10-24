@@ -121,6 +121,15 @@ type role struct {
 
 // Hub plays the hub.
 type Hub struct {
+	// busy, when set, is told each session that takes a prompt, once it
+	// is busy and a second would be refused. Tests set it.
+	busy chan string
+	// gone is closed once the connection has ended. A "slow" turn ends
+	// with it, not with its request's context: the ACP SDK cancels that
+	// context when another prompt for the session arrives, and relay's hub
+	// refuses that prompt rather than ending the turn.
+	gone      chan struct{}
+	goneOnce  sync.Once
 	mu        sync.Mutex
 	conn      *acp.AgentSideConnection
 	log       io.Writer
@@ -141,7 +150,7 @@ type Hub struct {
 // New returns a hub with the config's roles. log receives one line per
 // client action.
 func New(cfg Config, log io.Writer) *Hub {
-	h := &Hub{log: log, unbusy: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond}
+	h := &Hub{log: log, unbusy: make(chan struct{}), gone: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond}
 	b, err := newBoard(cfg.Cards)
 	if err != nil {
 		fmt.Fprintf(log, "config: cards: %v\n", err)
@@ -394,6 +403,9 @@ func (h *Hub) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResp
 	c.finish = make(chan struct{})
 	finish := c.finish
 	h.mu.Unlock()
+	if h.busy != nil {
+		h.busy <- string(req.SessionId)
+	}
 
 	// A role that is busy holds the prompt until it is not.
 	for {
@@ -431,7 +443,7 @@ func (h *Hub) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResp
 		case <-cancel:
 			stop = acp.StopReasonCancelled
 		case <-finish:
-		case <-ctx.Done():
+		case <-h.gone:
 			stop = acp.StopReasonCancelled
 		}
 	}
@@ -559,6 +571,7 @@ func Serve(ctx context.Context, h *Hub, conn *acp.AgentSideConnection, control s
 		go h.watch(cctx, control)
 	}
 	err := conn.Wait(ctx)
+	h.goneOnce.Do(func() { close(h.gone) })
 	if errors.Is(err, acp.ErrPeerClosed) || errors.Is(err, acp.ErrConnectionClosed) {
 		return nil
 	}
