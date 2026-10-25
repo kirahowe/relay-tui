@@ -1,14 +1,14 @@
 ␛[0;1;7m Allow this tool call? ␛[m
-tool: "web_fetch"
-title: "web_fetch 
-{\"url\":\"https\u{003a}//x\u{002e}test\"}"
-kind: ""
-session labels: private, contaminated
-input:
-  │ {
-  │   "url": "https\u{003a}//x\u{002e}test"
-  │ }
-option 1: "Allow once" kind "allow_once"
+  tool: "web_fetch"
+  title: "web_fetch 
+␛[0;2m↪ ␛[m{\"url\":\"https\u{003a}//x\u{002e}test\"}"
+  kind: ""
+  session labels: private, contaminated
+  input:
+    │ {
+    │   "url": "https\u{003a}//x\u{002e}test"
+    │ }
+  option 1: "Allow once" kind "allow_once"
 ␛[0;2m────────────────────────────────────────────────────────────␛[m
 ␛[0;2m  1 allow_once (y)␛[m   ␛[0;1m▸ 2 reject_once (n)␛[m
 ␛[0;2mpage 1 of 2 · 1 more below: space␛[m

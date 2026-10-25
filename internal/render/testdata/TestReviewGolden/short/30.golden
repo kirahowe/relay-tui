@@ -1,23 +1,23 @@
 ␛[0;1;7m Allow this tool call? ␛[m
-tool: "web_fetch"
-title: "web_fetch 
-{\"url\":\"https\u{003a}//x\u{
-002e}test\"}"
-kind: ""
-session labels: private, 
-contaminated
-input:
-  │ {
-  │   "url": 
-"https\u{003a}//x\u{002e}test"
-  │ }
-option 1: "Allow once" kind 
-"allow_once"
-option 2: "Reject" kind 
-"reject_once"
-Characters to check:
-  none
+  tool: "web_fetch"
+  title: "web_fetch 
+␛[0;2m↪ ␛[m{\"url\":\"https\u{003a}//x\
+␛[0;2m↪ ␛[mu{002e}test\"}"
+  kind: ""
+  session labels: private, 
+␛[0;2m↪ ␛[mcontaminated
+  input:
+    │ {
+    │   "url": 
+␛[0;2m↪ ␛[m"https\u{003a}//x\u{002e}tes
+␛[0;2m↪ ␛[mt"
+    │ }
+  option 1: "Allow once" kind 
+␛[0;2m↪ ␛[m"allow_once"
+  option 2: "Reject" kind 
+␛[0;2m↪ ␛[m"reject_once"
+  Characters to check:
 ␛[0;2m──────────────────────────────␛[m
 ␛[0;2m‹ ␛[m␛[0;1m▸ 2 reject_once (n)␛[m
-␛[0;2mpage 1 of 1␛[m
+␛[0;2mpage 1 of 2 · 1 more below: s…␛[m
 ␛[0;1;36my allow␛[m␛[0;2m · n reject · esc canc…␛[m

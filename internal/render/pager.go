@@ -174,8 +174,8 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 		}
 		return fail("This review holds " + strings.Join(cps, " ") + ", which terminals draw at different widths, so not all of it may show.")
 	}
-	lines, ok := PagerLines(sub.Text, width)
-	if !ok {
+	lines, ok := PagerLines(sub.Text, width-len(Margin))
+	if !ok || width <= len(Margin) {
 		return fail("The window is too narrow for this review: make it wider.")
 	}
 	rows := height - len(top) - 1 - len(foot) - 2 // the rule, and the two rows of keys
@@ -195,9 +195,12 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	}
 	to := from
 	out := slicesClone(top)
-	for _, l := range lines[scroll:end] {
-		to += len(l)
-		out = append(out, strings.TrimSuffix(l, "\n"))
+	for i := scroll; i < end; i++ {
+		to += len(lines[i])
+		out = append(out, Margin+strings.TrimSuffix(lines[i], "\n"))
+		if Continues(lines, i) {
+			out[len(out)-1] = styled(faint, ContinuationMark) + strings.TrimSuffix(lines[i], "\n")
+		}
 	}
 	for len(out) < len(top)+rows {
 		out = append(out, "")
@@ -213,6 +216,23 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 }
 
 func slicesClone(s []string) []string { return append([]string(nil), s...) }
+
+// Margin is what every row of a review's text starts with, two columns
+// outside the text itself, and ContinuationMark what it is instead on a
+// row that carries on a line the window was too narrow for. The text
+// never reaches those columns, so a wrapped line can never pass for a
+// new one, nor for one of the text's own structure lines. They are
+// decoration: Drawn counts only the text's bytes.
+const (
+	Margin           = "  "
+	ContinuationMark = "↪ "
+)
+
+// Continues says line i of a review's lines carries on the line before
+// it: that one ends without a newline.
+func Continues(lines []string, i int) bool {
+	return i > 0 && !strings.HasSuffix(lines[i-1], "\n")
+}
 
 // fit is lines padded or cut to height rows.
 func fit(lines []string, height int) []string {

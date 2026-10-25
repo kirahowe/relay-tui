@@ -52,7 +52,7 @@ func reviewOnScreen(rt *rapid.T, m Model, now time.Time) (id string, from, to, n
 		return "", 0, 0, 0, false
 	}
 	sub := core.ReviewSubject(surf, a, s)
-	lines, fits := render.PagerLines(sub.Text, m.width())
+	lines, fits := render.PagerLines(sub.Text, m.width()-len(render.Margin))
 	if sub.Problem != "" || !fits {
 		return sub.ID, 0, 0, len(sub.Text), false
 	}
@@ -76,7 +76,11 @@ func reviewOnScreen(rt *rapid.T, m Model, now time.Time) (id string, from, to, n
 		if off >= d.To {
 			break
 		}
-		if strings.TrimRight(r, " ") != strings.TrimRight(strings.TrimSuffix(lines[i], "\n"), " ") {
+		lead := render.Margin
+		if render.Continues(lines, i) {
+			lead = render.ContinuationMark
+		}
+		if strings.TrimRight(r, " ") != strings.TrimRight(lead+strings.TrimSuffix(lines[i], "\n"), " ") {
 			rt.Fatalf("the screen row %q is not the line %q the frame says it drew:\n%s", r, lines[i], ansi.Strip(content))
 		}
 		off += len(lines[i])

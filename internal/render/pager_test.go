@@ -99,7 +99,8 @@ func TestReviewFramesReportWhatTheyShow(t *testing.T) {
 		x := reviewing(reviewOf(text))
 		width := rapid.IntRange(1, 60).Draw(t, "width")
 		height := rapid.IntRange(1, 30).Draw(t, "height")
-		lines, ok := PagerLines(text, width)
+		lines, ok := PagerLines(text, width-len(Margin))
+		ok = ok && width > len(Margin)
 		if _, amb := AmbiguousWidth(text); amb {
 			ok = false // the review fails closed on it
 		}
@@ -139,7 +140,7 @@ func TestReviewFramesReportWhatTheyShow(t *testing.T) {
 				if off >= d.To {
 					break
 				}
-				if r != strings.TrimSuffix(lines[i+j], "\n") {
+				if ansi.Strip(r) != bodyRow(lines, i+j) {
 					t.Fatalf("row %q is not line %q", r, lines[i+j])
 				}
 				off += len(lines[i+j])
@@ -334,6 +335,41 @@ func TestTheHighlightedOptionIsAlwaysInView(t *testing.T) {
 		}
 		if width >= 24 && !shown {
 			t.Fatalf("width %d: the highlight %q is out of view\n%s", width, want, ansi.Strip(f.Content))
+		}
+	})
+}
+
+// bodyRow is line i of a review's lines as the pager draws it: behind the
+// margin, or the continuation mark when it carries on the line before.
+func bodyRow(lines []string, i int) string {
+	lead := Margin
+	if Continues(lines, i) {
+		lead = ContinuationMark
+	}
+	return lead + strings.TrimSuffix(lines[i], "\n")
+}
+
+// Round 2, finding 4: a row that carries on a wrapped line starts with
+// the continuation mark, any other row of the text with the blank margin,
+// and the text never reaches those two columns: a wrapped piece of an
+// agent's value never looks like a line of its own.
+func TestWrappedRowsAreMarked(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		text := core.Visible(pagerText(t)) + "\n" + strings.Repeat("option 1: ", rapid.IntRange(0, 6).Draw(t, "lookalikes"))
+		x := reviewing(reviewOf(text))
+		width := rapid.IntRange(4, 40).Draw(t, "width")
+		f := Review(core.SingleSurface(x), x.App, x.State, "", t0, width, 60)
+		if f.Drawn == nil {
+			return
+		}
+		lines, _ := PagerLines(text, width-len(Margin))
+		rows := strings.Split(ansi.Strip(f.Content), "\n")
+		for i := 0; i < len(lines) && i < f.Page; i++ { // the first page
+			r := rows[1+i]
+			cont := Continues(lines, i)
+			if cont != strings.HasPrefix(r, ContinuationMark) || (!cont && !strings.HasPrefix(r, Margin)) {
+				t.Fatalf("row %d %q (continues %v) at %d", i, r, cont, width)
+			}
 		}
 	})
 }

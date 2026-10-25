@@ -27,13 +27,13 @@ func TestTheBufferShowsWhatTheReviewCertifies(t *testing.T) {
 		f := Review(core.SingleSurface(x), x.App, x.State, "", t0, width, height)
 		if f.Drawn == nil {
 			if _, amb := AmbiguousWidth(text); !amb {
-				if _, fits := PagerLines(text, width); fits {
+				if _, fits := PagerLines(text, width-len(Margin)); fits {
 					t.Fatalf("drew nothing at %dx%d:\n%s", width, height, f.Content)
 				}
 			}
 			return
 		}
-		lines, _ := PagerLines(text, width)
+		lines, _ := PagerLines(text, width-len(Margin))
 		for _, m := range []ansi.Method{ansi.WcWidth, ansi.GraphemeWidth} {
 			buf := uv.NewScreenBuffer(width, height)
 			buf.Method = m
@@ -44,7 +44,7 @@ func TestTheBufferShowsWhatTheReviewCertifies(t *testing.T) {
 				i++
 			}
 			for y := 1; off < f.Drawn.To; y++ {
-				want := strings.TrimSuffix(lines[i], "\n")
+				want := bodyRow(lines, i)
 				if got := strings.TrimRight(buf.Line(y).String(), " "); got != strings.TrimRight(want, " ") {
 					t.Fatalf("method %v, row %d shows %q, the frame certifies %q", m, y, got, want)
 				}

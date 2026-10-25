@@ -79,7 +79,9 @@ doc or archiving a card (see "The workspace pane" and "The board").
 Enter on a request's summary opens it, and `t` and `X` open the pane's.
 The review shows a text, T, exactly as it is: wrapped to the window,
 never cut, never escaped again and never shortened, so the pager's
-lines put together are T. Nothing the agent wrote shows anywhere else
+lines put together are T. T's rows start two columns in; a row that
+carries on a line the window was too narrow for starts with `↪` in
+those columns instead, so a wrapped line never passes for a new one. Nothing the agent wrote shows anywhere else
 on the review. The top row says what you are asked, in relay-tui's own
 words ("Allow this tool call?"). The foot names a request's options by
 their number in T and their ACP kind (`▸ 2 reject_once (n)`), always
