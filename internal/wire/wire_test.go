@@ -237,7 +237,7 @@ func TestPermission(t *testing.T) {
 	got := Permission(req, "", 7, t0)
 	want := core.PermissionAsked{At: t0, Permission: core.Permission{
 		ID: 7, Name: "web_fetch", Title: `web_fetch {"url":"https://x.test"}`, Input: `{"url":"https://x.test"}`, CallID: "call_1",
-		Options: []core.PermOption{{ID: "allow", Name: "Allow once", Kind: core.AllowOnce}, {ID: "reject", Name: "Reject", Kind: core.RejectOnce}, {ID: "x", Name: "Odd", Kind: "future_kind"}},
+		Options: []core.PermOption{{ID: "allow", Name: "Allow once", Kind: core.AllowOnce, N: 1}, {ID: "reject", Name: "Reject", Kind: core.RejectOnce, N: 2}, {ID: "x", Name: "Odd", Kind: "future_kind", N: 3}},
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v\nwant %#v", got, want)

@@ -225,3 +225,47 @@ func TestReviewFooter(t *testing.T) {
 		t.Errorf("armed:\n%s", plain)
 	}
 }
+
+// Nothing the agent wrote appears on the review but in T's body: the
+// heading is relay-tui's words, and the foot names options by number
+// and ACP kind. Agent values here are marked, and no row outside the
+// body holds a mark, at any size, for relay's T or one built here.
+func TestNothingAgentWrittenOutsideTheBody(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		mark := func(label string) string {
+			return "zq" + rapid.StringMatching(`[a-y]{3,8}`).Draw(t, label)
+		}
+		name, title, opt1, opt2 := mark("name"), mark("title"), mark("opt1"), mark("opt2")
+		marks := []string{name, title, opt1, opt2}
+		var rv *core.Review
+		if rapid.Bool().Draw(t, "relay") {
+			rv = reviewOf("tool: " + name + "\ntitle: " + title + "\noption 1: " + opt1 + "\noption 2: " + opt2)
+		}
+		s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
+		s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
+		s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: name, Title: title, Review: rv,
+			Input:   `{"a":"` + mark("input") + `"}`,
+			Options: []core.PermOption{{ID: "a", Name: opt1, Kind: core.AllowOnce, N: 1}, {ID: "r", Name: opt2, Kind: core.RejectOnce, N: 2}}}})
+		s, _ = core.Reduce(s, core.OpenReview{At: t0})
+		x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+		if rapid.Bool().Draw(t, "read") {
+			x = drawn(x, t0)
+		}
+		width := rapid.IntRange(10, 120).Draw(t, "width")
+		height := rapid.IntRange(6, 40).Draw(t, "height")
+		rows := strings.Split(ansi.Strip(Review(core.SingleSurface(x), x.App, x.State, "", t0, width, height).Content), "\n")
+		rule := len(rows)
+		for i, r := range rows {
+			if strings.HasPrefix(r, "──") {
+				rule = i
+				break
+			}
+		}
+		outside := append([]string{rows[0]}, rows[rule:]...)
+		for _, r := range outside {
+			if strings.Contains(r, "zq") {
+				t.Fatalf("agent text %q outside the body at %dx%d (marks %v):\n%s", r, width, height, marks, strings.Join(rows, "\n"))
+			}
+		}
+	})
+}

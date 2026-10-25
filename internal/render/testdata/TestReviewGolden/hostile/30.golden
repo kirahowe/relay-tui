@@ -1,4 +1,4 @@
-␛[0;1;7m Allow this tool call? ␛[m tool:…
+␛[0;1;7m Allow this tool call? ␛[m
 tool: ""
 title: "evil\u{001b}[2J title"
 kind: ""
@@ -18,6 +18,6 @@ Characters to check:
 
 
 ␛[0;2m──────────────────────────────␛[m
-␛[0;1m▸ Allow\u{001b}[2J once (y)␛[m
+␛[0;1m▸ 1 allow_once (y)␛[m
 ␛[0;2mpage 1 of 1␛[m
 ␛[0;1;36my allow␛[m␛[0;2m · n reject · esc canc…␛[m

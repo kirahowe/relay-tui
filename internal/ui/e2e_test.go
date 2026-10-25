@@ -687,7 +687,7 @@ func testPermissionAllow(t *testing.T, cols, rows int) {
 	}
 	h.review()
 	scr := h.screen()
-	for _, want := range []string{"web_fetch", "https://example.com/page", "Allow once (y)", "Reject (n)"} {
+	for _, want := range []string{"web_fetch", "https://example.com/page", "1 allow_once (y)", "2 reject_once (n)"} {
 		if cols >= 80 && !strings.Contains(scr, want) {
 			t.Errorf("%q not on screen:\n%s", want, scr)
 		}

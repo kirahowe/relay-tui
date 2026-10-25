@@ -80,7 +80,7 @@ func TestRequestSummaryAndReviewContent(t *testing.T) {
 	s, _ = core.Reduce(s, core.OpenReview{At: t0})
 	x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
 	out = ansi.Strip(View(x, "› ", "", t0.Add(time.Second), 60, 30).Content)
-	for _, want := range []string{"Allow this tool call?", `tool: "memo_send"`, `"k": 1`, "Allow once (y)", "▸ Reject (n)",
+	for _, want := range []string{"Allow this tool call?", `tool: "memo_send"`, `"k": 1`, "1 allow_once (y)", "▸ 2 reject_once (n)",
 		"page 1 of 3", "more below", "y allow once all is read", "esc cancel"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q missing from the review:\n%s", want, out)

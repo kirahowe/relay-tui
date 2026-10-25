@@ -195,7 +195,7 @@ func TestAgentloopPasteHoldAllow(t *testing.T) {
 	h.answer() // esc: while typing a request takes no keys
 	h.review()
 	scr := h.screen()
-	for _, want := range []string{"web_post", "the secrets", "Allow once (y)", "Reject (n)"} {
+	for _, want := range []string{"web_post", "the secrets", "1 allow_once (y)", "2 reject_once (n)"} {
 		if !strings.Contains(scr, want) {
 			t.Errorf("%q not on screen:\n%s", want, scr)
 		}

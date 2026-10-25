@@ -119,14 +119,10 @@ func ReviewHeading(k core.SubjectKind) string {
 func Review(surf core.Surface, a core.App, s core.State, note string, now time.Time, width, height int) PagerFrame {
 	sub := core.ReviewSubject(surf, a, s)
 	width, height = max(width, 1), max(height, 1)
+	// The heading is relay-tui's own words only: what the agent wrote is
+	// in T's body, whole, and nowhere else on the review.
 	head := styled(bold|reverse, truncate(" "+ReviewHeading(sub.Kind)+" ", width))
-	var top []string
-	if sub.Problem == "" {
-		if first, _, _ := strings.Cut(sub.Text, "\n"); first != "" {
-			head = truncate(head+" "+first, width) // T's own words: safe by the check
-		}
-	}
-	top = append(top, head)
+	top := []string{head}
 	if sub.Note != "" {
 		for _, l := range capLines(wrap(styled(bold|warnColour, sub.Note), width), 2, width) {
 			top = append(top, l)
@@ -208,9 +204,10 @@ func doneWord(k core.SubjectKind) string {
 	return "trusted"
 }
 
-// optionsLine is the request's options, the highlighted one marked; the
-// names are the agent's, shown safe and cut to the line (T lists them
-// whole). Before the review is armed they are faint.
+// optionsLine is the request's options by their number in T and their
+// ACP kind, the protocol's own words, the highlighted one marked. The
+// names are the agent's, so they are only in T. Before the review is
+// armed the allows are faint.
 func optionsLine(s core.State, armed bool, width int) string {
 	p := s.Asks[0]
 	var parts []string
@@ -219,7 +216,7 @@ func optionsLine(s core.State, armed bool, width int) string {
 		if i == s.Pick {
 			mark = "▸ "
 		}
-		t := mark + core.VisibleLine(o.Name)
+		t := fmt.Sprintf("%s%d %s", mark, p.Number(i), o.Kind)
 		if k := optionKey(o.Kind); k != "" {
 			t += " (" + k + ")"
 		}

@@ -1,4 +1,4 @@
-␛[0;1;7m Allow this tool call? ␛[m tool: "web_fetch"
+␛[0;1;7m Allow this tool call? ␛[m
 tool: "web_fetch"
 title: "web_fetch 
 {\"url\":\"https\u{003a}//x\u{002e}test\"}"
@@ -18,6 +18,6 @@ Characters to check:
 
 
 ␛[0;2m────────────────────────────────────────────────────────────␛[m
-  Allow once (y)   ␛[0;1m▸ Reject (n)␛[m
+  1 allow_once (y)   ␛[0;1m▸ 2 reject_once (n)␛[m
 ␛[0;2mpage 1 of 1␛[m
 ␛[0;1;36my allow␛[m␛[0;2m · n reject · esc cancel · q back · tab, enter choose␛[m

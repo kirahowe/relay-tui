@@ -93,8 +93,8 @@ func RequestText(p Permission, session Labels) string {
 		line("set by your settings: ", strings.Join(names, ", "))
 	}
 	for i, o := range p.Options {
-		line(fmt.Sprintf("option %d: ", i+1), q(o.Name), " kind ", q(string(o.Kind)))
-		fields = append(fields, field{fmt.Sprintf("option %d", i+1), o.Name})
+		line(fmt.Sprintf("option %d: ", p.Number(i)), q(o.Name), " kind ", q(string(o.Kind)))
+		fields = append(fields, field{fmt.Sprintf("option %d", p.Number(i)), o.Name})
 	}
 	if len(p.Options) == 0 {
 		line("options: none")

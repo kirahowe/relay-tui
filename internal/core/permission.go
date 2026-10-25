@@ -35,10 +35,23 @@ func (k OptionKind) Allows() bool { return k == AllowOnce || k == AllowAlways }
 // Rejects reports whether choosing an option of this kind refuses the call.
 func (k OptionKind) Rejects() bool { return k == RejectOnce || k == RejectAlways }
 
-// PermOption is one choice the agent offers.
+// PermOption is one choice the agent offers. N is its place, from 1, in
+// the list the agent sent, before the kinds this client never offers
+// were left out, so it names the option as a review text numbers it
+// (0 when unknown: its place in Options then).
 type PermOption struct {
 	ID, Name string
 	Kind     OptionKind
+	N        int
+}
+
+// Number is how a review names option i of Options: its place in what
+// the agent sent.
+func (p Permission) Number(i int) int {
+	if n := p.Options[i].N; n > 0 {
+		return n
+	}
+	return i + 1
 }
 
 // Permission is a request from the agent to run a tool call. ID is the

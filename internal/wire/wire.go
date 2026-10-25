@@ -230,8 +230,8 @@ func Permission(req acp.RequestPermissionRequest, input string, id uint64, at ti
 	if strictjson.Unmarshal(req.Meta[RefusedKey], &refused) == nil {
 		p.Refused = refused
 	}
-	for _, o := range req.Options {
-		p.Options = append(p.Options, core.PermOption{ID: string(o.OptionId), Name: o.Name, Kind: core.OptionKind(o.Kind)})
+	for i, o := range req.Options {
+		p.Options = append(p.Options, core.PermOption{ID: string(o.OptionId), Name: o.Name, Kind: core.OptionKind(o.Kind), N: i + 1})
 	}
 	return core.PermissionAsked{At: at, Permission: p}
 }

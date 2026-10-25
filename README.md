@@ -79,9 +79,11 @@ doc or archiving a card (see "The workspace pane" and "The board").
 Enter on a request's summary opens it, and `t` and `X` open the pane's.
 The review shows a text, T, exactly as it is: wrapped to the window,
 never cut, never escaped again and never shortened, so the pager's
-lines put together are T. The top row says what you are asked and
-starts T's first line; the foot shows the options, which page you are
-on and how many are left, and the keys.
+lines put together are T. Nothing the agent wrote shows anywhere else
+on the review. The top row says what you are asked, in relay-tui's own
+words ("Allow this tool call?"). The foot names a request's options by
+their number in T and their ACP kind (`▸ 2 reject_once (n)`), then
+shows which page you are on, how many are left, and the keys.
 
 Keys in the review:
 
