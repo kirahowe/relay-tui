@@ -121,9 +121,18 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 		x.State.Message = Message{Text: x.App.refusal(need, id), At: e.at()}
 		return x, nil
 	}
+	if isAllow(e, x.State) && !inputArmed(x.State, e.at()) {
+		x.State.Message = Message{Text: inputRefusal(x.State), At: e.at()}
+		return x, nil
+	}
 	switch e := e.(type) {
 	case Drawn:
 		x.App = x.App.shown(e, id)
+		if !e.OnlyForget {
+			for _, d := range e.Input {
+				seeInput(&x.State, d, e.At)
+			}
+		}
 		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true

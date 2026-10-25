@@ -30,6 +30,9 @@ type Drawn struct {
 	At         time.Time
 	Surfaces   []string
 	OnlyForget bool
+	// Input is what the frame drew of a request's input (see
+	// inputseen.go).
+	Input []InputDrawn
 }
 
 // shown is the app after e, for the surface named id.
@@ -126,6 +129,8 @@ func surfaceID(surf Surface, a App, s State, extra string) string {
 		return InputID(extra)
 	case SurfaceConversation:
 		return fmt.Sprintf("%d/%q", surf.Kind, extra)
+	case SurfaceInputView:
+		return "input" + RequestID(s)
 	}
 	return fmt.Sprintf("%d/%d", surf.Kind, surf.Column)
 }
@@ -209,7 +214,7 @@ func RequestArmed(a App, s State, now time.Time) bool {
 		return false
 	}
 	t, ok := a.ArmedSince(surfaceID(Surface{Kind: SurfaceRequest}, a, s, ""))
-	return ok && !now.Before(t)
+	return ok && !now.Before(t) && inputArmed(s, now)
 }
 
 // ConfirmArmed says the question the pane asks (archive, card or doc

@@ -61,7 +61,7 @@ func TestPermissionBoxContent(t *testing.T) {
 		Input:   "{" + strings.Join(in, ",") + "}",
 		Options: []core.PermOption{{ID: "a", Name: "Allow once", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
 	out := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 60, 30).Content)
-	for _, want := range []string{"permission needed", "memo_send", `"k": 1`, "more lines · v to see all", "Allow once (y)", "▸ Reject (n)", "esc cancel"} {
+	for _, want := range []string{"permission needed", "memo_send", `"k": 1`, "more lines · v to read them", "Allow once (y)", "▸ Reject (n)", "v to read all before y", "esc cancel"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q missing from:\n%s", want, out)
 		}

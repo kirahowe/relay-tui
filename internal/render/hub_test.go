@@ -27,7 +27,11 @@ func hubStep(h core.Hub, es ...core.Event) core.Hub {
 	for _, e := range es {
 		h, _ = core.ReduceHub(h, e)
 		// Drawn, and long enough ago to be armed.
-		h, _ = core.ReduceHub(h, core.Drawn{At: t0.Add(-time.Hour), Surfaces: []string{core.HubSurfaceID(h)}})
+		var in []core.InputDrawn
+		if c := h.Focused(); c != nil {
+			in = wholeInputOf(c.State)
+		}
+		h, _ = core.ReduceHub(h, core.Drawn{At: t0.Add(-time.Hour), Surfaces: []string{core.HubSurfaceID(h)}, Input: in})
 	}
 	return h
 }
@@ -387,7 +391,9 @@ func TestHubApprovalIsLiveOnlyWhereTheWholeRequestCanBeRead(t *testing.T) {
 				continue
 			}
 			live++
-			h := hubStep(base, core.PermissionShowAll{At: t0})
+			// v opens the input view; back from it, the request's whole input
+			// is in the conversation too.
+			h := hubStep(base, core.PermissionShowAll{At: t0}, core.InputViewKey{At: t0, Action: core.TranscriptClose})
 			c := h.Focused().State
 			want := Entries(nil, c.Entries[len(c.Entries)-1:], w, t0)
 			// Every line of the request, wherever the view scrolls.

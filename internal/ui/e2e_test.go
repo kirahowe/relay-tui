@@ -577,6 +577,22 @@ func permit(t *testing.T, cols, rows int) *harness {
 	return h
 }
 
+// readInput reads the whole input of the request on offer, when the box
+// cannot show it all: v, to its end, and back. Allowing waits for it.
+func (h *harness) readInput() {
+	h.t.Helper()
+	if !strings.Contains(h.screen(), "read") {
+		return
+	}
+	h.keys("v")
+	h.waitScreen("the input view", func(s string) bool { return strings.Contains(s, "input of") })
+	time.Sleep(100 * time.Millisecond)
+	h.keys("G")
+	time.Sleep(200 * time.Millisecond)
+	h.keys("v")
+	h.waitScreen("the request again", func(s string) bool { return strings.Contains(s, "permission needed") })
+}
+
 // answer stops typing so the request on offer takes the keys, and
 // waits until it does: esc on its own, since an escape sent with the
 // next key reads as alt and that key.
@@ -648,6 +664,7 @@ func testPermissionAllow(t *testing.T, cols, rows int) {
 	if st := h.waitScreen("the private badge", func(s string) bool { return privateBadge(s) }); !strings.Contains(st, "waiting for you") && cols >= 80 {
 		t.Errorf("status does not say it is waiting:\n%s", st)
 	}
+	h.readInput()
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
@@ -706,6 +723,8 @@ func TestPermissionCtrlCCancels(t *testing.T) {
 // v puts the whole input into the transcript.
 func TestPermissionShowAll(t *testing.T) {
 	h := permit(t, 80, 24)
+	h.keys("v")
+	h.waitScreen("the input view", func(s string) bool { return strings.Contains(s, "input of") && strings.Contains(s, "sending the memo") })
 	h.keys("v")
 	h.waitAll("  ? web_fetch")
 	if n := count(h.all(), "sending the memo"); n < 2 {

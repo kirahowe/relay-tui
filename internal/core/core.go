@@ -322,6 +322,8 @@ type State struct {
 	// Pane is the conversation's part of the workspace pane: its items.
 	// The board, and whether the pane has the keys, are the app's.
 	Pane Pane
+	// InputView is the input of the request on offer, opened with v.
+	InputView *InputView
 	// Transcript is the full-screen view; Help says the list of keys
 	// shows.
 	Transcript Transcript
@@ -465,6 +467,8 @@ func (r *reducer) apply(e Event) {
 		r.show(&s.Transcript.Thinking, e.At)
 	case TranscriptKey:
 		r.transcriptKey(e)
+	case InputViewKey:
+		r.inputViewKey(e)
 	case ToggleHelp:
 		s.Help = !s.Help
 	case EOF:

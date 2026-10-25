@@ -680,3 +680,120 @@ func TestNothingUnseenIsAuthorized(t *testing.T) {
 		})
 	}
 }
+
+// longAsk is a request whose input runs to many lines.
+func longAsk(rt *rapid.T, at time.Time) core.PermissionAsked {
+	n := rapid.IntRange(1, 60).Draw(rt, "input lines")
+	var kv []string
+	for i := range n {
+		kv = append(kv, fmt.Sprintf(`"k%d":"%s"`, i, strings.Repeat("w", rapid.IntRange(1, 120).Draw(rt, "value"))))
+	}
+	e := askEvent(at, 1)
+	e.Input = "{" + strings.Join(kv, ",") + "}"
+	return e
+}
+
+// Allowing vouches for the whole input: whatever the size and however
+// the input view is scrolled, an allow goes out only once every line of
+// the input has been on screen whole (as the frames report it, and as
+// the screen shows), and ArmDelay after the last part was. Refusing
+// needs no reading.
+func TestAllowNeedsTheWholeInputRead(t *testing.T) {
+	sizes := [][2]int{{40, 10}, {40, 24}, {60, 14}, {80, 24}, {120, 40}}
+	for _, hub := range []bool{true, false} {
+		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
+			rapid.Check(t, func(rt *rapid.T) {
+				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+				var calls []call
+				var m Model
+				ask := longAsk(rt, clock)
+				if hub {
+					m = surfaceHub(&calls, &clock)
+				} else {
+					m = surfaceSingle(&calls, &clock)
+				}
+				sz := rapid.SampledFrom(sizes).Draw(rt, "size")
+				m = update(m, tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+				if hub {
+					m = update(m, ev(core.Routed{Session: "s1", Event: ask}))
+				} else {
+					m = update(m, ev(ask))
+				}
+				m = update(m, key("esc"))
+				lines := core.FaithfulLines(ask.Input)
+				seen := make([][]bool, len(lines))
+				for i, l := range lines {
+					seen[i] = make([]bool, len([]rune(l)))
+				}
+				var readAt time.Time
+				look := func() {
+					var in []core.InputDrawn
+					var content string
+					if hub {
+						f := m.hubFrame(clock)
+						in, content = f.Input, f.Content
+					} else {
+						f := m.frame(clock)
+						in, content = f.Input, f.Content
+					}
+					screen := flatScreen(content)
+					fresh := false
+					for _, d := range in {
+						for _, sp := range d.Spans {
+							part := string([]rune(lines[sp.Line])[sp.From:sp.To])
+							if !strings.Contains(screen, flatText(part)) {
+								rt.Fatalf("the frame says it drew %q of line %d, the screen does not show it:\n%s", part, sp.Line, ansi.Strip(content))
+							}
+							for i := sp.From; i < sp.To; i++ {
+								fresh = fresh || !seen[sp.Line][i]
+								seen[sp.Line][i] = true
+							}
+						}
+					}
+					if fresh {
+						readAt = clock
+					}
+				}
+				all := func() bool {
+					for _, l := range seen {
+						for _, b := range l {
+							if !b {
+								return false
+							}
+						}
+					}
+					return true
+				}
+				look()
+				for range rapid.IntRange(1, 25).Draw(rt, "steps") {
+					clock = clock.Add(time.Duration(rapid.IntRange(0, 900).Draw(rt, "ms")) * time.Millisecond)
+					if rapid.IntRange(0, 9).Draw(rt, "resize") == 0 {
+						sz := rapid.SampledFrom(sizes).Draw(rt, "size")
+						m = update(m, tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+						look()
+						continue
+					}
+					n := len(calls)
+					m = update(m, key(rapid.SampledFrom([]string{"v", "j", "k", "pgdown", "pgup", "G", "g", "q", "y", "y", "enter", "down"}).Draw(rt, "key")))
+					for _, c := range calls[n:] {
+						if c.what == "answer" && c.option == "allow" && (!all() || c.at.Sub(readAt) < core.ArmDelay) {
+							rt.Fatalf("allowed with the input read %v, the last of it %v before", all(), c.at.Sub(readAt))
+						}
+					}
+					look()
+				}
+			})
+		})
+	}
+}
+
+func flatText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune(" \t\n│╭╮╰╯─▸", r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+func flatScreen(content string) string { return flatText(ansi.Strip(content)) }

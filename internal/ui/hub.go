@@ -40,7 +40,7 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a later frame replaced it
 		}
 		m.drawnPending = false
-		evs = []core.Event{core.Drawn{At: now, Surfaces: msg.set}}
+		evs = []core.Event{core.Drawn{At: now, Surfaces: msg.set, Input: msg.input}}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {
@@ -158,6 +158,8 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 			}
 		}
 		return nil, nil
+	case core.SurfaceInputView:
+		return one(m.inputViewKey(k, now))
 	case core.SurfaceInput:
 		return m.typingKey(k, now)
 	case core.SurfaceEditor:
@@ -173,6 +175,47 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 		return one(m.hubConvKey(k, a, index, now))
 	}
 	return one(m.singleConvKey(k, a, now))
+}
+
+// inputViewKey is the event for a key pressed in the input view (v):
+// it scrolls, or v, esc or q goes back to the request. Nothing there
+// answers: the request's keys are in its box.
+func (m *Model) inputViewKey(k tea.KeyPressMsg, now time.Time) core.Event {
+	mx, page := m.inputFrame(now)
+	key := func(a core.TranscriptAction) core.Event {
+		return core.InputViewKey{At: now, Action: a, Max: mx, Page: page}
+	}
+	switch k.String() {
+	case "up", "k":
+		return key(core.TranscriptUp)
+	case "down", "j":
+		return key(core.TranscriptDown)
+	case "pgup", "b":
+		return key(core.TranscriptPageUp)
+	case "pgdown", "space", "f":
+		return key(core.TranscriptPageDown)
+	case "home", "g":
+		return key(core.TranscriptTop)
+	case "end", "G":
+		return key(core.TranscriptBottom)
+	case "v", "esc", "q":
+		return key(core.TranscriptClose)
+	case "ctrl+c":
+		return core.Interrupt{At: now, InputEmpty: true}
+	case "ctrl+d":
+		return core.EOF{At: now}
+	}
+	return nil
+}
+
+// inputFrame is how far the input view scrolls as drawn, and a page.
+func (m Model) inputFrame(now time.Time) (int, int) {
+	if m.kind == kindHub {
+		f := m.hubFrame(now)
+		return f.InputMax, f.InputPage
+	}
+	f := m.frame(now)
+	return f.InputMax, f.InputPage
 }
 
 // hubConvKey is the event for a key pressed while moving in the

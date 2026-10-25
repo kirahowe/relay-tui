@@ -127,6 +127,7 @@ type Model struct {
 	// says the report of the last is on its way (see drawn).
 	holding, replaying bool
 	drawnSet           []string
+	drawnInput         []core.InputDrawn
 	drawnGen           int
 	drawnPending       bool
 	held               []heldMsg
@@ -297,8 +298,9 @@ const drawLag = 50 * time.Millisecond
 
 // drawnMsg says frame gen, which drew set in full, is on screen.
 type drawnMsg struct {
-	gen int
-	set []string
+	gen   int
+	set   []string
+	input []core.InputDrawn
 }
 
 // drawn tells the core what the frame about to be drawn shows in full
@@ -310,14 +312,14 @@ func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if m.kind == kindUnknown || m.holding {
 		return m, cmd
 	}
-	set := m.armable()
-	if slices.Equal(set, m.drawnSet) {
+	set, input := m.armable()
+	if slices.Equal(set, m.drawnSet) && reflect.DeepEqual(input, m.drawnInput) {
 		// The same frame: report it again only if the surface was forgotten
 		// meanwhile (it changed and came back) and no report is on its way.
 		if m.drawnPending || !slices.Contains(set, m.surfaceID()) || m.app().Shown.Surface == m.surfaceID() {
 			return m, cmd
 		}
-	} else {
+	} else if !slices.Equal(set, m.drawnSet) {
 		var kept []string
 		for _, id := range set {
 			if slices.Contains(m.drawnSet, id) {
@@ -326,24 +328,26 @@ func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		}
 		m.coreEvent(core.Drawn{At: m.now(), Surfaces: kept, OnlyForget: true})
 	}
-	m.drawnSet = set
+	m.drawnSet, m.drawnInput = set, input
 	m.drawnGen++
 	m.drawnPending = true
-	msg := drawnMsg{gen: m.drawnGen, set: set}
+	msg := drawnMsg{gen: m.drawnGen, set: set, input: input}
 	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return msg }))
 }
 
 // armable is what the frame as drawn now shows in full that a key could
-// authorize.
-func (m Model) armable() []string {
+// authorize, and what of a request's input it shows.
+func (m Model) armable() ([]string, []core.InputDrawn) {
 	now := m.now()
 	if m.kind == kindHub {
-		return m.hubFrame(now).Armable
+		f := m.hubFrame(now)
+		return f.Armable, f.Input
 	}
 	if m.alt {
-		return nil // the transcript asks nothing
+		return nil, nil // the transcript asks nothing
 	}
-	return m.frame(now).Armable
+	f := m.frame(now)
+	return f.Armable, f.Input
 }
 
 // coreEvent applies an event with no effects to the core, in either mode.
@@ -403,7 +407,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a later frame replaced it
 		}
 		m.drawnPending = false
-		ev = core.Drawn{At: now, Surfaces: msg.set}
+		ev = core.Drawn{At: now, Surfaces: msg.set, Input: msg.input}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {

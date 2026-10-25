@@ -78,6 +78,9 @@ type HubFrame struct {
 	// (core.RequestID, ConfirmID, EndID, InputID).
 	Active  core.SurfaceKind
 	Armable []string
+	// Input, InputMax and InputPage: see Frame.
+	Input               []core.InputDrawn
+	InputMax, InputPage int
 	// title and right are the header's parts, for a panel's top border.
 	title, right string
 }
@@ -516,6 +519,15 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	surf := core.HubSurface(h)
 	asking := surf.Kind == core.SurfaceRequest
 	moving := !surf.Covered().Typing()
+	if surf.Kind == core.SurfaceInputView {
+		// The input view (v) takes the conversation's place, whole.
+		lines, in, mx, page := inputView(s, width, height)
+		t := ""
+		if role != nil {
+			t = styled(bold, roleName(*role))
+		}
+		return HubFrame{Content: strings.Join(lines, "\n"), Active: core.SurfaceInputView, Input: in, InputMax: mx, InputPage: page, title: t}
+	}
 
 	// The header.
 	title := paneLine(h.Focus, true) // a name that came from the command line, not the config
@@ -567,6 +579,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	showInput := false
 	active := core.SurfaceConversation
 	armable := "" // what of the bottom a key could authorize, when it shows whole
+	var inputDrawn []core.InputDrawn
 	switch {
 	case surf.Kind == core.SurfaceEnd:
 		ask := fmt.Sprintf("End the conversation with %s? y to end it, n to keep it", title)
@@ -576,10 +589,10 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	case asking:
 		// The review must leave the conversation its rows, as the frame
 		// asks of any request (below).
-		box, arm := requestBox(h.App, s, now, width, height-1-len(bottom)-2, height-2-len(bottom)-core.MinTranscriptRows)
+		box, arm, in := requestBox(h.App, s, now, width, height-1-len(bottom)-2, height-2-len(bottom)-core.MinTranscriptRows)
 		bottom = append(bottom, box...)
 		active = core.SurfaceRequest
-		armable = arm
+		armable, inputDrawn = arm, in
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.
 	default:
@@ -694,7 +707,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	// The bottom is drawn whole only if the screen holds it: the top goes
 	// first when it does not (below), so it counts when it fits.
 	if headRows+len(bottom) > height {
-		armable = ""
+		armable, inputDrawn = "", nil
 	}
 	if len(lines) > room {
 		lines = lines[len(lines)-room:]
@@ -716,7 +729,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	return HubFrame{
 		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax,
 		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputX: x, InputY: max(y, 0),
-		title: panelTitle, right: styled(faint, right), Active: active, Armable: armed(armed(nil, armable), paneArm),
+		title: panelTitle, right: styled(faint, right), Active: active, Armable: armed(armed(nil, armable), paneArm), Input: inputDrawn,
 	}
 }
 

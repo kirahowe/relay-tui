@@ -78,7 +78,7 @@ func howToAnswer(surf core.Surface) string {
 // (see review.go) its heading, preview and options are drawn whole;
 // otherwise they are cut to fit, and the box says to make the window
 // larger.
-func permissionBox(s core.State, armed bool, width, room int, review bool) []string {
+func permissionBox(s core.State, armed bool, width, room int, review bool) ([]string, []core.InputDrawn) {
 	whole := func(lines []string, n, w int) []string {
 		if review {
 			return lines
@@ -162,17 +162,28 @@ func permissionBox(s core.State, armed bool, width, room int, review bool) []str
 	body := min(permissionBody, budget)
 	// The input shows exactly, escaped, except that once the session is
 	// contaminated its links defang: a click on one to look at it would
-	// send what it carries before anything is approved.
-	in := wrapAll(defangIf(def, core.FaithfulLines(p.Input)), inner)
+	// send what it carries before anything is approved. What does not fit
+	// is read with v (inputView), and allowing waits until it has been.
+	in, spans, lens := inputRows(p, def, inner)
 	if len(in) == 0 {
-		in = []string{"(no input)"}
+		lines = append(lines, styled(faint, "(no input)"))
 	}
+	shown := len(in)
 	for i, l := range in {
 		if i == body-1 && len(in) > body {
-			lines = append(lines, styled(faint, truncate(fmt.Sprintf("… %d more lines · v to see all", len(in)-i), inner)))
+			lines = append(lines, styled(faint, truncate(fmt.Sprintf("… %d more lines · v to read them", len(in)-i), inner)))
+			shown = i
 			break
 		}
 		lines = append(lines, styled(faint, l))
+	}
+	if review && core.InputUnread(s) && shown < len(in) {
+		// One row, as the keys' hint is: the shortest that fits.
+		for _, h := range []string{core.InputNote + " · n reject · esc cancel", "v to read all before y · esc cancel", "v read all, then y"} {
+			if hint = h; ansi.StringWidth(h) <= inner {
+				break
+			}
+		}
 	}
 	lines = append(lines, capLines(fixedLines(p.FixedArgs, def, inner), 2, inner)...)
 	lines = append(lines, opts...)
@@ -181,7 +192,7 @@ func permissionBox(s core.State, armed bool, width, room int, review bool) []str
 	} else {
 		lines = append(lines, wrap(styled(bold, hint), inner)...)
 	}
-	return box("permission needed", lines, width)
+	return box("permission needed", lines, width), drawnInput(s, spans, lens, 0, shown)
 }
 
 // titleRows and optionRows bound the rows of a request's title and of each

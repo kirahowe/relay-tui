@@ -343,9 +343,20 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 		h.Notice = h.App.refusal(need, id)
 		return h, nil
 	}
+	if isAllow(e, st) && !inputArmed(st, e.at()) {
+		h.Notice = inputRefusal(st)
+		return h, nil
+	}
 	switch e := e.(type) {
 	case Drawn:
 		h.App = h.App.shown(e, id)
+		if c := h.Focused(); c != nil && !e.OnlyForget && len(e.Input) > 0 {
+			h.Convs = slices.Clone(h.Convs)
+			i := slices.IndexFunc(h.Convs, func(x Conv) bool { return x.Session == c.Session && x.Role == c.Role })
+			for _, d := range e.Input {
+				seeInput(&h.Convs[i].State, d, e.At)
+			}
+		}
 		return h, nil
 	case KeyPressed:
 		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true

@@ -47,6 +47,9 @@ const (
 	// (against a single agent; in hub mode the conversation is always
 	// drawn whole).
 	SurfaceTranscript
+	// SurfaceInputView is the input of the request on offer, opened with
+	// v in the request's place, to read all of it.
+	SurfaceInputView
 )
 
 // Column is the column of the screen the keys are in: the list of
@@ -90,6 +93,8 @@ func HubSurface(h Hub) Surface {
 		under = paneSurface(h.App, st)
 	case !h.App.Moving:
 		under = SurfaceInput
+	case st.viewing():
+		under = SurfaceInputView
 	case len(st.Asks) > 0:
 		under = SurfaceRequest
 	}
@@ -115,6 +120,8 @@ func SingleSurface(x Single) Surface {
 		col, under = ColumnPane, paneSurface(x.App, x.State)
 	case !x.App.Moving:
 		under = SurfaceInput
+	case x.State.viewing():
+		under = SurfaceInputView
 	case len(x.State.Asks) > 0:
 		under = SurfaceRequest
 	}
@@ -177,6 +184,8 @@ func (s Surface) takes(e Event) bool {
 		return in(SurfacePane, SurfaceEditor, SurfaceConfirm)
 	case ListMove, ListOpen:
 		return k == SurfaceList
+	case InputViewKey:
+		return k == SurfaceInputView
 	case AskEnd:
 		return k == SurfaceConversation
 	case ConfirmEnd:

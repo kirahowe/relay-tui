@@ -29,6 +29,10 @@ type Frame struct {
 	// HubFrame).
 	Active  core.SurfaceKind
 	Armable []string
+	// Input is what the frame drew of a request's input, and InputMax and
+	// InputPage how far the input view scrolls and a page of it.
+	Input               []core.InputDrawn
+	InputMax, InputPage int
 }
 
 // View lays out the live part of the screen. It always fills height-1
@@ -58,6 +62,14 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 	// What has the keys is what is drawn as active: core.SingleSurface
 	// decides it, and nothing here decides it again.
 	surf := core.SingleSurface(x)
+	if surf.Kind == core.SurfaceInputView {
+		w := width
+		if Side(width) {
+			w = MainWidth(width)
+		}
+		lines, in, mx, page := inputView(s, w, max(height-1, 1))
+		return Frame{Content: strings.Join(lines, "\n"), PrintTo: s.Printed, Active: core.SurfaceInputView, Input: in, InputMax: mx, InputPage: page}
+	}
 	help := func(w int) func(room int) []string {
 		if surf.Kind != core.SurfaceHelp {
 			return nil
@@ -115,6 +127,7 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 	inputAt, x := 0, 0
 	asking := surf.Kind == core.SurfaceRequest
 	requestArm := "" // the request, when its review is drawn
+	var inputDrawn []core.InputDrawn
 	if len(s.Asks) > 0 && !asking {
 		// Something else has the keys: the request waits above the input
 		// until the operator moves to it.
@@ -126,9 +139,9 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 		// input shows in what is left of the screen after the status line,
 		// the blank row above and the request's own frame.
 		bottom = append(bottom, "")
-		box, arm := requestBox(a, s, now, width, height-1-len(bottom)-1, height-1-len(bottom)-1)
+		box, arm, in := requestBox(a, s, now, width, height-1-len(bottom)-1, height-1-len(bottom)-1)
 		bottom = append(bottom, box...)
-		requestArm = arm
+		requestArm, inputDrawn = arm, in
 		inputLines = []string{""}
 		inputAt = -1
 	} else {
@@ -206,6 +219,7 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 	case asking:
 		f.Active = core.SurfaceRequest
 		f.Armable = armed(nil, requestArm)
+		f.Input = inputDrawn
 	case over != nil && surf.Kind == core.SurfaceHelp:
 		f.Active = core.SurfaceHelp
 	case surf.Kind == core.SurfaceInput:
@@ -215,7 +229,7 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 		f.Active = core.SurfaceConversation
 	}
 	if len(bottom) > rows {
-		f.Armable = nil // the bottom does not fit: its top is cut
+		f.Armable, f.Input = nil, nil // the bottom does not fit: its top is cut
 	}
 	return f
 }

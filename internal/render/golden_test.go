@@ -208,10 +208,23 @@ func TestBannerGolden(t *testing.T) {
 // screen for a while: armed.
 func drawnLongAgo(x core.Single) core.Single { return drawn(x, t0.Add(-time.Hour)) }
 
-// drawn is x with its surface drawn at at.
+// drawn is x with its surface drawn at at, and a request's input read
+// whole by then.
 func drawn(x core.Single, at time.Time) core.Single {
 	x.App.Shown = core.Shown{Surface: core.SingleSurfaceID(x), At: at}
+	x, _ = core.ReduceSingle(x, core.Drawn{At: at, Surfaces: []string{core.SingleSurfaceID(x)}, Input: wholeInputOf(x.State)})
 	return x
+}
+
+// wholeInputOf is a frame that drew all of the input of the request on
+// offer.
+func wholeInputOf(s core.State) []core.InputDrawn {
+	if len(s.Asks) == 0 {
+		return nil
+	}
+	p := s.Asks[0]
+	_, spans, lens := inputRows(p, p.Shown().Union(s.Labels).Contaminated, 1000)
+	return drawnInput(s, spans, lens, 0, len(spans))
 }
 
 func TestPermissionGolden(t *testing.T) {

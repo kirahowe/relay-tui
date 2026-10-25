@@ -74,8 +74,14 @@ allow_once option, `n` the first reject_once, up/down and enter pick between
 them (the highlight starts on a reject, so a bare enter refuses). Options
 of any other kind, such as allow_always, are not offered: relay-tui never
 grants standing permission. `v`
-puts the whole input into the transcript, and Esc or Ctrl-C answers
-cancelled. Keys that would approve do nothing for the first 600 ms after
+opens the whole input in the request's place, wrapped and never cut
+(up/down, the page keys, `g` and `G` scroll it; `v`, Esc or `q` go
+back), and puts it into the transcript too. Allowing vouches for the
+call's arguments, so when the box cannot show all of the input, `y` (or
+any allow) waits until every line of it has been on screen, in the box
+or in that view, and 600 ms after the last of it was; until then the box
+says "read the whole input with v to allow". `n`, enter on a reject, and
+Esc or Ctrl-C (which answers cancelled) work at once. Keys that would approve do nothing for the first 600 ms after
 the request is drawn with the keys, whether it got them by esc, by
 moving to its conversation, or by arriving while you are moving there,
 so a `y` typed right behind esc cannot allow it. The same holds for
@@ -384,8 +390,11 @@ What the sidebar shows beside a role (the `?` list explains them too):
 - `?2` two permission requests wait, in reverse video; `!1` one of the
   role's calls is held for you
 
-A request is bounded: its title takes three rows and each option two, and
-`v` puts all of it in the conversation. When the window cannot show the
+A request's box shows its heading, preview and every option whole, and
+its input up to ten lines; `v` opens all of the input, and puts the
+request in the conversation. When even the box cannot show its heading,
+preview and options whole, it is drawn shortened and allows nothing,
+and says to make the window larger. When the window cannot show the
 role's name, the request, its options and the status line with three
 rows of conversation left to scroll through, the view says "Window too
 small" and the keys that allow do nothing (esc still cancels).

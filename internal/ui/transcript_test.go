@@ -23,6 +23,7 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	h.waitScreen("the thinking", func(s string) bool { return strings.Contains(s, "The page has") })
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
+	h.readInput()
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
@@ -35,6 +36,11 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	// Inside the view, each key flips its own kind. On the short screen
 	// the thinking is above what shows.
 	h.keys("\x14") // ctrl+t: open, tools in full; thinking stays as it was
+	if rows < 24 {
+		// The request's input, read with v, is below the call: up to it.
+		h.waitScreen("the transcript", func(s string) bool { return strings.Contains(s, "esc back") })
+		h.keys("kkkkkkkk")
+	}
 	h.waitScreen("both in full", func(s string) bool {
 		return strings.Contains(s, "url: https") && (rows < 24 || strings.Contains(s, "The page has"))
 	})

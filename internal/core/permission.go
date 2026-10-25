@@ -61,6 +61,12 @@ type Permission struct {
 	FixedArgs     []string
 	Options       []PermOption
 	Since         time.Time // when it became the one on offer; see ArmDelay
+	// Seen is what of the input has been on screen, in the input as
+	// shown, whose lines have the lengths SeenLens; SeenAt is when the
+	// last of it came on screen (see inputseen.go).
+	Seen     []Span
+	SeenLens []int
+	SeenAt   time.Time
 }
 
 // Shown is the labels of what the request shows: the session's, which
@@ -233,6 +239,7 @@ func (r *reducer) permission(e Event) {
 			p := s.Asks[0]
 			r.add(Entry{Kind: Request, Text: p.Heading(), Detail: p.Input, Preview: p.Preview,
 				PreviewDefang: p.Shown().Union(s.Labels).Contaminated, Final: true})
+			s.InputView = &InputView{Ask: p.ID} // and opens the input, whole, to read
 		}
 	}
 }
