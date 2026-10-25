@@ -94,10 +94,10 @@ Keys in the review:
 | `space`, `pgdown`, `f` / `pgup`, `b` | the next page, the one before |
 | `j`, `down` / `k`, `up` | a row down, a row up |
 | `g`, `home` / `G`, `end` | the top, the end |
-| `y` | allow once (a request), or trust, or archive |
+| `y` | allow once (a request: the highlighted allow_once option, or else the first; only that entry is marked `(y)`), or trust, or archive |
 | `tab`, `right` / `shift+tab`, `left` | the next option, or the one before (a request) |
-| `enter` | the highlighted option (a request; it starts on a reject). An allow waits until the highlighted entry has been on screen whole for 600 ms since it last moved |
-| `n` | reject once (a request), or cancel |
+| `enter` | the highlighted option (a request; it starts on a reject). An allow, by enter or y, waits until the entry of the option it sends has been on screen whole for 600 ms since the highlight last moved |
+| `n` | reject once (a request: the highlighted reject_once, or else the first, marked `(n)`), or cancel |
 | `esc` | cancel (a request answers cancelled) |
 | `q` | back to the dashboard, answering nothing (a request); cancel (the pane's questions) |
 | `ctrl+c` | stop the turn, which cancels its requests |

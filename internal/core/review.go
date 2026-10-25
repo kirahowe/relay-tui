@@ -150,26 +150,25 @@ type Span struct{ From, To int }
 // came on screen, once every part has (ReadAt). Its zero ReadAt says not
 // all of it has.
 //
-// Pick is the request's highlighted option as a frame last drew it whole
-// (-1 for none), and PickAt when it first did since the highlight last
-// moved: enter sends the highlighted option only once it has been on
-// screen ArmDelay (see pickArmed).
+// Opts is, for each of the request's options by its index in Options,
+// since when frames have drawn its entry whole without a break and
+// without the highlight moving (zero for not so): an option is sent only
+// once its entry has been on screen ArmDelay (see optionArmed).
 type Pager struct {
 	ID     string
 	Scroll int
 	Seen   []Span
 	ReadAt time.Time
-	Pick   int
-	PickAt time.Time
+	Opts   []time.Time
 }
 
 // ReviewDrawn is what a frame drew of the review named ID: bytes From to
-// To of its text, and Pick, the request's highlighted option it drew
-// whole, by its index in Options (-1 for none, or no request).
+// To of its text, and Options, the request's options whose entries it
+// drew whole, by their index in Options.
 type ReviewDrawn struct {
 	ID       string
 	From, To int
-	Pick     int
+	Options  []int
 }
 
 // see is p after a frame drew d at at, of a text n bytes long.
@@ -181,35 +180,69 @@ func (p Pager) see(d ReviewDrawn, n int, at time.Time) Pager {
 	if p.ReadAt.IsZero() && covers(p.Seen, n) {
 		p.ReadAt = at
 	}
-	switch {
-	case d.Pick < 0:
-		p.Pick, p.PickAt = -1, time.Time{} // not on screen whole: shown afresh when it is
-	case p.PickAt.IsZero() || p.Pick != d.Pick:
-		p.Pick, p.PickAt = d.Pick, at
+	opts := make([]time.Time, 0, len(p.Opts))
+	for i := 0; i <= slices.Max(append(slices.Clone(d.Options), len(p.Opts)-1)); i++ {
+		var since time.Time
+		if slices.Contains(d.Options, i) {
+			if i < len(p.Opts) && !p.Opts[i].IsZero() {
+				since = p.Opts[i]
+			} else {
+				since = at
+			}
+		}
+		opts = append(opts, since) // not drawn whole: shown afresh when it is
 	}
+	p.Opts = opts
 	return p
 }
 
-// pickMoved is p once the highlight has moved: it is armed afresh from
-// the next frame that draws it.
+// pickMoved is p once the highlight has moved: what y, n and enter would
+// send may have changed, so every entry is armed afresh from the next
+// frame that draws it.
 func pickMoved(p *Pager) *Pager {
 	if p == nil {
 		return nil
 	}
 	n := *p
-	n.Pick, n.PickAt = -1, time.Time{}
+	n.Opts = nil
 	return &n
 }
 
-// pickArmed says enter may send the highlighted option of s at at: a
-// frame drew it whole ArmDelay before, and it has not moved since.
-func (a App) pickArmed(s State, at time.Time) bool {
+// optionArmed says option i of the request may be sent at at: a frame
+// drew its entry whole ArmDelay before, and the highlight has not moved
+// since.
+func (a App) optionArmed(i int, at time.Time) bool {
 	p := a.Pager
-	return p != nil && p.Pick == s.Pick && p.Pick >= 0 && !p.PickAt.IsZero() && at.Sub(p.PickAt) >= ArmDelay
+	return p != nil && i >= 0 && i < len(p.Opts) && !p.Opts[i].IsZero() && at.Sub(p.Opts[i]) >= ArmDelay
 }
 
-// PickNote is what an enter refused for its highlight says.
-const PickNote = "the highlighted option has not been on screen long enough, or does not fit: press enter again, or widen the window"
+// KeyOption is the option y (an allow_once) or n (a reject_once) sends
+// in s: the highlighted one when it is of that kind, else the first of
+// that kind, else -1. Only its entry is marked with the key.
+func KeyOption(s State, kind OptionKind) int {
+	if len(s.Asks) == 0 {
+		return -1
+	}
+	opts := s.Asks[0].Options
+	if s.Pick >= 0 && s.Pick < len(opts) && opts[s.Pick].Kind == kind {
+		return s.Pick
+	}
+	return PickKind(opts, kind)
+}
+
+// sends is the option e would send in s, or -1.
+func sends(e Event, s State) int {
+	switch e := e.(type) {
+	case PermissionConfirm:
+		return s.Pick
+	case PermissionQuick:
+		return KeyOption(s, e.Kind)
+	}
+	return -1
+}
+
+// PickNote is what an allow refused for its option's entry says.
+const PickNote = "the option it sends has not been on screen long enough, or does not fit: press it again, or widen the window"
 
 // mergeSpans is spans sorted, with those that touch or overlap joined.
 func mergeSpans(spans []Span) []Span {
@@ -310,7 +343,7 @@ func syncPager(a App, surf Surface, id string) App {
 	case surf.Kind != SurfaceReview:
 		a.Pager = nil
 	case a.Pager == nil || a.Pager.ID != id:
-		a.Pager = &Pager{ID: id, Pick: -1}
+		a.Pager = &Pager{ID: id}
 	}
 	return a
 }

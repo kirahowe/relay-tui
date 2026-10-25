@@ -149,13 +149,11 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	}
 	request := sub.Kind == core.SubjectRequest
 	var foot []string
-	pickDrawn := -1
+	var optsDrawn []int
 	if request && len(s.Asks) > 0 {
-		row, ok := optionsLine(s, core.ReviewArmed(surf, a, s, now), width)
+		var row string
+		row, optsDrawn = optionsLine(s, core.ReviewArmed(surf, a, s, now), width)
 		foot = append(foot, row)
-		if ok {
-			pickDrawn = s.Pick
-		}
 	}
 	back := "esc cancel"
 	if request {
@@ -209,7 +207,7 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	out = append(out, keysLines(sub, a, s, surf, note, now, lines, scroll, end, rows, width)...)
 	return PagerFrame{
 		Content: strings.Join(out, "\n"),
-		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to, Pick: pickDrawn},
+		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to, Options: optsDrawn},
 		Max:     mx, Page: rows,
 	}
 }
@@ -240,13 +238,16 @@ func doneWord(k core.SubjectKind) string {
 // names are the agent's, so they are only in T. Before the review is
 // armed the allows are faint. When not all fit, the row shows a window
 // of them that always holds the highlighted one, with ‹ and › where more
-// lie; drawn says the highlighted entry is on the row whole, which enter
-// needs (core's pickArmed). One that cannot fit at all is not drawn.
-func optionsLine(s core.State, armed bool, width int) (line string, drawn bool) {
+// lie. Only the option y sends is marked (y), and only the one n sends
+// (n) (core.KeyOption). drawn is the options whose entries are on the
+// row whole, which sending one needs (core's optionArmed). When even the
+// highlighted entry cannot fit, the row says so and draws none.
+func optionsLine(s core.State, armed bool, width int) (line string, drawn []int) {
 	p := s.Asks[0]
 	if len(p.Options) == 0 {
-		return styled(faint, truncate("nothing to choose · esc cancel", width)), false
+		return styled(faint, truncate("nothing to choose · esc cancel", width)), nil
 	}
+	yes, no := core.KeyOption(s, core.AllowOnce), core.KeyOption(s, core.RejectOnce)
 	entries := make([]string, len(p.Options))
 	for i, o := range p.Options {
 		mark := "  "
@@ -254,8 +255,11 @@ func optionsLine(s core.State, armed bool, width int) (line string, drawn bool) 
 			mark = "▸ "
 		}
 		t := fmt.Sprintf("%s%d %s", mark, p.Number(i), o.Kind)
-		if k := optionKey(o.Kind); k != "" {
-			t += " (" + k + ")"
+		switch i {
+		case yes:
+			t += " (y)"
+		case no:
+			t += " (n)"
 		}
 		st := style(0)
 		if i == s.Pick {
@@ -280,7 +284,7 @@ func optionsLine(s core.State, armed bool, width int) (line string, drawn bool) 
 	pick := min(max(s.Pick, 0), len(entries)-1)
 	lo, hi := pick, pick
 	if span(lo, hi) > width {
-		return styled(bold, truncate("the highlighted option does not fit: widen the window", width)), false
+		return styled(bold, truncate("the highlighted option does not fit: widen the window", width)), nil
 	}
 	for grew := true; grew; {
 		grew = false
@@ -298,7 +302,10 @@ func optionsLine(s core.State, armed bool, width int) (line string, drawn bool) 
 	if hi < len(entries)-1 {
 		line += styled(faint, " ›")
 	}
-	return line, s.Pick >= 0 && s.Pick < len(entries)
+	for i := lo; i <= hi; i++ {
+		drawn = append(drawn, i)
+	}
+	return line, drawn
 }
 
 // keysLines is the review's foot: where it is in T and how much is left,

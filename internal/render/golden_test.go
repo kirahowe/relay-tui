@@ -222,11 +222,13 @@ func wholeReview(surf core.Surface, a core.App, s core.State, at time.Time) core
 	if surf.Kind != core.SurfaceReview || sub.Problem != "" {
 		return core.Drawn{At: at}
 	}
-	pick := -1
-	if surf.Subject == core.SubjectRequest {
-		pick = s.Pick
+	var opts []int
+	if surf.Subject == core.SubjectRequest && len(s.Asks) > 0 {
+		for i := range s.Asks[0].Options {
+			opts = append(opts, i)
+		}
 	}
-	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text), Pick: pick}}
+	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text), Options: opts}}
 }
 
 func TestPermissionGolden(t *testing.T) {

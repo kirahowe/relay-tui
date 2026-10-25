@@ -277,7 +277,7 @@ func (r *reducer) permission(e Event) {
 		}
 	case PermissionQuick:
 		if s.reviewing() {
-			if i := PickKind(s.Asks[0].Options, e.Kind); i >= 0 {
+			if i := KeyOption(*s, e.Kind); i >= 0 {
 				r.answer(e.At, i)
 			}
 		}

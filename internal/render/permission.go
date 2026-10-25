@@ -27,17 +27,6 @@ func wrapAll(lines []string, width int) []string {
 	return out
 }
 
-// optionKey is the key that picks an option outright, or "".
-func optionKey(k core.OptionKind) string {
-	switch k {
-	case core.AllowOnce:
-		return "y"
-	case core.RejectOnce:
-		return "n"
-	}
-	return ""
-}
-
 // requestTitle is the request on offer's name, on one line, safe, and
 // defanged when what it shows is contaminated.
 func requestTitle(s core.State) string {

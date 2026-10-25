@@ -144,12 +144,12 @@ func TestPermissionAnswersAnOfferedOption(t *testing.T) {
 			}
 		case 1:
 			e = PermissionQuick{At: late, Kind: AllowOnce}
-			if i := PickKind(opts, AllowOnce); i >= 0 {
+			if i := KeyOption(s, AllowOnce); i >= 0 { // the highlighted allow, else the first
 				want = &opts[i]
 			}
 		case 2:
 			e = PermissionQuick{At: late, Kind: RejectOnce}
-			if i := PickKind(opts, RejectOnce); i >= 0 {
+			if i := KeyOption(s, RejectOnce); i >= 0 {
 				want = &opts[i]
 			}
 		case 3:

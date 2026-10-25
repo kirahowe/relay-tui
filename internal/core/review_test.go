@@ -448,7 +448,7 @@ func TestAnAllowNeedsEveryPageReadAndTheDelay(t *testing.T) {
 				from := rapid.IntRange(0, n).Draw(t, "from")
 				to := rapid.IntRange(from, min(n, from+rapid.IntRange(0, 300).Draw(t, "len"))).Draw(t, "to")
 				id := SingleSurfaceID(x)
-				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to, Pick: x.State.Pick}})
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to, Options: []int{0, 1}}})
 				grew := false
 				for i := from; i < to; i++ {
 					grew = grew || !covered[i]
@@ -675,61 +675,69 @@ func TestContentFieldsStayApart(t *testing.T) {
 	}
 }
 
-// Codex round 1, finding 3: enter sends the highlighted option, so it
-// allows only once a frame has drawn that option whole, ArmDelay after
-// the highlight last moved; y, which names its option, needs only the
-// review read. Frames here draw the highlight whole or not at random (a
-// narrow row may not hold it).
-func TestEnterNeedsTheHighlightOnScreen(t *testing.T) {
+// Codex round 1, finding 3, and round 2, finding 2: whatever sends an
+// allow (enter, the highlighted option; y, the highlighted allow_once or
+// else the first) sends only an option whose entry a frame drew whole,
+// ArmDelay after the highlight last moved. Frames here draw any subset of
+// the entries (a narrow row holds some). Refusals are taken at once.
+func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
+		kinds := []OptionKind{AllowOnce, AllowOnce, RejectOnce}
+		var opts []PermOption
+		for i := range rapid.IntRange(1, 5).Draw(t, "options") {
+			opts = append(opts, PermOption{ID: fmt.Sprint(i), Kind: rapid.SampledFrom(kinds).Draw(t, "kind")})
+		}
 		x := busySingle()
-		x, _ = feedS(x, StopTyping{At: t0}, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c1", Name: "send",
-			Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}, {ID: "b", Kind: AllowOnce}}}})
+		x, _ = feedS(x, StopTyping{At: t0}, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c1", Name: "send", Options: opts}})
 		x, _ = ReduceSingle(x, OpenReview{At: t0})
 		id := SingleSurfaceID(x)
 		n := len(ReviewSubject(SingleSurface(x), x.App, x.State).Text)
-		x, _ = ReduceSingle(x, Drawn{At: t0, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Pick: -1}}) // read, highlight cut
-		var pickAt time.Time                                                                                         // when the highlight, as it is now, was first drawn whole
+		x, _ = ReduceSingle(x, Drawn{At: t0, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n}}) // read, no entry whole
+		since := make([]time.Time, len(opts))                                                              // when each entry was drawn whole, since the highlight last moved
 		at := t0
 		for range rapid.IntRange(1, 40).Draw(t, "steps") {
 			at = at.Add(time.Duration(rapid.IntRange(0, 500).Draw(t, "ms")) * time.Millisecond)
 			if len(x.State.Asks) == 0 {
 				return
 			}
-			switch rapid.IntRange(0, 2).Draw(t, "what") {
+			switch rapid.IntRange(0, 3).Draw(t, "what") {
 			case 0:
 				x, _ = ReduceSingle(x, PermissionMove{At: at, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")})
-				pickAt = time.Time{}
+				since = make([]time.Time, len(opts))
 			case 1:
-				whole := rapid.Bool().Draw(t, "whole")
-				pick := -1
-				if whole {
-					pick = x.State.Pick
-					if pickAt.IsZero() {
-						pickAt = at
+				var drawn []int
+				all := rapid.IntRange(0, 2).Draw(t, "all") > 0 // a row with room, mostly
+				for i := range opts {
+					if all || rapid.Bool().Draw(t, "whole") {
+						drawn = append(drawn, i)
+						if since[i].IsZero() {
+							since[i] = at
+						}
+					} else {
+						since[i] = time.Time{}
 					}
-				} else {
-					pickAt = time.Time{}
 				}
-				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Pick: pick}})
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Options: drawn}})
 			default:
-				allow := x.State.Asks[0].Options[x.State.Pick].Kind == AllowOnce
-				next, fx := ReduceSingle(x, PermissionConfirm{At: at})
-				ok := !pickAt.IsZero() && at.Sub(pickAt) >= ArmDelay
-				// Any answer but the reject and a cancel is an allow: there
-				// are two allow_once options here.
-				allows := 0
+				var e Event = PermissionConfirm{At: at}
+				target := x.State.Pick
+				if rapid.Bool().Draw(t, "y") {
+					e, target = PermissionQuick{At: at, Kind: AllowOnce}, KeyOption(x.State, AllowOnce)
+				}
+				next, fx := ReduceSingle(x, e)
+				ok := target >= 0 && !since[target].IsZero() && at.Sub(since[target]) >= ArmDelay
+				allow := target >= 0 && opts[target].Kind == AllowOnce
 				for _, a := range answers(fx) {
-					if !a.Cancelled && a.OptionID != "r" {
-						allows++
+					if a.Cancelled || a.OptionID != opts[target].ID {
+						t.Fatalf("%T sent %+v, not option %d", e, a, target)
 					}
 				}
 				switch {
-				case allow && allows > 0 && !ok:
-					t.Fatalf("enter allowed with the highlight drawn whole since %v (%v)", pickAt, at.Sub(pickAt))
-				case allow && allows == 0 && ok:
-					t.Fatalf("enter refused with the highlight on screen %v: %q", at.Sub(pickAt), next.State.Message.Text)
-				case !allow && len(answers(fx)) != 1:
+				case allow && len(answers(fx)) > 0 && !ok:
+					t.Fatalf("%T allowed option %d, its entry drawn whole since %v (%v)", e, target, since[target], at.Sub(since[target]))
+				case allow && len(answers(fx)) == 0 && ok:
+					t.Fatalf("%T refused option %d, on screen %v: %q", e, target, at.Sub(since[target]), next.State.Message.Text)
+				case target >= 0 && !allow && len(answers(fx)) != 1:
 					t.Fatalf("enter on a reject did not answer at once: %v", fx)
 				}
 				x = next

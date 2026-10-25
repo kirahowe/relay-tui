@@ -76,7 +76,7 @@ const (
 	needsLiveKey                 // safe answers: no, cancel, back, scrolling a review
 	needsArmed                   // a live key, ArmDelay after the surface came up
 	needsReview                  // a live key, the review read whole ArmDelay ago
-	needsReviewAndPick           // needsReview, and the highlighted option drawn whole ArmDelay ago
+	needsReviewAndPick           // needsReview, and the entry of the option it sends drawn whole ArmDelay ago
 )
 
 // HubSurfaceID names what has the keys in hub mode, finely enough that
@@ -129,7 +129,7 @@ func authorityOf(e Event, surf Surface, s State) authority {
 	switch e := e.(type) {
 	case PermissionQuick:
 		if e.Kind.Allows() {
-			return needsReview
+			return needsReviewAndPick
 		}
 		return needsLiveKey
 	case PermissionConfirm:
@@ -160,7 +160,7 @@ func authorityOf(e Event, surf Surface, s State) authority {
 
 // mayTake says the app lets e through, given what it needs, on the
 // surface surf named id over conversation s.
-func (a App) mayTake(need authority, surf Surface, id string, s State, at time.Time) bool {
+func (a App) mayTake(need authority, e Event, surf Surface, id string, s State, at time.Time) bool {
 	switch need {
 	case needsLiveKey:
 		return !a.KeyReplayed
@@ -169,7 +169,7 @@ func (a App) mayTake(need authority, surf Surface, id string, s State, at time.T
 	case needsReview:
 		return a.reviewArmed(ReviewSubject(surf, a, s), at)
 	case needsReviewAndPick:
-		return a.reviewArmed(ReviewSubject(surf, a, s), at) && a.pickArmed(s, at)
+		return a.reviewArmed(ReviewSubject(surf, a, s), at) && a.optionArmed(sends(e, s), at)
 	}
 	return true
 }

@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -305,8 +306,31 @@ func TestTheHighlightedOptionIsAlwaysInView(t *testing.T) {
 		if f.Drawn == nil {
 			t.Fatalf("no review drawn at %d", width)
 		}
-		if (f.Drawn.Pick == x.State.Pick) != shown {
-			t.Fatalf("width %d: the frame says the highlight %d drawn %v, the screen shows %q: %v\n%s", width, x.State.Pick, f.Drawn.Pick, want, shown, ansi.Strip(f.Content))
+		if slices.Contains(f.Drawn.Options, x.State.Pick) != shown {
+			t.Fatalf("width %d: the frame says it drew options %v, the highlight %d; the screen shows %q: %v\n%s", width, f.Drawn.Options, x.State.Pick, want, shown, ansi.Strip(f.Content))
+		}
+		// Every entry it says it drew is on the row whole, and only the
+		// option y sends is marked (y), and n's (n).
+		row := ""
+		for _, r := range strings.Split(ansi.Strip(f.Content), "\n") {
+			if strings.Contains(r, want) || strings.Contains(r, "‹") || strings.Contains(r, "_once") {
+				row = r
+			}
+		}
+		for _, i := range f.Drawn.Options {
+			entry := fmt.Sprintf("%d %s", p.Number(i), p.Options[i].Kind)
+			switch i {
+			case core.KeyOption(x.State, core.AllowOnce):
+				entry += " (y)"
+			case core.KeyOption(x.State, core.RejectOnce):
+				entry += " (n)"
+			}
+			if !strings.Contains(row, entry) {
+				t.Fatalf("width %d: option %d (%q) reported drawn, not on the row %q", width, i, entry, row)
+			}
+		}
+		if strings.Count(row, "(y)") > 1 || strings.Count(row, "(n)") > 1 {
+			t.Fatalf("more than one entry marked for a key: %q", row)
 		}
 		if width >= 24 && !shown {
 			t.Fatalf("width %d: the highlight %q is out of view\n%s", width, want, ansi.Strip(f.Content))
