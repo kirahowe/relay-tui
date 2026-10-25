@@ -174,10 +174,13 @@ func TestConsentOnlyFromAReviewReadWhole(t *testing.T) {
 // Round 3: moving the highlight changes only its mark, so a short review
 // drew the same report after the move and no report armed the new
 // highlight: tab then enter never allowed, and a second allow_once could
-// not be sent at all. Each highlight is now a report of its own.
+// not be sent at all. Each highlight is now a report of its own, and a
+// tab with one option, which moves nothing, disarms nothing (round 4).
 func TestTheMovedHighlightCanAllow(t *testing.T) {
 	two := surfaceAsk
 	two.Options = []core.PermOption{{ID: "allow", Kind: core.AllowOnce}, {ID: "allow-edit", Kind: core.AllowOnce}, {ID: "reject", Kind: core.RejectOnce}}
+	one := surfaceAsk
+	one.Options = []core.PermOption{{ID: "allow", Kind: core.AllowOnce}}
 	cases := []struct {
 		name string
 		ask  core.Permission
@@ -186,6 +189,7 @@ func TestTheMovedHighlightCanAllow(t *testing.T) {
 	}{
 		{"tab to the allow", surfaceAsk, 1, "allow"},
 		{"tab to the second allow", two, 2, "allow-edit"},
+		{"tab on a lone allow", one, 1, "allow"},
 	}
 	for _, c := range cases {
 		for _, hub := range []bool{false, true} {

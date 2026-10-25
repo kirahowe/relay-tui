@@ -703,8 +703,11 @@ func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 			}
 			switch rapid.IntRange(0, 3).Draw(t, "what") {
 			case 0:
+				was := x.State.Pick
 				x, _ = ReduceSingle(x, PermissionMove{At: at, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")})
-				since = make([]time.Time, len(opts))
+				if x.State.Pick != was { // with one option a move goes nowhere and sends the same
+					since = make([]time.Time, len(opts))
+				}
 			case 1:
 				if len(opts) > 1 && rapid.IntRange(0, 4).Draw(t, "stale") == 0 {
 					// A frame drawn before the highlight moved, reported after:

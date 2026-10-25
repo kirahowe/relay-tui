@@ -268,8 +268,12 @@ func (r *reducer) permission(e Event) {
 	case PermissionMove:
 		if n := len(s.Asks); n > 0 && len(s.Asks[0].Options) > 0 {
 			m := len(s.Asks[0].Options)
-			s.Pick = ((s.Pick+e.Delta)%m + m) % m
-			r.a.Pager = pickMoved(r.a.Pager) // the new highlight is armed once drawn
+			if next := ((s.Pick+e.Delta)%m + m) % m; next != s.Pick {
+				// A move that lands where it was (one option) changes neither
+				// the frame nor what y, n and enter send, so it disarms nothing.
+				s.Pick = next
+				r.a.Pager = pickMoved(r.a.Pager) // the new highlight is armed once drawn
+			}
 		}
 	case PermissionConfirm:
 		if s.reviewing() && s.Pick >= 0 && s.Pick < len(s.Asks[0].Options) {
