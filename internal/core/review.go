@@ -118,7 +118,9 @@ func requestSubject(p Permission, labels Labels) Subject {
 		}
 	}
 	if p.Refused != "" {
-		sub.Note = "relay refused the last answer: " + VisibleLine(p.Refused)
+		// relay's words, escaped and with links broken as an outsider's
+		// value in T is: never live.
+		sub.Note = "relay refused the last answer: " + quoteValue(p.Refused, true)
 	}
 	return sub
 }

@@ -556,32 +556,70 @@ func TestRelayReviewDigest(t *testing.T) {
 }
 
 // When relay refuses an allow and asks again for the same tool call,
-// the review opens on it again, with relay's word, and arms afresh.
-func TestARefusedAllowStaysInTheReview(t *testing.T) {
-	rv := reviewOf("tool call: send_mail")
-	x := askedSingle(rv, `{}`)
-	x, _ = feedS(x, OpenReview{At: t0}, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
-	at := t0.Add(time.Second)
-	x, _ = feedS(x, PermissionAsked{At: at, Permission: Permission{ID: 2, CallID: "c1", Name: "send_mail", Review: rv,
-		Refused: "the review digest does not match", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
-	surf := SingleSurface(x)
-	sub := ReviewSubject(surf, x.App, x.State)
-	if surf.Kind != SurfaceReview || !strings.Contains(sub.Note, "does not match") {
-		t.Fatalf("surface %+v, note %q", surf, sub.Note)
-	}
-	if _, fx := feedS(x, PermissionQuick{At: at.Add(ArmDelay - time.Millisecond), Kind: AllowOnce}); len(fx) != 0 {
-		t.Fatalf("the re-asked request was armed at once: %v", fx)
-	}
-	if _, fx := feedS(x, PermissionQuick{At: at.Add(ArmDelay), Kind: AllowOnce}); len(allowed(fx)) != 1 {
-		t.Fatalf("not allowed once read: %v", fx)
-	}
-	// Another request for another call does not open the review.
-	y := askedSingle(rv, `{}`)
-	y, _ = feedS(y, OpenReview{At: t0}, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce},
-		PermissionAsked{At: at, Permission: Permission{ID: 3, CallID: "other", Refused: "x", Options: []PermOption{{ID: "a", Kind: AllowOnce}}}})
-	if SingleSurface(y).Kind != SurfaceRequest {
-		t.Fatalf("another call opened the review: %+v", SingleSurface(y))
-	}
+// the review opens again on it, with relay's word, and arms afresh. And
+// Codex round 1, finding 4: _meta["relay/refused"] counts only from
+// relay's hub, and only on a re-ask of a call this client just allowed;
+// anywhere else (a plain agent, a first ask, another call) it shows
+// nowhere. Shown, it is escaped with its links broken, never live.
+func TestOnlyRelaysReAskShowsARefusal(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		hub := rapid.Bool().Draw(t, "hub")
+		allowFirst := rapid.Bool().Draw(t, "allow first")
+		sameCall := rapid.Bool().Draw(t, "same call")
+		why := rapid.SampledFrom([]string{"the digest does not match", "see https://evil.example/x?d=1", "a\nb \x1b[2J"}).Draw(t, "why")
+		rv := reviewOf("tool call: send_mail")
+		opts := []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}
+		ask := func(id uint64, call, refused string) Permission {
+			return Permission{ID: id, CallID: call, Name: "send_mail", Review: rv, Refused: refused, Options: opts}
+		}
+		call := "c1"
+		if !sameCall {
+			call = "c2"
+		}
+		at := t0.Add(time.Second)
+		var surf Surface
+		var a App
+		var st State
+		if hub {
+			h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}},
+				Attached{At: t0, Role: "dev", Session: "s1"}, Replayed{At: t0, Session: "s1"})
+			h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", PermissionAsked{At: t0, Permission: ask(1, "c1", "")}), OpenReview{At: t0})
+			if allowFirst {
+				h, _ = apply(t, h, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
+			} else {
+				h, _ = apply(t, h, PermissionQuick{At: t0, Kind: RejectOnce})
+			}
+			h, _ = apply(t, h, routed("s1", PermissionAsked{At: at, Permission: ask(2, call, why)}))
+			surf, a, st = HubSurface(h), h.App, h.Focused().State
+		} else {
+			x := askedSingle(rv, `{}`)
+			x, _ = feedS(x, OpenReview{At: t0})
+			if allowFirst {
+				x, _ = feedS(x, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
+			} else {
+				x, _ = feedS(x, PermissionQuick{At: t0, Kind: RejectOnce})
+			}
+			x, _ = feedS(x, PermissionAsked{At: at, Permission: ask(2, call, why)})
+			surf, a, st = SingleSurface(x), x.App, x.State
+		}
+		honoured := hub && allowFirst && sameCall
+		for _, p := range st.Asks {
+			if (p.Refused != "") != (honoured && p.ID == 2) {
+				t.Fatalf("hub %v allow %v same %v: request %d kept refused %q", hub, allowFirst, sameCall, p.ID, p.Refused)
+			}
+		}
+		if honoured != (surf.Kind == SurfaceReview) {
+			t.Fatalf("hub %v allow %v same %v: surface %+v", hub, allowFirst, sameCall, surf)
+		}
+		if !honoured {
+			return
+		}
+		sub := ReviewSubject(surf, a, st)
+		if !strings.HasPrefix(sub.Note, "relay refused the last answer: ") || !ReviewTextOK(sub.Note) ||
+			liveLink.MatchString(sub.Note) || liveDot.MatchString(sub.Note) || strings.Contains(sub.Note, "\n") {
+			t.Fatalf("note %q", sub.Note)
+		}
+	})
 }
 
 // A review whose text changes (the session became contaminated, so a

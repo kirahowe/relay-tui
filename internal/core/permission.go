@@ -239,9 +239,17 @@ func (r *reducer) permission(e Event) {
 		// conversation has the keys while moving (see Surface).
 		p := e.Permission
 		p.Options = onceOptions(p.Options)
+		reasked := p.Refused != "" && s.Shared && len(s.Asks) == 0 &&
+			s.Reviewing != nil && s.Reviewing.Allowed && s.Reviewing.CallID == p.CallID
+		if !reasked {
+			// Only relay's hub refuses an answer, and only by asking again
+			// for a call this client just allowed. Anything else under that
+			// key is the agent's, and shows nowhere.
+			p.Refused = ""
+		}
 		if len(s.Asks) == 0 {
 			s.Pick = DefaultPick(p.Options)
-			if rv := s.Reviewing; rv != nil && rv.Allowed && rv.CallID == p.CallID && p.Refused != "" {
+			if reasked {
 				// relay refused the allow it was sent and asks again: the
 				// review stays open, on the request as asked now.
 				s.Reviewing = &Reviewing{Ask: p.ID, CallID: p.CallID}
