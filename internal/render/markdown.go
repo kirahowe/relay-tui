@@ -128,7 +128,7 @@ func (m *mdRenderer) list(l *ast.List, width int, base style) []string {
 			marker = strconv.Itoa(num) + ". "
 			num++
 		}
-		pad := strings.Repeat(" ", ansi.StringWidth(marker))
+		pad := strings.Repeat(" ", Method.StringWidth(marker))
 		lines := m.blocks(item, width-len(pad), base, l.IsTight)
 		if len(lines) == 0 {
 			lines = []string{""}
@@ -144,7 +144,7 @@ func (m *mdRenderer) list(l *ast.List, width int, base style) []string {
 // indent puts first before the first line and rest before the others,
 // unless that would leave less than minInner columns.
 func indent(lines []string, first, rest string, width int) []string {
-	if width-ansi.StringWidth(first) < minInner {
+	if width-Method.StringWidth(first) < minInner {
 		return lines
 	}
 	out := make([]string, len(lines))

@@ -42,8 +42,8 @@ func TestPagerLinesAreTheTextExactly(t *testing.T) {
 		}
 		wide := false
 		for rest := text; rest != ""; {
-			g, w := ansi.FirstGraphemeCluster(rest, ansi.GraphemeWidth)
-			wide = wide || w > width
+			g, _ := ansi.FirstGraphemeCluster(rest, ansi.GraphemeWidth)
+			wide = wide || Width(g) > width
 			rest = rest[len(g):]
 		}
 		if ok == wide {
@@ -61,8 +61,8 @@ func TestPagerLinesAreTheTextExactly(t *testing.T) {
 			if strings.Contains(body, "\n") || (i < len(lines)-1 && l == "") {
 				t.Fatalf("line %d %q", i, l)
 			}
-			if ok && ansi.StringWidth(body) > width {
-				t.Fatalf("line %d %q is %d wide at %d", i, body, ansi.StringWidth(body), width)
+			if ok && Width(body) > width {
+				t.Fatalf("line %d %q is %d wide at %d", i, body, Width(body), width)
 			}
 			if at += len(l); !bounds[at] {
 				t.Fatalf("line %d %q ends inside a grapheme", i, l)
@@ -97,6 +97,9 @@ func TestReviewFramesReportWhatTheyShow(t *testing.T) {
 		width := rapid.IntRange(1, 60).Draw(t, "width")
 		height := rapid.IntRange(1, 30).Draw(t, "height")
 		lines, ok := PagerLines(text, width)
+		if _, amb := AmbiguousWidth(text); amb {
+			ok = false // the review fails closed on it
+		}
 		seen := make([]bool, len(text))
 		for range len(lines) + 2 {
 			f := Review(core.SingleSurface(x), x.App, x.State, "", t0, width, height)
@@ -105,7 +108,7 @@ func TestReviewFramesReportWhatTheyShow(t *testing.T) {
 				t.Fatalf("%d rows at height %d", len(rows), height)
 			}
 			for _, r := range rows {
-				if w := ansi.StringWidth(r); w > width {
+				if w := Width(r); w > width {
 					t.Fatalf("row %q is %d wide at %d", r, w, width)
 				}
 			}

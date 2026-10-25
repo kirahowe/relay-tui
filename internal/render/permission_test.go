@@ -41,7 +41,7 @@ func TestPermissionViewBounded(t *testing.T) {
 			t.Fatalf("%d rows, want %d", len(rows), height-1)
 		}
 		for _, r := range rows {
-			if w := ansi.StringWidth(r); w > width {
+			if w := Width(r); w > width {
 				t.Fatalf("row %q is %d wide at %d", r, w, width)
 			}
 		}

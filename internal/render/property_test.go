@@ -166,7 +166,7 @@ func genText(t *rapid.T) string {
 
 func checkWidth(t *rapid.T, what string, lines []string, width int) {
 	for _, l := range lines {
-		if w := ansi.StringWidth(l); w > width {
+		if w := Width(l); w > width {
 			t.Fatalf("%s: line %q is %d wide, more than %d", what, l, w, width)
 		}
 	}
@@ -244,7 +244,7 @@ func TestSpinnerBefore1970(t *testing.T) {
 // Regression: ansi.Wrap left this line 10 wide at width 8.
 func TestWrapHyphensAndSpaces(t *testing.T) {
 	for _, l := range wrap("  -  ·   -", 8) {
-		if w := ansi.StringWidth(l); w > 8 {
+		if w := Width(l); w > 8 {
 			t.Fatalf("line %q is %d wide", l, w)
 		}
 	}
@@ -274,7 +274,7 @@ func TestBoxNeverBroken(t *testing.T) {
 			t.Fatalf("%d rows for %d lines", len(out), len(lines))
 		}
 		for i, l := range out {
-			if w := ansi.StringWidth(l); w != width {
+			if w := Width(l); w != width {
 				t.Fatalf("row %d is %d wide, want %d: %q", i, w, width, l)
 			}
 			plain := []rune(ansi.Strip(l))
@@ -295,7 +295,7 @@ func TestBoxNeverBroken(t *testing.T) {
 
 // Regression: the titled top border came out one column short.
 func TestTitledBoxWidth(t *testing.T) {
-	if w := ansi.StringWidth(box("A", nil, 8)[0]); w != 8 {
+	if w := Width(box("A", nil, 8)[0]); w != 8 {
 		t.Fatalf("top border is %d wide, want 8", w)
 	}
 }
@@ -303,10 +303,10 @@ func TestTitledBoxWidth(t *testing.T) {
 // Regression: a line starting with a combining mark joined the padding
 // space before it, and the row came out a column short.
 func TestBoxLineStartingWithCombiningMark(t *testing.T) {
-	if w := ansi.StringWidth(box("", []string{"\u0903"}, 8)[1]); w != 8 {
+	if w := Width(box("", []string{"\u0903"}, 8)[1]); w != 8 {
 		t.Fatalf("row is %d wide, want 8", w)
 	}
-	if w := ansi.StringWidth(box("\u0903", nil, 8)[0]); w != 8 {
+	if w := Width(box("\u0903", nil, 8)[0]); w != 8 {
 		t.Fatalf("top border is %d wide, want 8", w)
 	}
 }
@@ -321,7 +321,7 @@ func TestFormatCharactersDropped(t *testing.T) {
 func checkWidthT(t *testing.T, lines []string, width int) {
 	t.Helper()
 	for _, l := range lines {
-		if w := ansi.StringWidth(l); w > width {
+		if w := Width(l); w > width {
 			t.Fatalf("line %q is %d wide, more than %d", l, w, width)
 		}
 	}
@@ -330,7 +330,7 @@ func checkWidthT(t *testing.T, lines []string, width int) {
 // Regression: ansi.Truncate kept "A" plus U+FE0F as one column, and the
 // row it went into came out a column wide.
 func TestTruncateVariationSelector(t *testing.T) {
-	if w := ansi.StringWidth(truncate("AAA\ufe0fAAAAA", 4)); w > 4 {
+	if w := Width(truncate("AAA\ufe0fAAAAA", 4)); w > 4 {
 		t.Fatalf("%d wide, want at most 4", w)
 	}
 }
@@ -466,11 +466,11 @@ func TestStatusLineAlwaysNamesTheMode(t *testing.T) {
 		width := rapid.IntRange(1, 200).Draw(t, "width")
 		got := StatusText(l, "ctrl+j for a new line", t0, width)
 		plain := ansi.Strip(got)
-		if w := ansi.StringWidth(got); w > width {
+		if w := Width(got); w > width {
 			t.Fatalf("%d wide at %d: %q", w, width, plain)
 		}
 		mode := Mode(l.Moving)
-		room := ansi.StringWidth(ansi.Strip(StatusText(core.StatusLine{Kind: l.Kind, Labels: l.Labels}, "", t0, 1000))) + len(" · "+mode)
+		room := Width(ansi.Strip(StatusText(core.StatusLine{Kind: l.Kind, Labels: l.Labels}, "", t0, 1000))) + len(" · "+mode)
 		if width >= room && !strings.Contains(plain, mode) {
 			t.Fatalf("no %s at %d (room %d): %q", mode, width, room, plain)
 		}

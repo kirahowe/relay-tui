@@ -63,7 +63,7 @@ func startHub(t *testing.T, cfg fakehub.Config, w, h int, open string) *hubHarne
 	}
 	hh.conn = conn
 	hh.p = tea.NewProgram(ui.New(conn, "").Open(open), tea.WithInput(hh.emu.in), tea.WithOutput(hh.emu),
-		tea.WithWindowSize(w, h), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor))
+		tea.WithWindowSize(w, h), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor), tea.WithFilter(ui.KeepWidthMethod))
 	close(started)
 	go func() { _, _ = hh.p.Run(); close(hh.done) }()
 	t.Cleanup(func() {

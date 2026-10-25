@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
@@ -181,7 +179,7 @@ func runLine(calls []core.Call, width int, now time.Time) string {
 	if stopped > 0 {
 		tail += " · stopped"
 	}
-	if room := width - ansi.StringWidth(tail); room >= minInner {
+	if room := width - Method.StringWidth(tail); room >= minInner {
 		return styled(st, truncate(line, room)+tail)
 	}
 	return styled(st, truncate(line+tail, width))

@@ -21,8 +21,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"unicode"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // style is a set of SGR attributes, with a text colour in bits 8-15 and a
@@ -265,7 +263,7 @@ func expandTabs(line string) string {
 			continue
 		}
 		b.WriteRune(r)
-		col += ansi.StringWidth(string(r))
+		col += Method.StringWidth(string(r))
 	}
 	return sanitize(b.String())
 }
@@ -276,9 +274,9 @@ func expandTabs(line string) string {
 func wrap(s string, width int) []string {
 	width = max(width, 1)
 	var lines []string
-	for _, l := range strings.Split(ansi.Wrap(s, width, ""), "\n") {
-		if ansi.StringWidth(l) > width {
-			lines = append(lines, strings.Split(ansi.Hardwrap(l, width, true), "\n")...)
+	for _, l := range strings.Split(Method.Wrap(s, width, ""), "\n") {
+		if Method.StringWidth(l) > width {
+			lines = append(lines, hardwrap(l, width)...)
 		} else {
 			lines = append(lines, l)
 		}
@@ -287,20 +285,30 @@ func wrap(s string, width int) []string {
 }
 
 // hardwrap cuts unstyled text at width without looking for word breaks.
+// A grapheme wider than the width on its own (a long ZWJ sequence,
+// measured by code point) cannot be wrapped, and is cut: the dashboard
+// may be lossy, and never draws past its width.
 func hardwrap(s string, width int) []string {
-	return strings.Split(ansi.Hardwrap(s, max(width, 1), true), "\n")
+	width = max(width, 1)
+	lines := strings.Split(Method.Hardwrap(s, width, true), "\n")
+	for i, l := range lines {
+		if Width(l) > width {
+			lines[i] = truncate(l, width)
+		}
+	}
+	return lines
 }
 
 // truncate cuts one line to width, ending it with … when cut. ansi's
 // Truncate can measure a cluster differently from StringWidth (it did
 // with "A" and U+FE0F), so the result is measured and cut again if needed.
 func truncate(s string, width int) string {
-	if ansi.StringWidth(s) <= width {
+	if Method.StringWidth(s) <= width {
 		return s
 	}
 	for n := width; n > 0; n-- {
-		r := selfContained([]string{ansi.Truncate(s, n, "…")})[0]
-		if ansi.StringWidth(r) <= width {
+		r := selfContained([]string{Method.Truncate(s, n, "…")})[0]
+		if Method.StringWidth(r) <= width {
 			return r
 		}
 	}

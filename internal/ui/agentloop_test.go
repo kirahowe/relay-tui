@@ -151,7 +151,7 @@ func startAgentloop(t *testing.T, api *fakeMessagesAPI) (h *harness, calls strin
 	}
 	h0.conn = conn
 	h0.p = tea.NewProgram(ui.New(conn, ""), tea.WithInput(h0.emu.in), tea.WithOutput(h0.emu),
-		tea.WithWindowSize(w, hgt), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor))
+		tea.WithWindowSize(w, hgt), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor), tea.WithFilter(ui.KeepWidthMethod))
 	close(started)
 	go func() { _, _ = h0.p.Run(); close(h0.done) }()
 	t.Cleanup(func() {

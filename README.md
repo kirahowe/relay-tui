@@ -114,8 +114,12 @@ permission.
 
 The review fails closed. If T holds a character other than a printable
 one, a space or a newline, if relay's digest of T does not match it, or
-if relay sent no review for a card or a doc, the review says so and
-nothing can be allowed there. A window too narrow for one of T's
+if relay sent no review for a card or a doc, or if T holds a character
+that terminals draw at different widths (an emoji with a skin tone, say,
+which is one cell pair or two), the review says so and nothing can be
+allowed there. relay-tui measures text by code point, as Bubble Tea
+does, and keeps Bubble Tea on that even when the terminal offers
+grapheme widths, so what the pager lays out is what the screen shows. A window too narrow for one of T's
 characters, or too short for a row of it, says to make it larger.
 
 With relay, T is relay's: relay sends it with every request, card and

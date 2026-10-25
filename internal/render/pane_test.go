@@ -150,7 +150,7 @@ func TestSidePaneLeavesPrintAlone(t *testing.T) {
 		t.Errorf("print differs:\n%q\n%q", with.Print, without.Print)
 	}
 	for _, l := range with.Print {
-		if strings.Contains(l, "│") || ansi.StringWidth(l) > MainWidth(140) {
+		if strings.Contains(l, "│") || Width(l) > MainWidth(140) {
 			t.Errorf("print line %q holds the pane or is too wide", l)
 		}
 	}
@@ -282,8 +282,8 @@ func TestPaneNeverEmitsRawControls(t *testing.T) {
 				t.Fatalf("operating system command in %q", l)
 			}
 			plain := ansi.Strip(l)
-			if ansi.StringWidth(l) > w {
-				t.Fatalf("line %q is %d wide, limit %d", l, ansi.StringWidth(l), w)
+			if Width(l) > w {
+				t.Fatalf("line %q is %d wide, limit %d", l, Width(l), w)
 			}
 			for _, r := range plain {
 				if unprintable(r) && r != 0xFFFD {
@@ -298,8 +298,8 @@ func TestPaneNeverEmitsRawControls(t *testing.T) {
 		fw := rapid.SampledFrom([]int{50, 80, 120, 160}).Draw(t, "frameWidth")
 		f := View(s, "› ", "hint", now, fw, 24)
 		for _, l := range strings.Split(f.Content, "\n") {
-			if ansi.StringWidth(l) > fw {
-				t.Fatalf("frame row %q is %d wide, limit %d", l, ansi.StringWidth(l), fw)
+			if Width(l) > fw {
+				t.Fatalf("frame row %q is %d wide, limit %d", l, Width(l), fw)
 			}
 			for _, r := range ansi.Strip(l) {
 				if r == 0x1b || (unprintable(r) && r != 0xFFFD) {

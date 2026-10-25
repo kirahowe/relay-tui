@@ -20,8 +20,8 @@ import (
 // window too short for one row of it, is not shown, and the frame
 // reports nothing drawn, so nothing arms.
 
-// PagerLines is t wrapped at width display columns, as the emulator
-// measures them (ansi.StringWidth by grapheme). Each line is a piece of
+// PagerLines is t wrapped at width display columns, measured by Method,
+// as Bubble Tea measures them (see width.go). Each line is a piece of
 // t that ends with the newline that ends it, if any, so the lines joined
 // are t exactly; none is wider than width once its newline is dropped. A
 // line breaks after a space where it can (not one at its own start), and
@@ -58,10 +58,11 @@ func wrapSegment(seg string, width int) ([]string, bool) {
 	ok := true
 	start, cur, brk := 0, 0, -1 // brk: where the line can break, after a space
 	for i := 0; i < len(seg); {
-		g, w := ansi.FirstGraphemeCluster(seg[i:], ansi.GraphemeWidth)
+		g, _ := ansi.FirstGraphemeCluster(seg[i:], ansi.GraphemeWidth)
 		if len(g) == 0 { // cannot happen with valid input; never loop
-			g, w = seg[i:i+1], 1
+			g = seg[i : i+1]
 		}
+		w := Width(g)
 		if w > width {
 			ok = false
 		}
@@ -69,7 +70,7 @@ func wrapSegment(seg string, width int) ([]string, bool) {
 			if brk > start {
 				out = append(out, seg[start:brk])
 				start = brk
-				cur = ansi.StringWidth(seg[brk:i])
+				cur = Method.StringWidth(seg[brk:i])
 			} else {
 				out = append(out, seg[start:i])
 				start, cur = i, 0
@@ -87,6 +88,24 @@ func wrapSegment(seg string, width int) ([]string, bool) {
 		}
 	}
 	return append(out, seg[start:]), ok
+}
+
+// AmbiguousWidth is the first grapheme of t whose width by code point
+// (wcwidth) and by grapheme cluster differ, such as an emoji with a skin
+// tone: a terminal may draw it either way, so a review holding one could
+// show less than the pager meant, and fails closed.
+func AmbiguousWidth(t string) (string, bool) {
+	for rest := t; rest != ""; {
+		g, w := ansi.FirstGraphemeCluster(rest, ansi.GraphemeWidth)
+		if len(g) == 0 {
+			return "", false
+		}
+		if g != "\n" && w != ansi.StringWidthWc(g) {
+			return g, true
+		}
+		rest = rest[len(g):]
+	}
+	return "", false
 }
 
 // PagerFrame is the review as drawn: the screen, what of T it drew
@@ -144,6 +163,13 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	}
 	if sub.Problem != "" {
 		return fail("This review cannot be shown: " + sub.Problem + ".")
+	}
+	if g, ok := AmbiguousWidth(sub.Text); ok {
+		var cps []string
+		for _, r := range g {
+			cps = append(cps, fmt.Sprintf("U+%04X", r))
+		}
+		return fail("This review holds " + strings.Join(cps, " ") + ", which terminals draw at different widths, so not all of it may show.")
 	}
 	lines, ok := PagerLines(sub.Text, width)
 	if !ok {

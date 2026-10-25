@@ -98,7 +98,7 @@ func run(args []string) int {
 	saver := viewfile.NewSaver(viewfile.Path(*stateDir, command), command, saveEvery, func(n string) {
 		fmt.Fprintln(stderr, "relay-tui:", n)
 	})
-	p = tea.NewProgram(ui.New(conn, *title).Open(*open).Restore(view, note).OnView(saver.Save))
+	p = tea.NewProgram(ui.New(conn, *title).Open(*open).Restore(view, note).OnView(saver.Save), tea.WithFilter(ui.KeepWidthMethod))
 	close(started)
 	final, err := p.Run()
 	if m, ok := final.(ui.Model); ok && m.Known() {

@@ -63,7 +63,7 @@ func startSaved(t *testing.T, base, state string, cfg fakehub.Config, w, h int) 
 	}
 	hh.conn = conn
 	hh.p = tea.NewProgram(ui.New(conn, "").Restore(view, note).OnView(saver.Save), tea.WithInput(hh.emu.in), tea.WithOutput(hh.emu),
-		tea.WithWindowSize(w, h), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor))
+		tea.WithWindowSize(w, h), tea.WithoutSignals(), tea.WithColorProfile(colorprofile.TrueColor), tea.WithFilter(ui.KeepWidthMethod))
 	close(started)
 	go func() {
 		m, _ := hh.p.Run()

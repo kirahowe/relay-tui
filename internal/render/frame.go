@@ -2,8 +2,6 @@ package render
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // Wide hub mode draws its parts as panels: a rounded frame with the
@@ -43,7 +41,7 @@ func panel(title, right, foot string, lines []string, width, height int, focus b
 	}
 	end := styled(bc, "╮")
 	if right != "" {
-		r := truncate(right, max(width-ansi.StringWidth(top)-6, 0))
+		r := truncate(right, max(width-Method.StringWidth(top)-6, 0))
 		if r != "" {
 			end = " " + r + " " + styled(bc, "─╮")
 		}
@@ -55,7 +53,7 @@ func panel(title, right, foot string, lines []string, width, height int, focus b
 			l = lines[i]
 		}
 		l = truncate(l, inner)
-		l += strings.Repeat(" ", max(inner-ansi.StringWidth(l), 0))
+		l += strings.Repeat(" ", max(inner-Method.StringWidth(l), 0))
 		out = append(out, styled(bc, "│")+" "+l+sgr(0)+" "+styled(bc, "│"))
 	}
 	bottom := styled(bc, "╰")
@@ -67,7 +65,7 @@ func panel(title, right, foot string, lines []string, width, height int, focus b
 
 // edge fills a border row between left and right with ─ in style bc.
 func edge(left, right string, bc style, width int) string {
-	n := width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	n := width - Method.StringWidth(left) - Method.StringWidth(right)
 	return left + styled(bc, strings.Repeat("─", max(n, 0))) + right
 }
 
@@ -75,7 +73,7 @@ func edge(left, right string, bc style, width int) string {
 // padded to width, every part of it on the tint.
 func barRow(line string, width int) string {
 	line = truncate(line, width)
-	line += strings.Repeat(" ", max(width-ansi.StringWidth(line), 0))
+	line += strings.Repeat(" ", max(width-Method.StringWidth(line), 0))
 	return tint(line, selBar)
 }
 
@@ -121,7 +119,7 @@ func pill(name string, colour style) (string, bool) {
 func block(lines []string, width int) []string {
 	pad := func(l string) string {
 		l = truncate(l, width)
-		return tint(l+strings.Repeat(" ", max(width-ansi.StringWidth(l), 0)), chipBg)
+		return tint(l+strings.Repeat(" ", max(width-Method.StringWidth(l), 0)), chipBg)
 	}
 	out := []string{pad("")}
 	for _, l := range lines {
@@ -158,7 +156,7 @@ func hintRow(hint string, width int) string {
 	parts := strings.Split(hint, " · ")
 	for n := len(parts); n > 0; n-- {
 		l := " " + styleKeys(strings.Join(parts[:n], " · "))
-		if ansi.StringWidth(l) <= width {
+		if Method.StringWidth(l) <= width {
 			return l
 		}
 	}

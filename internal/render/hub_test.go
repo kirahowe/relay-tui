@@ -99,7 +99,7 @@ func TestHubFrameFits(t *testing.T) {
 					t.Errorf("%s %dx%d: %d rows", name, w, rows, len(lines))
 				}
 				for i, l := range lines {
-					if got := ansi.StringWidth(l); got > w {
+					if got := Width(l); got > w {
 						t.Errorf("%s %dx%d: row %d is %d wide: %q", name, w, rows, i, got, l)
 					}
 				}

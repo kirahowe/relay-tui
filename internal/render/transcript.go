@@ -5,8 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -56,7 +54,7 @@ func transcriptFooter(s core.State, now time.Time, scroll, width int) string {
 		toggleWord("ctrl+o", "thinking", s.Transcript.Thinking), "? keys")
 	line := lead + " " + badges(st) + parts[0]
 	for _, p := range parts[1:] {
-		if next := line + " · " + p; ansi.StringWidth(next) <= width {
+		if next := line + " · " + p; Method.StringWidth(next) <= width {
 			line = next
 		}
 	}
@@ -131,12 +129,12 @@ func helpBox(title string, rows []KeyHelp, width int) []string {
 			}
 		}
 		names[i] = strings.Join(ks, " ")
-		w = max(w, ansi.StringWidth(names[i]))
+		w = max(w, Method.StringWidth(names[i]))
 	}
 	inner := InputWidth(width)
 	var lines []string
 	for i, r := range rows {
-		lines = append(lines, truncate(names[i]+strings.Repeat(" ", w-ansi.StringWidth(names[i]))+"  "+styled(faint, r.What), inner))
+		lines = append(lines, truncate(names[i]+strings.Repeat(" ", w-Method.StringWidth(names[i]))+"  "+styled(faint, r.What), inner))
 	}
 	lines = append(lines, styled(faint, truncate("any key closes this", inner)))
 	return box(title, lines, width)

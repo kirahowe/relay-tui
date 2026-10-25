@@ -188,13 +188,13 @@ func roleRow(h core.Hub, r core.Role, now time.Time, width int) string {
 		lead = styled(bold, "› ")
 	}
 	m := marks(h, r, now)
-	mw := ansi.StringWidth(m)
+	mw := Method.StringWidth(m)
 	room := max(width-2-mw-1, 1)
 	title := truncate(roleName(r), room)
 	if r.Conv == nil {
 		title = styled(faint, title)
 	}
-	gapN := max(width-2-ansi.StringWidth(title)-mw, 0)
+	gapN := max(width-2-Method.StringWidth(title)-mw, 0)
 	line := lead + title + strings.Repeat(" ", gapN) + m
 	if h.List && r.ID == h.Cursor {
 		line = sgr(reverse) + ansi.Strip(line) + sgr(0)
@@ -705,7 +705,7 @@ func prompt(rows []string) []string {
 		if i == 0 {
 			lead = styled(accent, "›") + " "
 		}
-		out[i] = lead + ansi.TruncateLeft(r, 2, "")
+		out[i] = lead + Method.TruncateLeft(r, 2, "")
 	}
 	return out
 }
@@ -793,7 +793,7 @@ func modeRow(moving bool, keys string, width int) string {
 	if keys == "" {
 		return truncate(tag, width)
 	}
-	return tag + hintRow(keys, max(width-ansi.StringWidth(tag), 1))
+	return tag + hintRow(keys, max(width-Method.StringWidth(tag), 1))
 }
 
 // paneView names what l shows: the board, or the workspace items.
@@ -815,7 +815,7 @@ func topBar(h core.Hub, now time.Time, width int) string {
 		left += "   " + e
 	}
 	right := styled(faint, now.Format("Mon Jan 2 · 15:04")+" ")
-	n := width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	n := width - Method.StringWidth(left) - Method.StringWidth(right)
 	if n < 1 {
 		return truncate(left, width)
 	}
@@ -837,14 +837,14 @@ func rolesPanel(h core.Hub, now time.Time, width, height int) []string {
 	var rows []string
 	for _, r := range h.Roles {
 		m := marks(h, r, now)
-		title := truncate(roleName(r), max(inner-ansi.StringWidth(m)-1, 1))
+		title := truncate(roleName(r), max(inner-Method.StringWidth(m)-1, 1))
 		switch {
 		case r.ID == h.Focus:
 			title = styled(bold, title)
 		case r.Conv == nil:
 			title = styled(faint, title)
 		}
-		l := title + strings.Repeat(" ", max(inner-ansi.StringWidth(title)-ansi.StringWidth(m), 1)) + m
+		l := title + strings.Repeat(" ", max(inner-Method.StringWidth(title)-Method.StringWidth(m), 1)) + m
 		if (h.List && r.ID == h.Cursor) || (!h.List && r.ID == h.Focus) {
 			l = barRow(l, inner)
 		}

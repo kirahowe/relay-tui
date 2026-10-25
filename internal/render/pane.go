@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -59,7 +57,7 @@ func joinColumns(lines, pane []string, left int) []string {
 		if i < len(pane) {
 			r = pane[i]
 		}
-		if w := ansi.StringWidth(l); w < left {
+		if w := Method.StringWidth(l); w < left {
 			l += strings.Repeat(" ", left-w)
 		}
 		out[i] = l + sgr(0) + " " + styled(faint, "│") + " " + r
@@ -104,7 +102,7 @@ func textLines(text string, defang bool, width int) []string {
 // hang wraps text to width less the lead, which is first on the first
 // line and the same width of blanks on the rest.
 func hang(first, text string, width int) []string {
-	lead := ansi.StringWidth(first)
+	lead := Method.StringWidth(first)
 	rest := strings.Repeat(" ", lead)
 	var out []string
 	for i, l := range wrap(text, max(width-lead, 1)) {
@@ -447,7 +445,7 @@ func paneHead(name string, count int, other string, focus bool, width int) []str
 		return []string{truncate(title, width)}
 	}
 	right := chip("b", other)
-	pad := width - ansi.StringWidth(title) - ansi.StringWidth(right)
+	pad := width - Method.StringWidth(title) - Method.StringWidth(right)
 	if pad < 1 {
 		return []string{truncate(title, width)}
 	}

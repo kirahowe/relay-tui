@@ -213,13 +213,13 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 	const colMax = 6
 	nameW := 0
 	for _, r := range c.Rows {
-		nameW = max(nameW, ansi.StringWidth(cardLine(r.Text, r.Outsider)))
+		nameW = max(nameW, Method.StringWidth(cardLine(r.Text, r.Outsider)))
 	}
 	nameW = min(nameW, max(width/3, 8))
 	cols := make([]int, len(c.Columns))
 	total := nameW
 	for i, k := range c.Columns {
-		cols[i] = min(max(ansi.StringWidth(cardLine(k.Text, k.Outsider)), 1), colMax)
+		cols[i] = min(max(Method.StringWidth(cardLine(k.Text, k.Outsider)), 1), colMax)
 		total += 1 + cols[i]
 	}
 	if total > width {
@@ -228,7 +228,7 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 	head := strings.Repeat(" ", nameW)
 	for i, k := range c.Columns {
 		name := truncate(strings.ToUpper(cardLine(k.Text, k.Outsider)), cols[i])
-		name += strings.Repeat(" ", cols[i]-ansi.StringWidth(name))
+		name += strings.Repeat(" ", cols[i]-Method.StringWidth(name))
 		st := faint
 		if focus && i == col {
 			st = accent | bold
@@ -238,7 +238,7 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 	out = append(out, head)
 	for i, r := range c.Rows {
 		name := truncate(cardLine(r.Text, r.Outsider), nameW)
-		l := outside(r.CardText, name) + strings.Repeat(" ", nameW-ansi.StringWidth(name))
+		l := outside(r.CardText, name) + strings.Repeat(" ", nameW-Method.StringWidth(name))
 		for j, k := range c.Columns {
 			g := cellGlyph(c.CellState(r.ID, k.ID))
 			if focus && i+1 == line && j == col {

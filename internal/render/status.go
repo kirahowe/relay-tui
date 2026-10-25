@@ -5,7 +5,6 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/charmbracelet/x/ansi"
 	"time"
 
 	"github.com/kirahowe/relay-tui/internal/core"
@@ -112,16 +111,16 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	if len(parts) == 0 {
 		parts = []string{""}
 	}
-	sep := ansi.StringWidth(" · ")
+	sep := Method.StringWidth(" · ")
 	first := truncate(lead+" "+badges(l)+parts[0], width)
-	used := ansi.StringWidth(first)
+	used := Method.StringWidth(first)
 	keep := make([]bool, len(parts))
-	if mode > 0 && used+sep+ansi.StringWidth(parts[mode]) <= width {
+	if mode > 0 && used+sep+Method.StringWidth(parts[mode]) <= width {
 		keep[mode] = true
-		used += sep + ansi.StringWidth(parts[mode])
+		used += sep + Method.StringWidth(parts[mode])
 	}
 	for i := 1; i < len(parts); i++ {
-		if w := sep + ansi.StringWidth(parts[i]); !keep[i] && i != mode && used+w <= width {
+		if w := sep + Method.StringWidth(parts[i]); !keep[i] && i != mode && used+w <= width {
 			keep[i] = true
 			used += w
 		}

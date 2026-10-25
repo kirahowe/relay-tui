@@ -102,7 +102,7 @@ func TestWideTrackerWraps(t *testing.T) {
 	s := detail(boardState(true, c), c.ID, 1, 23)
 	lines := PaneLines(s.App, s.State, t0, 40, 30)
 	for _, l := range lines {
-		if ansi.StringWidth(l) > 40 {
+		if Width(l) > 40 {
 			t.Fatalf("line %q too wide", l)
 		}
 	}
@@ -206,8 +206,8 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 			if strings.Contains(l, "\x1b]") {
 				t.Fatalf("operating system command in %q", l)
 			}
-			if ansi.StringWidth(l) > w {
-				t.Fatalf("line %q is %d wide, limit %d", l, ansi.StringWidth(l), w)
+			if Width(l) > w {
+				t.Fatalf("line %q is %d wide, limit %d", l, Width(l), w)
 			}
 			plain := ansi.Strip(l)
 			for _, r := range plain {

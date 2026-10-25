@@ -3,8 +3,6 @@ package render
 import (
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -45,10 +43,10 @@ func box(title string, lines []string, width int) []string {
 // exactly width wide. It measures the joined row, not the parts: a mark
 // that combines with its neighbour makes the parts' widths add up wrong.
 func row(left, fill, right string, width int) string {
-	n := width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	n := width - Method.StringWidth(left) - Method.StringWidth(right)
 	for range 3 {
 		r := left + styled(faint, strings.Repeat(fill, max(n, 0))) + right
-		w := ansi.StringWidth(r)
+		w := Method.StringWidth(r)
 		if w == width || n < 0 {
 			return r
 		}
