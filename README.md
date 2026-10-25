@@ -1,10 +1,14 @@
 # relay-tui
 
-relay-tui is a terminal chat client for agents that speak the
-[Agent Client Protocol](https://agentclientprotocol.com). It starts the agent
-as a child process, streams its replies into the terminal's own scrollback,
-and keeps a status line that shows how long the agent has been working and
-how long it has been silent.
+relay-tui is the terminal dashboard for
+[relay](https://github.com/kirahowe/relay): the roles and their live
+conversations, the board of cards, and a full-screen review of anything
+you approve. It speaks the
+[Agent Client Protocol](https://agentclientprotocol.com), and pointed at
+any other ACP agent it is a plain chat client: it starts the agent as a
+child process, streams its replies into the terminal's own scrollback, and
+keeps a status line that shows how long the agent has been working and how
+long it has been silent.
 
 ## Using it
 
@@ -404,7 +408,7 @@ never clickable, and relay-tui fetches nothing.
 When the agent is relay's hub, relay-tui shows every role at once. It knows
 this from `_meta["relay/hub"]` in the answer to `initialize`. Against any
 other agent nothing here applies, and the client works as described
-above. `relay [--open ROLE]` (or `relay chat`) runs it as
+above. `relay [--open ROLE]` runs it as
 `relay-tui [--open ROLE] -- relay acp --approvals`.
 
 The whole screen is drawn on the alternate screen, from state. On a

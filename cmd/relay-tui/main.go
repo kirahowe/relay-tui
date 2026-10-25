@@ -1,4 +1,5 @@
-// Command relay-tui is a terminal chat client for an ACP agent:
+// Command relay-tui is relay's terminal dashboard, and a chat client for
+// any other ACP agent:
 //
 //	relay-tui [--title TITLE] [--open ROLE] [--agent-log FILE] [--state-dir DIR] -- COMMAND [ARGS...]
 //
