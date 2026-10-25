@@ -63,49 +63,84 @@ such as a line it dropped as unreadable, go to the same place.
 When the agent asks permission for a tool call, the request moves no
 keys and closes nothing. While you are typing, in the input or in a
 card's editor, it takes no keys: a line above the input says
-"permission needed", names the tool and says how to get to it ("esc to
-answer"), the status line says so too, and what you type goes on where
-you were typing. In the pane it waits the same way, and `h` goes to it.
-The request is answered only once it has the keys, in its conversation
-while you are moving: it then replaces the input box, at once if it
-arrives while you are there (see "Typing and moving"). It shows the tool's name and its input, indented and cut to ten
-lines, and the options the agent offered. Keys: `y` picks the first
-allow_once option, `n` the first reject_once, up/down and enter pick between
-them (the highlight starts on a reject, so a bare enter refuses). Options
-of any other kind, such as allow_always, are not offered: relay-tui never
-grants standing permission. `v`
-opens the whole input in the request's place, wrapped and never cut
-(up/down, the page keys, `g` and `G` scroll it; `v`, Esc or `q` go
-back), and puts it into the transcript too. Allowing vouches for the
-call's arguments, so when the box cannot show all of the input, `y` (or
-any allow) waits until every line of it has been on screen, in the box
-or in that view, and 600 ms after the last of it was; until then the box
-says "read the whole input with v to allow". `n`, enter on a reject, and
-Esc or Ctrl-C (which answers cancelled) work at once. Keys that would approve do nothing for the first 600 ms after
-the request is drawn with the keys, whether it got them by esc, by
-moving to its conversation, or by arriving while you are moving there,
-so a `y` typed right behind esc cannot allow it. The same holds for
-every key that authorizes something: archiving a card, trusting a card,
-a doc or a paste (Ctrl-Y), and ending a conversation each wait 600 ms
-from when their question, or the input, was drawn, and the status line
-says "too soon" if you press it before. Drawn means drawn in full: a
-request is armed only when its heading, preview and every option show
-whole, and a question only with all it is about, never a shortened
-form; one behind "Window too small", or that the window clips (a tall
-draft can leave the pane no room), is not armed at all, and the
-status line says to make the window larger. When it next shows whole,
-its 600 ms start again. Other keys are ignored while
-the request has the keys, so no prompt can go out. Requests
-queue and are answered in order; ending the turn cancels the rest.
+"permission needed", names the tool and says how to get to it ("esc,
+then enter to review"), the status line says so too, and what you type
+goes on where you were typing. In the pane it waits the same way, and
+`h` goes to it. In its conversation while moving, a short summary takes
+the input box's place: the tool's name and "enter to review". The
+summary answers nothing and arms nothing. Requests queue and are
+answered in order; ending the turn cancels the rest.
 
-Nothing the agent wrote in a request is dropped. Control characters, bidi
-and other format characters, and any other code point that does not print
-show as `\uXXXX` escapes, so the input reads back as JSON to exactly what
-will run. Numbers show as the agent wrote them: relay-tui reads the input
-from the request's own params, not from the ACP SDK's decoding, which
-would round `9007199254740993` to `9007199254740992`. Wrapping adds
-line breaks; nothing is cut except in the collapsed box, where `v`
-shows the rest.
+### The review
+
+Everything you consent to is answered from its review, a pager that
+takes the whole screen: allowing a tool call, and trusting a card or a
+doc or archiving a card (see "The workspace pane" and "The board").
+Enter on a request's summary opens it, and `t` and `X` open the pane's.
+The review shows a text, T, exactly as it is: wrapped to the window,
+never cut, never escaped again and never shortened, so the pager's
+lines put together are T. The top row says what you are asked and
+starts T's first line; the foot shows the options, which page you are
+on and how many are left, and the keys.
+
+Keys in the review:
+
+| Key | What it does |
+|---|---|
+| `space`, `pgdown`, `f` / `pgup`, `b` | the next page, the one before |
+| `j`, `down` / `k`, `up` | a row down, a row up |
+| `g`, `home` / `G`, `end` | the top, the end |
+| `y` | allow once (a request), or trust, or archive |
+| `tab`, `right` / `shift+tab`, `left` | the next option, or the one before (a request) |
+| `enter` | the highlighted option (a request; it starts on a reject) |
+| `n` | reject once (a request), or cancel |
+| `esc` | cancel (a request answers cancelled) |
+| `q` | back to the dashboard, answering nothing (a request); cancel (the pane's questions) |
+| `ctrl+c` | stop the turn, which cancels its requests |
+
+`y`, and any other allow, works only once every page of this T has been
+on screen, by a frame that stayed there, and 600 ms after the last page
+you had not seen yet came up. Until then the foot says "once all is
+read", or names the pages not on screen long enough. A page you flip
+past within a frame or two does not count. A T that changes (the
+session's labels grow, a card changes) is read again from the start.
+Rejecting, cancelling and going back work at once. A key typed while
+connecting (see "Reopening where you left off") answers nothing at all.
+Options of any kind other than allow_once and reject_once, such as
+allow_always, are not offered: relay-tui never grants standing
+permission.
+
+The review fails closed. If T holds a character other than a printable
+one, a space or a newline, if relay's digest of T does not match it, or
+if relay sent no review for a card or a doc, the review says so and
+nothing can be allowed there. A window too narrow for one of T's
+characters, or too short for a row of it, says to make it larger.
+
+With relay, T is relay's: relay sends it with every request, card and
+doc (`"review": {"text", "sha256"}`), and relay-tui shows it as sent.
+relay-tui says so in `initialize`
+(`clientCapabilities._meta["relay/review"]: 1`), and gives relay back
+the sha256 of T with an allow (`_meta["relay/review"]` on the answer)
+and with a trust (its `sha256`). If relay refuses an allow, it asks
+again for the same tool call with its reason
+(`_meta["relay/refused"]`); the review stays open on it, shows the
+reason, and is read again from the start.
+
+Against an agent without relay, relay-tui builds T from the request
+itself, with relay's rules. Each value the agent wrote is a quoted
+string on a labelled line (the tool, its title and kind, each fixed
+argument, each option and its kind), or a block of lines that each
+start with `  │ ` (each piece of content, relay's preview, the whole
+input, pretty-printed with its numbers as written). In them a
+backslash shows as `\\`, a quote as `\"` and any character that does
+not print as `\u{XXXX}`, so T reads back to exactly the request.
+Once the session is contaminated, links in what the agent wrote are
+broken by the same escapes: the `:` of `https://` shows as `\u{003a}`
+and the dots of a host as `\u{002e}`, while an amount such as 12.50
+keeps its dot. A "Characters to check" section names every word that
+mixes scripts or holds a lookalike letter, and every character outside
+ASCII in something that looks like a host or an address, with its code
+point. No digest is sent.
 
 If the agent reports session labels in `_meta["agentloop/labels"]` on tool
 calls, usage updates and session_info_update, the status line shows them
@@ -141,7 +176,7 @@ Typing:
 |---|---|
 | `enter` | send |
 | `shift+enter`, `ctrl+j` | a new line (so do `ctrl+enter` and `alt+enter`, where the terminal reports them) |
-| `esc` | stop typing, to move or to answer a waiting request; what you typed stays |
+| `esc` | stop typing, to move or to get to a waiting request; what you typed stays |
 | `alt+1` to `alt+9` | that role, still typing (hub) |
 | `pgup`, `pgdown` | scroll the conversation (hub) |
 | `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
@@ -175,11 +210,11 @@ status line. A paste while moving goes nowhere, with the same note, and
 so does a paste into a card's editor: a card's text is your own words,
 so a paste, which may be anyone's, does not go into it.
 
-A permission request is answered only when it has the keys, as
-described above: while typing it takes no keys and the input keeps
-them. In its conversation while moving it has the keys; besides its
-own, only `h` (to the list), the role keys and the page keys work while
-it waits.
+A permission request is answered only from its review, as described
+above: while typing it takes no keys and the input keeps them. In its
+conversation while moving its summary has the keys: enter opens the
+review, and besides that only `h` (to the list), the role keys and the
+page keys work while it waits.
 
 ## The look
 
@@ -193,10 +228,11 @@ selection and no tints. Your messages are then drawn in boxes.
 While the session is contaminated, URLs in what the agent writes (replies,
 notices, tool names, arguments and output) show defanged, as
 `hxxps://host[.]tld/path`, so a click cannot carry data out. relay-tui never
-writes OSC 8 hyperlinks. The request box shows its input exactly, but
-with its URLs defanged once the session is contaminated: a click on one,
-to look at it, would send what it carries before you approve anything.
-relay-tui never sends `resource_link` blocks.
+writes OSC 8 hyperlinks. A review built by relay-tui breaks the links in
+a request by escapes once the session is contaminated (see "The
+review"): a click on one, to look at it, would send what it carries
+before you approve anything. relay-tui never sends `resource_link`
+blocks.
 
 ## The workspace pane
 
@@ -240,17 +276,17 @@ Keys, once `l` has given the pane the keys:
 
 While the pane has focus no key reaches the input box. Ctrl-C still stops
 a running turn. A permission request leaves the pane its keys: `h` goes
-to the conversation, where you answer it as before. The pane only
-highlights the waiting proposal and shows its preview, here and in the
-request box. It adds no second way to approve.
+to the conversation, where you review it as before. The pane only
+highlights the waiting proposal and shows its preview. It adds no
+second way to approve.
 
 Trusting needs relay chat, which lets relay-tui ask relay to do it. Press t
-on a contaminated shown item. The pane shows the text that would be
-trusted, with its path, version and hash, and says "Trust this? It clears
-contaminated from what it says now." After a short delay, y confirms;
-any other key cancels. relay-tui then sends relay the version and hash it
-listed, so a document that changed in between is refused. Where relay does
-not take trust from this client, the pane shows the `relay trust` command
+on a contaminated shown item. Its review (see "The review") shows the
+text relay sent for the doc, its path and version among it. Once it is
+read, y confirms; n, esc and q cancel. relay-tui then sends relay the
+version it listed and the digest of the review, so a document that
+changed in between is refused. Where relay does not take trust from
+this client, or sent no review, the pane shows the `relay trust` command
 to run in a terminal and does nothing else. Against an agent without relay
 the pane lists the displays and requests relay-tui saw itself, and offers no
 trust.
@@ -303,19 +339,19 @@ Keys on the board:
 - e edits the selected line's text: the title, an item or a row's name.
   In the list it retitles the selected card. In an open tracker, E
   renames the selected column. A note's text cannot be edited here.
-- X archives the selected card, after you confirm with y. The question
-  is about the card as you saw it: if it changes meanwhile (another
-  device retitles it, say), the question is cancelled with a note. The
-  archive also carries the rev you saw (`seen`). A doc's trust is cancelled the same way when relay lists a
-  newer version. relay's CLI can restore an archived card.
-- t trusts the selected card when it holds outside text. The pane shows
-  every text of the card in full, one after another (its title, items,
-  rows, columns or note; not the tracker's grid, which shortens them),
-  and asks "Trust …? It clears outside text from what it
-  says now." After a short delay, y confirms, and any other key cancels.
-  relay-tui sends relay the card's rev and the digest relay sent with it
-  (`_relay/cards/trust`), so a card that changed in the meantime is not
-  trusted. If the card changes while you are being asked, the question
+- X archives the selected card, from its review (see "The review"):
+  once it is read, y archives; n, esc and q cancel. The review is about
+  the card as you saw it: if it changes meanwhile (another device
+  retitles it, say), the review closes with a note. The archive also
+  carries the rev you saw (`seen`). A doc's trust is cancelled the same
+  way when relay lists a newer version. relay's CLI can restore an
+  archived card.
+- t trusts the selected card when it holds outside text, from its
+  review, which shows the text relay sent for the card. Once it is
+  read, y confirms; n, esc and q cancel. relay-tui sends relay the
+  card's rev and the digest of the review (`_relay/cards/trust`), so a
+  card that changed in the meantime is not trusted. If the card changes
+  while you are being asked, the question
   closes, as it does when you leave it: `h`, another role, the list of
   roles or the list of keys. relay takes trust only from `relay chat`, which runs with
   approvals. Elsewhere the pane names the `relay trust card <id>` command
@@ -390,19 +426,12 @@ What the sidebar shows beside a role (the `?` list explains them too):
 - `?2` two permission requests wait, in reverse video; `!1` one of the
   role's calls is held for you
 
-A request's box shows its heading, preview and every option whole, and
-its input up to ten lines; `v` opens all of the input, and puts the
-request in the conversation. When even the box cannot show its heading,
-preview and options whole, it is drawn shortened and allows nothing,
-and says to make the window larger. When the window cannot show the
-role's name, the request, its options and the status line with three
-rows of conversation left to scroll through, the view says "Window too
-small" and the keys that allow do nothing (esc still cancels).
+A request shows on the dashboard as its summary, and is answered from
+its review, which takes the whole screen (see "The review").
 
 A request from a conversation in the background shows as `?N` beside its
-role and is answered after switching to it while moving. Switching, or
-esc there, starts the 600 ms delay again, so a key typed for the switch
-cannot approve it. When
+role and is answered after switching to it while moving and opening its
+review, so a key typed for the switch cannot approve it. When
 another device answers first, the dialog closes and the transcript notes
 "answered elsewhere".
 
@@ -565,6 +594,14 @@ split. `core` holds its state, the trust rules and the board's cards, `wire` rea
 `_relay/cards/op` answers and its `_relay/cards/changed` notifications,
 and `render` draws it all. The `agent` package makes the calls one at a
 time and in order.
+
+Consent lives in `core/review.go`. `core.ReviewSubject` is what the
+review that has the keys is about: its identity, T (relay's, or
+`core.RequestText`) and the digest to give back. `render.PagerLines`
+wraps T losslessly and `render.Review` draws the pager; after each
+frame the shell tells the core which bytes of T it drew
+(`core.Drawn`), and the core takes a yes only once all of them have
+been drawn, `core.ArmDelay` after the last new part.
 
 `internal/agent` runs the agent process, and `internal/ui` is the Bubble
 Tea program. Both are thin code around the core that carries out its
