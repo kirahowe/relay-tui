@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -394,12 +393,6 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.body = []string{styled(faint, "loading…")}
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
-	case b.Trust != nil:
-		// What the operator vouches for: every text of the card, as it is
-		// now, whole (its review; see review.go).
-		if i := slices.IndexFunc(b.Cards, func(x core.Card) bool { return x.ID == b.Trust.Card }); i >= 0 {
-			pr.body = cardReview(b.Cards[i], width)
-		}
 	case b.Detail && sel >= 0:
 		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, focus)
 	case len(b.Cards) == 0:
@@ -425,25 +418,12 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)
 		pr.foot = append(pr.foot, hint("enter send · esc cancel")...)
 	case b.Confirm != 0:
-		keys := " y archive · any other key cancels"
-		if !core.ConfirmArmed(a, s, now) {
-			keys = " y archive (wait a moment) · any other key cancels"
-		}
-		pr.foot = wrap(styled(bold, "Archive "+cardName(b, b.Confirm)+"?")+styled(faint, keys), width)
-		pr.confirm = core.ConfirmID(a, s)
+		// The question's review has the whole screen while it is open.
+		pr.foot = hint("archive " + cardName(b, b.Confirm) + ": its review is open")
+	case b.Trust != nil && b.Trust.Sent:
+		pr.foot = hint("trusting…")
 	case b.Trust != nil:
-		pr.foot = wrap(styled(bold, "Trust "+cardName(b, b.Trust.Card)+"? It clears outside text from what it says now."), width)
-		if !b.Trust.Sent {
-			pr.confirm, pr.whole = core.ConfirmID(a, s), true
-		}
-		switch {
-		case b.Trust.Sent:
-			pr.foot = append(pr.foot, hint("trusting…")...)
-		case core.ConfirmArmed(a, s, now):
-			pr.foot = append(pr.foot, wrap(styled(bold|accent, "y trust")+styled(faint, " · any other key cancels"), width)...)
-		default:
-			pr.foot = append(pr.foot, hint("y trust (wait a moment) · any other key cancels")...)
-		}
+		pr.foot = hint("trust " + cardName(b, b.Trust.Card) + ": its review is open")
 	case b.Detail && sel >= 0:
 		pr.foot = cellLine(b, c, width)
 		switch c.Kind {

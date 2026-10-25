@@ -2,7 +2,6 @@ package ui
 
 import (
 	"reflect"
-	"slices"
 	"testing"
 	"time"
 
@@ -35,10 +34,13 @@ func (c recConn) Prompt(string, string, []core.Attachment) { *c.calls = append(*
 
 func navCards() []core.Card {
 	text := func(s string) core.CardText { return core.CardText{Text: s, Rev: 1} }
+	review := func(t string) *core.Review { return &core.Review{Text: t, SHA256: core.Digest(t)} }
 	return []core.Card{
 		{ID: 1, Rev: 1, Kind: core.CardChecklist, Status: "active", Title: text("Trip"), Total: 2,
-			Items: []core.CardElem{{ID: 1, CardText: text("pack")}, {ID: 2, CardText: text("go")}}},
-		{ID: 2, Rev: 2, Kind: core.CardNote, Status: "active", Title: text("Note"), Note: &core.CardText{Text: "hello", Rev: 2}},
+			Items:  []core.CardElem{{ID: 1, CardText: text("pack")}, {ID: 2, CardText: text("go")}},
+			Review: review("card 1\ntitle: Trip\n- pack\n- go")},
+		{ID: 2, Rev: 2, Kind: core.CardNote, Status: "active", Title: text("Note"), Note: &core.CardText{Text: "hello", Rev: 2},
+			Review: review("card 2\ntitle: Note\nhello")},
 	}
 }
 
@@ -184,10 +186,10 @@ func TestDigitsAndAltDigits(t *testing.T) {
 	}
 }
 
-// A request is answered only while moving. While typing it takes no
-// key: y and enter go to the input. Esc makes it answerable, and its
-// delay starts then, so a y right behind the esc answers nothing; once
-// armed, y allows. Past its own keys, h and the digits still move, and
+// A request is answered only from its review. While typing it takes no
+// key: y and enter go to the input. Esc gives its summary the keys,
+// which answers nothing; enter opens the review, so a y right behind it
+// answers nothing; once read, y allows. Past its own keys, h and the digits still move, and
 // l cannot take the keys to the pane.
 func TestARequestIsAnsweredOnlyWhileMoving(t *testing.T) {
 	var all []string
@@ -213,6 +215,14 @@ func TestARequestIsAnsweredOnlyWhileMoving(t *testing.T) {
 	m = update(m, letter('l'), letter('x'), letter('i'))
 	if m.hub.App.PaneFocus || !m.hub.App.Moving || len(answers()) != 0 {
 		t.Fatalf("l x i: pane %v moving %v calls %v", m.hub.App.PaneFocus, m.hub.App.Moving, answers())
+	}
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	if m = update(m, letter('y')); len(answers()) != 0 {
+		t.Fatalf("a y on the summary answered: %v", answers())
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter}, letter('y')) // the review, and a y right behind
+	if len(answers()) != 0 {
+		t.Fatalf("a y right behind enter answered: %v", answers())
 	}
 	time.Sleep(core.ArmDelay + 50*time.Millisecond)
 	if m = update(m, letter('y')); len(answers()) != 1 || answers()[0] != "answer" {
@@ -251,6 +261,16 @@ func TestSingleRequestWaitsWhileTyping(t *testing.T) {
 	if len(answers()) != 0 {
 		t.Fatalf("a y right behind esc answered: %v", answers())
 	}
+	// The summary answers nothing however long it waits: enter opens the
+	// review, and y there waits for it to be read.
+	time.Sleep(core.ArmDelay + 50*time.Millisecond)
+	if m = update(m, letter('y')); len(answers()) != 0 {
+		t.Fatalf("a y on the summary answered: %v", answers())
+	}
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter}, letter('y'))
+	if len(answers()) != 0 {
+		t.Fatalf("a y right behind enter answered: %v", answers())
+	}
 	time.Sleep(core.ArmDelay + 50*time.Millisecond)
 	if m = update(m, letter('y')); len(answers()) != 1 || m.input.Value() != "y" {
 		t.Fatalf("armed y: %v input %q", answers(), m.input.Value())
@@ -258,23 +278,13 @@ func TestSingleRequestWaitsWhileTyping(t *testing.T) {
 }
 
 // Typing, no key sequence answers a request, on screen or off, however
-// long after it came; moving, no key answers one within its delay of its
-// becoming answerable. The keys that stop the turn or quit are left out:
-// stopping a turn cancels its requests on purpose.
-func TestNoKeyAnswersARequestWhileTypingOrUnarmed(t *testing.T) {
+// long after it came; nothing but its review answers it. The keys that
+// stop the turn or quit are left out: stopping a turn cancels its
+// requests on purpose.
+func TestNoKeyAnswersARequestWhileTypingOrUnreviewed(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		var calls []string
 		m := update(navHub(t, &calls), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt})
-		// The request has waited past its delay while the operator typed.
-		m.hub.Convs = slices.Clone(m.hub.Convs)
-		for i := range m.hub.Convs {
-			if a := m.hub.Convs[i].State.Asks; len(a) > 0 {
-				a = slices.Clone(a)
-				a[0].Since = a[0].Since.Add(-time.Hour)
-				m.hub.Convs[i].State.Asks = a
-			}
-		}
-		answerable := time.Time{}
 		for range rapid.IntRange(1, 40).Draw(rt, "keys") {
 			k := genKey(rt)
 			if s := k.String(); s == "ctrl+c" || s == "ctrl+d" {
@@ -286,11 +296,8 @@ func TestNoKeyAnswersARequestWhileTypingOrUnarmed(t *testing.T) {
 			if was.Typing() && answered(calls) > before {
 				rt.Fatalf("key %q while typing answered: %v", k.String(), calls)
 			}
-			if answered(calls) > before && time.Since(answerable) < core.ArmDelay {
-				rt.Fatalf("key %q answered within the delay of the request becoming the surface: %v", k.String(), calls)
-			}
-			if was.Kind != core.SurfaceRequest && core.HubSurface(m.hub).Kind == core.SurfaceRequest {
-				answerable = time.Now()
+			if answered(calls) > before && was.Kind != core.SurfaceReview {
+				rt.Fatalf("key %q answered from %v, not the review: %v", k.String(), was.Kind, calls)
 			}
 		}
 	})

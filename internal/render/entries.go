@@ -70,8 +70,6 @@ func entryAs(e core.Entry, x expand, width int, now time.Time) []string {
 		return thoughtLines(e, x.thinking, width)
 	case core.Banner:
 		return bannerLines(e, width)
-	case core.Request:
-		return requestLines(e, width)
 	}
 	text := e.Text
 	if e.Detail != "" {

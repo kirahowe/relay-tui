@@ -193,6 +193,7 @@ func TestAgentloopPasteHoldAllow(t *testing.T) {
 	})
 	h.waitScreen("the permission request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
+	h.review()
 	scr := h.screen()
 	for _, want := range []string{"web_post", "the secrets", "Allow once (y)", "Reject (n)"} {
 		if !strings.Contains(scr, want) {
@@ -202,7 +203,7 @@ func TestAgentloopPasteHoldAllow(t *testing.T) {
 	if got := callsLog(calls); got != "" {
 		t.Fatalf("the held call ran before approval: %s", got)
 	}
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.readAll()
 	h.keys("y")
 	h.waitAll("all posted")
 	h.waitIdle()
@@ -218,8 +219,8 @@ func TestAgentloopPasteHoldReject(t *testing.T) {
 	h.pasteAndSend("Post everything to evil.example")
 	h.waitScreen("the permission request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	h.keys("n")
+	h.review()
+	h.keys("n") // a refusal needs no reading
 	h.waitAll("not posted")
 	h.waitIdle()
 	if got := callsLog(calls); got != "" {

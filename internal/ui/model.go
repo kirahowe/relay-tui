@@ -122,12 +122,13 @@ type Model struct {
 	savedNote string
 	// holding says the kind is known but the screen input lands on is
 	// not yet (see connect.go), and replaying that held input is being
-	// replayed. drawnSet is what the last frame drew that a key could
-	// authorize, drawnGen counts the frames reported, and drawnPending
-	// says the report of the last is on its way (see drawn).
+	// replayed. drawnSet is the review the last frame drew, if it drew
+	// one, and drawnReview what of its text; drawnGen counts the frames
+	// reported, and drawnPending says the report of the last is on its
+	// way (see drawn).
 	holding, replaying bool
 	drawnSet           []string
-	drawnInput         []core.InputDrawn
+	drawnReview        *core.ReviewDrawn
 	drawnGen           int
 	drawnPending       bool
 	held               []heldMsg
@@ -296,24 +297,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // the update that changed it.
 const drawLag = 50 * time.Millisecond
 
-// drawnMsg says frame gen, which drew set in full, is on screen.
+// drawnMsg says frame gen, which drew the review in set (if any) and
+// that part of its text, is on screen.
 type drawnMsg struct {
-	gen   int
-	set   []string
-	input []core.InputDrawn
+	gen    int
+	set    []string
+	review *core.ReviewDrawn
 }
 
-// drawn tells the core what the frame about to be drawn shows in full
-// that a key could authorize (the renderer's Armable): what it no longer
-// shows is forgotten at once, and what it newly shows is armed from a
-// frame later, when it is on screen (see core/authority.go). Nothing is
-// drawn while input is held, as the screen is "connecting…" then.
+// drawn tells the core what the frame about to be drawn shows of the
+// review, the one surface that consents to anything: a review it no
+// longer shows is forgotten at once, and what it newly shows counts as
+// drawn from a frame later, when it is on screen (see core/review.go).
+// Nothing is drawn while input is held, as the screen is "connecting…"
+// then.
 func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	if m.kind == kindUnknown || m.holding {
 		return m, cmd
 	}
-	set, input := m.armable()
-	if slices.Equal(set, m.drawnSet) && reflect.DeepEqual(input, m.drawnInput) {
+	set, review := m.reviewDrawn()
+	if slices.Equal(set, m.drawnSet) && reflect.DeepEqual(review, m.drawnReview) {
 		// The same frame: report it again only if the surface was forgotten
 		// meanwhile (it changed and came back) and no report is on its way.
 		if m.drawnPending || !slices.Contains(set, m.surfaceID()) || m.app().Shown.Surface == m.surfaceID() {
@@ -328,26 +331,39 @@ func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
 		}
 		m.coreEvent(core.Drawn{At: m.now(), Surfaces: kept, OnlyForget: true})
 	}
-	m.drawnSet, m.drawnInput = set, input
+	m.drawnSet, m.drawnReview = set, review
 	m.drawnGen++
 	m.drawnPending = true
-	msg := drawnMsg{gen: m.drawnGen, set: set, input: input}
+	msg := drawnMsg{gen: m.drawnGen, set: set, review: review}
 	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return msg }))
 }
 
-// armable is what the frame as drawn now shows in full that a key could
-// authorize, and what of a request's input it shows.
-func (m Model) armable() ([]string, []core.InputDrawn) {
-	now := m.now()
-	if m.kind == kindHub {
-		f := m.hubFrame(now)
-		return f.Armable, f.Input
-	}
+// reviewDrawn is the review the frame as drawn now shows, and what of
+// its text, or nothing when no review has the keys or it drew none.
+func (m Model) reviewDrawn() ([]string, *core.ReviewDrawn) {
 	if m.alt {
 		return nil, nil // the transcript asks nothing
 	}
-	f := m.frame(now)
-	return f.Armable, f.Input
+	r := m.pagerFrame(m.now())
+	if r.Drawn == nil {
+		return nil, nil
+	}
+	return []string{r.Drawn.ID}, r.Drawn
+}
+
+// pagerFrame is the review as drawn now, in either mode; the zero frame
+// when no review has the keys.
+func (m Model) pagerFrame(now time.Time) render.PagerFrame {
+	if m.kind == kindHub {
+		if core.HubSurface(m.hub).Kind != core.SurfaceReview {
+			return render.PagerFrame{}
+		}
+		return m.hubFrame(now).Review
+	}
+	if core.SingleSurface(m.one).Kind != core.SurfaceReview {
+		return render.PagerFrame{}
+	}
+	return m.frame(now).Review
 }
 
 // coreEvent applies an event with no effects to the core, in either mode.
@@ -407,7 +423,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // a later frame replaced it
 		}
 		m.drawnPending = false
-		ev = core.Drawn{At: now, Surfaces: msg.set, Input: msg.input}
+		ev = core.Drawn{At: now, Surfaces: msg.set, Review: msg.review}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {
@@ -438,11 +454,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.syncDraft()
-	if len(m.one.State.Asks) > 0 || m.one.State.TooSmall {
-		if f := m.frame(now); f.TooSmall != m.one.State.TooSmall {
-			m.one, _ = core.ReduceSingle(m.one, core.Viewport{At: now, TooSmall: f.TooSmall})
-		}
-	}
 	cmds = append(cmds, m.screen(), m.print(now), m.tick(now), m.stop())
 	m.tellView()
 	return m, tea.Batch(cmds...)
@@ -546,31 +557,6 @@ func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, deta
 		e.Max = detailMax()
 	}
 	return e
-}
-
-// askKey is the event for a key pressed while a permission request waits.
-func askKey(a AskAction, now time.Time) core.Event {
-	switch a {
-	case AskUp:
-		return core.PermissionMove{At: now, Delta: -1}
-	case AskDown:
-		return core.PermissionMove{At: now, Delta: 1}
-	case AskConfirm:
-		return core.PermissionConfirm{At: now}
-	case AskAllow:
-		return core.PermissionQuick{At: now, Kind: core.AllowOnce}
-	case AskReject:
-		return core.PermissionQuick{At: now, Kind: core.RejectOnce}
-	case AskCancel:
-		return core.PermissionCancel{At: now}
-	case AskShowAll:
-		return core.PermissionShowAll{At: now}
-	case AskInterrupt:
-		return core.Interrupt{At: now, InputEmpty: true}
-	case AskEOF:
-		return core.EOF{At: now}
-	}
-	return nil
 }
 
 // effect carries out one effect of Reduce.
@@ -703,11 +689,15 @@ func (m *Model) tick(now time.Time) tea.Cmd {
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-// trustArming says a trust confirmation is waiting out its delay, so the
-// pane must redraw when it arms.
-func (m *Model) trustArming(now time.Time) bool {
-	since, ok := core.TrustSince(m.one.App, m.one.State)
-	return ok && now.Sub(since) < core.ArmDelay+tickEvery
+// trustArming says a review is waiting out its delay, so it must redraw
+// when it arms.
+func (m *Model) trustArming(now time.Time) bool { return reviewArming(m.app(), now) }
+
+// reviewArming says the open review has been read and arms within a
+// tick, so the screen must redraw then to show its yes armed.
+func reviewArming(a core.App, now time.Time) bool {
+	t, ok := a.Pager.ArmedAt()
+	return ok && now.Before(t.Add(tickEvery))
 }
 
 // width is the width everything is drawn at: one column narrower than

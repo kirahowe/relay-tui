@@ -1,0 +1,23 @@
+␛[0;1;7m Allow this tool call? ␛[m role: clerk
+role: clerk
+tool: send_mail (egress)
+input:
+{
+  "to": "a@example.org"
+}
+options:
+  allow_once: Allow once
+  reject_once: Reject
+
+
+
+
+
+
+
+
+
+␛[0;2m────────────────────────────────────────────────────────────␛[m
+  Allow once (y)   ␛[0;1m▸ Reject (n)␛[m
+␛[0;2mpage 1 of 1␛[m
+␛[0;1;36my allow␛[m␛[0;2m · n reject · esc cancel · q back · tab, enter choose␛[m

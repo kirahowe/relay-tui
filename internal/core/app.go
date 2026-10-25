@@ -43,10 +43,14 @@ type App struct {
 	// PasteSeq counts the pastes of this run, in every conversation, so
 	// the latest can be told by when it came (Paste.Seq).
 	PasteSeq int
-	// Shown is the surface the shell last drew as active, while it still
-	// is; KeyReplayed says the key being handled was held while
-	// connecting and is replayed (see authority.go).
+	// Shown is the review the shell last drew, while it still has the
+	// keys; Became is the surface that has the keys and when it got them;
+	// Pager is the review open, if one is, and what of it has been drawn;
+	// KeyReplayed says the key being handled was held while connecting
+	// and is replayed (see authority.go and review.go).
 	Shown       Shown
+	Became      Shown
+	Pager       *Pager
 	KeyReplayed bool
 	// Pressed says the operator has pressed a key. Until then the start
 	// (the saved view, --open, the roster) may move the keys as it likes;
@@ -112,27 +116,24 @@ type Single struct {
 // so a caller may keep the old state. An operator's event that the
 // surface does not take (see SingleSurface) is dropped whole.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
+	out, fx := reduceSingleTop(x, e)
+	out.App = settleSurface(out.App, SingleSurface(out), SingleSurfaceID(out), e.at())
+	return out, fx
+}
+
+func reduceSingleTop(x Single, e Event) (Single, []Effect) {
 	surf := SingleSurface(x)
 	id := SingleSurfaceID(x)
 	if !surf.takes(e) {
 		return x, nil
 	}
-	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, id, e.at()) {
-		x.State.Message = Message{Text: x.App.refusal(need, id), At: e.at()}
-		return x, nil
-	}
-	if isAllow(e, x.State) && !inputArmed(x.State, e.at()) {
-		x.State.Message = Message{Text: inputRefusal(x.State), At: e.at()}
+	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, surf, id, x.State, e.at()) {
+		x.State.Message = Message{Text: x.App.refusal(need, surf, x.State), At: e.at()}
 		return x, nil
 	}
 	switch e := e.(type) {
 	case Drawn:
-		x.App = x.App.shown(e, id)
-		if !e.OnlyForget {
-			for _, d := range e.Input {
-				seeInput(&x.State, d, e.At)
-			}
-		}
+		x.App = x.App.shown(e, id).seeReview(e, ReviewSubject(surf, x.App, x.State))
 		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true
@@ -180,15 +181,6 @@ func reduceSingle(x Single, e Event, surf Surface, id string) (Single, []Effect)
 	settleMode(&out.App)
 	if !fromOperator(e) && surf.Typing() && !SingleSurface(out).Typing() && x.App.Pressed {
 		keepTypingSingle(&out, x, surf)
-	}
-	if SingleSurfaceID(out) != id {
-		out.App.Shown = Shown{} // a new surface is armed only once drawn
-	}
-	if surf.Kind != SurfaceRequest && SingleSurface(out).Kind == SurfaceRequest {
-		// The request has just become the surface: its delay starts now.
-		out.State.Asks = append([]Permission(nil), out.State.Asks...)
-		out.State.Asks[0].Since = e.at()
-		out.State.Pick = DefaultPick(out.State.Asks[0].Options)
 	}
 	return out, fx
 }

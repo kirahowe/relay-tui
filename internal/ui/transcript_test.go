@@ -23,8 +23,8 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	h.waitScreen("the thinking", func(s string) bool { return strings.Contains(s, "The page has") })
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
-	h.readInput()
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -152,11 +152,12 @@ func TestHelpOverTranscriptYieldsToRequest(t *testing.T) {
 	if s := h.screen(); strings.Contains(s, "any key closes this") || strings.Contains(s, "esc back") {
 		t.Fatalf("the request shares the screen:\n%s", s)
 	}
-	h.keys("y")
+	h.keys("y") // the summary answers nothing
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("answered before it was armed: %s", o)
+		t.Fatalf("answered from the summary: %s", o)
 	}
+	h.review()
 	h.keys("n")
 	h.waitOutcome(`{"optionId":"reject","outcome":"selected"}`)
 }

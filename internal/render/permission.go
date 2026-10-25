@@ -2,15 +2,14 @@ package render
 
 import (
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
-// permissionBody is how many lines of a request's input show before the
-// rest is left for the key that shows it all.
-const permissionBody = 10
+// The dashboard only summarises a waiting request: what it is called,
+// shortened to the room there is, and how to get to its review, which
+// alone answers it (see pager.go). Nothing here arms or answers anything.
 
 // wrapAll wraps each line, keeping its leading spaces on the lines it
 // breaks into.
@@ -39,169 +38,51 @@ func optionKey(k core.OptionKind) string {
 	return ""
 }
 
-// permissionBox draws the request on offer: the tool and its input
-// (cut to the room there is, at most permissionBody lines), the options
-// with the highlighted one marked, and the keys. Nothing the agent wrote
-// is dropped or cut, only wrapped: control and format characters show as
-// \u escapes (see core.FaithfulLines). room is how many rows the box may
-// take. A request not yet armed shows its options faint.
-// requestNote is the line that says a request waits while the operator
-// types, and how to answer it.
-func requestNote(s core.State, surf core.Surface, width int) string {
+// requestTitle is the request on offer's name, on one line, safe, and
+// defanged when what it shows is contaminated.
+func requestTitle(s core.State) string {
 	p := s.Asks[0]
-	title := core.EscapeLabel(p.Label())
+	title := core.VisibleLine(p.Label())
 	if p.Shown().Union(s.Labels).Contaminated {
 		title = Defang(title)
 	}
+	return title
+}
+
+// requestNote is the line that says a request waits while the operator
+// types, and how to get to it.
+func requestNote(s core.State, surf core.Surface, width int) string {
 	more := ""
 	if n := len(s.Asks); n > 1 {
 		more = fmt.Sprintf(" (%d)", n)
 	}
-	return truncate(styled(bold|reverse, " permission needed"+more+" ")+" "+styled(bold, oneLine(title))+styled(faint, " · "+howToAnswer(surf)), width)
+	return truncate(styled(bold|reverse, " permission needed"+more+" ")+" "+styled(bold, requestTitle(s))+styled(faint, " · "+howToAnswer(surf)), width)
 }
 
-// howToAnswer is how to get to the request from what has the keys: it
-// is answered only once it is the surface.
+// requestSummary is the request on offer where the input box was, while
+// its conversation has the keys: its name and "enter to review".
+func requestSummary(s core.State, width int) []string {
+	more := ""
+	if n := len(s.Asks) - 1; n > 0 {
+		more = fmt.Sprintf(" · %d more waiting", n)
+	}
+	line := styled(bold, requestTitle(s)) + styled(faint, " · ") + styled(bold|accent, "enter") + styled(faint, " to review"+more)
+	return box("permission needed", []string{truncate(line, InputWidth(width))}, width)
+}
+
+// howToAnswer is how to get to the request from what has the keys: its
+// review opens from its summary.
 func howToAnswer(surf core.Surface) string {
 	switch surf.Covered().Kind {
 	case core.SurfaceInput:
-		return "esc to answer"
-	case core.SurfaceEditor, core.SurfaceConfirm:
-		return "esc, then h to answer"
+		return "esc, then enter to review"
+	case core.SurfaceEditor, core.SurfaceReview:
+		return "esc, then h and enter to review"
 	case core.SurfacePane:
-		return "h to answer"
+		return "h, then enter to review"
 	}
-	return "to answer, go to its conversation"
+	return "to review it, go to its conversation"
 }
-
-// permissionBox draws the request on offer in room rows. As a review
-// (see review.go) its heading, preview and options are drawn whole;
-// otherwise they are cut to fit, and the box says to make the window
-// larger.
-func permissionBox(s core.State, armed bool, width, room int, review bool) ([]string, []core.InputDrawn) {
-	whole := func(lines []string, n, w int) []string {
-		if review {
-			return lines
-		}
-		return capLines(lines, n, w)
-	}
-	p := s.Asks[0]
-	inner := InputWidth(width)
-	title := core.EscapeLabel(p.Label())
-	if t := core.EscapeLabel(p.Title); p.Name != "" && t != "" && t != title {
-		title += " · " + t
-	}
-	// The title can quote the input (agentloop puts the arguments in
-	// it), so its links defang as the input's do. The request is shown
-	// by the labels of all it shows: the session's and its preview's.
-	def := p.Shown().Union(s.Labels).Contaminated
-	if def {
-		title = Defang(title)
-	}
-	var lines []string
-	// A title is the model's to write and can be as long as it likes, so
-	// it takes at most titleRows rows; v puts all of it in the transcript.
-	for _, l := range whole(wrapAll([]string{title}, inner), titleRows, inner) {
-		lines = append(lines, styled(bold, l))
-	}
-	var opts []string
-	for i, o := range p.Options {
-		mark, st := "  ", style(0)
-		if i == s.Pick {
-			mark, st = "▸ ", bold
-		}
-		if !armed {
-			st |= faint
-		}
-		text := core.EscapeLabel(o.Name)
-		if k := optionKey(o.Kind); k != "" {
-			text += " (" + k + ")"
-		}
-		for j, l := range whole(wrapAll([]string{text}, inner-2), optionRows, inner-2) {
-			lead := "  "
-			if j == 0 {
-				lead = mark
-			}
-			opts = append(opts, styled(st, lead+l))
-		}
-	}
-	hint := "↑↓ enter choose · v see all · esc cancel"
-	if inner < ansi.StringWidth(hint) {
-		hint = "↑↓ enter · v all · esc cancel" // the keys that matter, where the full wording does not fit
-	}
-	if len(p.Options) == 0 {
-		hint = "nothing to choose · v see all · esc cancel"
-	}
-	if n := len(s.Asks) - 1; n > 0 {
-		hint += fmt.Sprintf(" · %d more waiting", n)
-	}
-	if !review {
-		hint = largerNote
-	}
-	budget := max(room-2-len(lines)-len(opts)-1, 1)
-	// Relay's preview of what the call will do goes above the input, cut
-	// the same way. It is what a service said, which can be anyone's
-	// words, so its links always defang, whatever the labels.
-	if p.Preview != "" {
-		pv := textLines(p.Preview, true, inner)
-		show := min(permissionBody, max(budget/2, 1))
-		if review {
-			show = len(pv) + 1 // all of it
-		}
-		for i, l := range pv {
-			if i == show-1 && len(pv) > show {
-				lines = append(lines, styled(faint, truncate(fmt.Sprintf("… %d more lines · v to see all", len(pv)-i), inner)))
-				show = i + 1
-				break
-			}
-			lines = append(lines, l)
-		}
-		lines = append(lines, newDomainsLine(s, true, inner, p.Preview)...)
-		budget = max(budget-show-1, 1)
-	}
-	body := min(permissionBody, budget)
-	// The input shows exactly, escaped, except that once the session is
-	// contaminated its links defang: a click on one to look at it would
-	// send what it carries before anything is approved. What does not fit
-	// is read with v (inputView), and allowing waits until it has been.
-	in, spans, lens := inputRows(p, def, inner)
-	if len(in) == 0 {
-		lines = append(lines, styled(faint, "(no input)"))
-	}
-	shown := len(in)
-	for i, l := range in {
-		if i == body-1 && len(in) > body {
-			lines = append(lines, styled(faint, truncate(fmt.Sprintf("… %d more lines · v to read them", len(in)-i), inner)))
-			shown = i
-			break
-		}
-		lines = append(lines, styled(faint, l))
-	}
-	if review && core.InputUnread(s) && shown < len(in) {
-		// One row, as the keys' hint is: the shortest that fits.
-		for _, h := range []string{core.InputNote + " · n reject · esc cancel", "v to read all before y · esc cancel", "v read all, then y"} {
-			if hint = h; ansi.StringWidth(h) <= inner {
-				break
-			}
-		}
-	}
-	lines = append(lines, capLines(fixedLines(p.FixedArgs, def, inner), 2, inner)...)
-	lines = append(lines, opts...)
-	if review {
-		lines = append(lines, styled(faint, truncate(hint, inner)))
-	} else {
-		lines = append(lines, wrap(styled(bold, hint), inner)...)
-	}
-	return box("permission needed", lines, width), drawnInput(s, spans, lens, 0, shown)
-}
-
-// titleRows and optionRows bound the rows of a request's title and of each
-// option, so a request always fits the screen with its role, options and
-// keys.
-const (
-	titleRows  = 3
-	optionRows = 2
-)
 
 // capLines is lines cut to n, with the last one ending in an ellipsis when
 // something was cut.
@@ -210,7 +91,7 @@ func capLines(lines []string, n, width int) []string {
 		return lines
 	}
 	out := append([]string(nil), lines[:n]...)
-	out[n-1] = ansi.Truncate(ansi.Strip(out[n-1]), max(width-2, 1), "") + " …"
+	out[n-1] = truncate(out[n-1], max(width-2, 1)) + " …"
 	return out
 }
 
@@ -225,38 +106,4 @@ func fixedLines(names []string, def bool, width int) []string {
 		esc[i] = paneLine(n, def)
 	}
 	return hang("", styled(faint, "set by your settings: ")+strings.Join(esc, ", "), width)
-}
-
-// defangIf is lines with their links defanged when def is set.
-func defangIf(def bool, lines []string) []string {
-	if !def {
-		return lines
-	}
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = Defang(l)
-	}
-	return out
-}
-
-// requestLines shows a request's whole input in the transcript, escaped
-// but never cut.
-func requestLines(e core.Entry, width int) []string {
-	var out []string
-	for i, l := range wrapAll(defangIf(e.PreviewDefang, []string{core.EscapeLabel(e.Text)}), max(width-4, 1)) {
-		lead := "    "
-		if i == 0 {
-			lead = styled(faint, "  ? ")
-		}
-		out = append(out, lead+l)
-	}
-	if e.Preview != "" {
-		for _, l := range textLines(e.Preview, true, max(width-6, 1)) {
-			out = append(out, "      "+l)
-		}
-	}
-	for _, l := range wrapAll(defangIf(e.PreviewDefang, core.FaithfulLines(e.Detail)), max(width-6, 1)) {
-		out = append(out, styled(faint, "      "+l))
-	}
-	return out
 }

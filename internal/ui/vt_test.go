@@ -76,6 +76,13 @@ func (t *terminal) scrollback() []string {
 	return out
 }
 
+// Resize changes the emulator's size, as a window resize would.
+func (t *terminal) Resize(w, h int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.emu.Resize(w, h)
+}
+
 // SendText types raw bytes, as a terminal would send them.
 func (t *terminal) SendText(s string) { _, _ = io.WriteString(t.emu.InputPipe(), s) }
 

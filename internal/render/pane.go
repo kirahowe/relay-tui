@@ -353,11 +353,6 @@ type parts struct {
 	// keys is the pane's key hints, "key what · key what"; a panel puts
 	// them on the screen's row of hints rather than in the pane.
 	keys string
-	// confirm names the question the foot asks (core.ConfirmID), when it
-	// asks one; whole says the body is what it asks about, and must show
-	// in full too, as for a trust.
-	confirm string
-	whole   bool
 }
 
 func paneParts(a core.App, s core.State, now time.Time, width int) parts {
@@ -378,17 +373,10 @@ func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 	switch {
 	case p.Trust != nil:
 		pr.body = trustBody(s, width)
-		if !p.Trust.Sent && a.PaneFocus {
-			pr.confirm, pr.whole = core.ConfirmID(a, s), true
-		}
-		armed := core.ConfirmArmed(a, s, now)
-		switch {
-		case p.Trust.Sent:
+		if p.Trust.Sent {
 			pr.foot = hint("trusting…")
-		case armed:
-			pr.foot = wrap(styled(bold, "y trust")+styled(faint, " · any other key cancels"), width)
-		default:
-			pr.foot = hint("y trust (wait a moment) · any other key cancels")
+		} else {
+			pr.foot = hint("its review is open") // the review is the screen while it is
 		}
 		return pr
 	case p.Detail && sel >= 0:
@@ -579,13 +567,6 @@ func trustBody(s core.State, width int) []string {
 // width, and says how far its detail view can scroll. Its key hints are
 // its last rows.
 func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]string, int) {
-	lines, mx, _ := paneRenderArm(a, s, now, width, height)
-	return lines, mx
-}
-
-// paneRenderArm is paneRender, and says which question it drew in full
-// (core.ConfirmID), or "" for none: one clipped is not drawn.
-func paneRenderArm(a core.App, s core.State, now time.Time, width, height int) ([]string, int, string) {
 	pr := paneParts(a, s, now, max(width, 1))
 	if pr.keys != "" {
 		pr.foot = append(pr.foot, wrap(styleKeys(pr.keys), max(width, 1))...)
@@ -594,23 +575,17 @@ func paneRenderArm(a core.App, s core.State, now time.Time, width, height int) (
 }
 
 // paneRenderKeys draws the pane without its key hints, and gives them
-// back for the screen's row of hints, with the question drawn in full.
-func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) ([]string, int, string, string) {
+// back for the screen's row of hints.
+func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) ([]string, int, string) {
 	pr := paneParts(a, s, now, max(width, 1))
-	lines, mx, arm := paneDraw(s, pr, width, height)
-	return lines, mx, pr.keys, arm
+	lines, mx := paneDraw(s, pr, width, height)
+	return lines, mx, pr.keys
 }
 
-func paneDraw(s core.State, pr parts, width, height int) ([]string, int, string) {
+func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	height = max(height, 0)
 	width = max(width, 1)
 	avail := height - len(pr.head) - len(pr.foot)
-	// The question is drawn when its foot shows whole, and, when it is
-	// about the body (a trust), the body does too.
-	arm := ""
-	if pr.confirm != "" && avail >= 0 && (!pr.whole || len(pr.body) <= avail) {
-		arm = pr.confirm
-	}
 	var all []string
 	maxScroll := 0
 	if avail <= 0 {
@@ -653,22 +628,14 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int, string)
 	if !pr.scrolls {
 		maxScroll = 0
 	}
-	return selfContained(all), maxScroll, arm
+	return selfContained(all), maxScroll
 }
 
 // paneActive is what the pane draws while it has the keys: its editor,
-// a question it asks, or itself.
+// or itself. A question it asks has the whole screen, as its review.
 func paneActive(a core.App, s core.State) core.SurfaceKind {
-	b := a.Board
-	switch {
-	case b.Items:
-		if t := s.Pane.Trust; t != nil && !t.Sent {
-			return core.SurfaceConfirm // "Trust this?"
-		}
-	case b.Input != nil:
+	if b := a.Board; !b.Items && b.Input != nil {
 		return core.SurfaceEditor // the prompt and its text
-	case b.Confirm != 0 || (b.Trust != nil && !b.Trust.Sent):
-		return core.SurfaceConfirm // "Archive …?" or "Trust …?"
 	}
 	return core.SurfacePane
 }

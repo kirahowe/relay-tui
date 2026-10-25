@@ -9,16 +9,6 @@ import "time"
 // Its transcript is always the full-screen view, which the hub draws,
 // so nothing goes to scrollback and the view never closes.
 
-// Viewport says whether the window is too small to show a permission
-// request whole. While it is, the keys that approve do nothing (cancelling
-// still works): a request that cannot be read cannot be allowed.
-type Viewport struct {
-	At       time.Time
-	TooSmall bool
-}
-
-func (e Viewport) at() time.Time { return e.At }
-
 // Events about a conversation that the hub tells it.
 type (
 	// UserChunk is text the agent says the user wrote: relay replays
@@ -50,11 +40,11 @@ type (
 	// Calls the replay left open will not finish, so they stop.
 	ReplayEnd struct{ At time.Time }
 	// Blurred says the conversation has left the screen, or been covered.
-	// A trust confirmation waiting in its pane is dropped: the operator
-	// starts it again on purpose.
+	// A trust confirmation waiting in its pane is dropped, and an open
+	// review closes: the operator opens it again on purpose.
 	Blurred struct{ At time.Time }
 	// Focused says the conversation has just come on screen. A request
-	// on offer is armed afresh, as if it had just arrived.
+	// on offer starts with its safest option highlighted.
 	Focused struct{ At time.Time }
 )
 
@@ -132,6 +122,9 @@ func (r *reducer) shared(e Event) {
 	case Blurred:
 		if t := s.Pane.Trust; t != nil && !t.Sent {
 			s.Pane.Trust = nil
+		}
+		if s.reviewing() {
+			s.Reviewing = nil
 		}
 	case Focused:
 		r.next(e.At)

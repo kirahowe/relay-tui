@@ -106,12 +106,13 @@ func TestPrintChunks(t *testing.T) {
 	})
 }
 
-// P-perm5: while a request waits, a key is either one of the request
-// keys or swallowed; it never edits the input.
-func TestAskKeys(t *testing.T) {
-	for key, want := range map[string]AskAction{
-		"y": AskAllow, "n": AskReject, "enter": AskConfirm, "esc": AskCancel, "v": AskShowAll,
-		"up": AskUp, "down": AskDown, "ctrl+c": AskInterrupt, "a": AskNone, "space": AskNone, "ctrl+j": AskNone,
+// P-perm5: in the review a key is one of the review's own or swallowed;
+// it never edits the input.
+func TestReviewKeys(t *testing.T) {
+	for key, want := range map[string]ReviewAction{
+		"y": ReviewYes, "n": ReviewNo, "enter": ReviewPick, "esc": ReviewCancel, "q": ReviewBack, "v": ReviewNone,
+		"up": ReviewUp, "down": ReviewDown, "tab": ReviewNext, "space": ReviewPageDown, "g": ReviewTop, "G": ReviewBottom,
+		"ctrl+c": ReviewInterrupt, "a": ReviewNone, "ctrl+j": ReviewNone,
 	} {
 		var k tea.KeyPressMsg
 		switch key {
@@ -123,6 +124,8 @@ func TestAskKeys(t *testing.T) {
 			k = tea.KeyPressMsg{Code: tea.KeyUp}
 		case "down":
 			k = tea.KeyPressMsg{Code: tea.KeyDown}
+		case "tab":
+			k = tea.KeyPressMsg{Code: tea.KeyTab}
 		case "ctrl+c":
 			k = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 		case "ctrl+j":
@@ -132,7 +135,7 @@ func TestAskKeys(t *testing.T) {
 		default:
 			k = tea.KeyPressMsg{Code: rune(key[0]), Text: key}
 		}
-		if got := ClassifyAsk(k); got != want {
+		if got := ClassifyReview(k); got != want {
 			t.Errorf("%s: %v, want %v", key, got, want)
 		}
 	}

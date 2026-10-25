@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/fakehub"
 )
 
@@ -110,14 +109,45 @@ func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
 	h.keys("ljj")
 	h.waitScreen("the outside card", contains("t trust"))
 	h.keys("t")
-	h.waitScreen("the question", contains("It clears outside"))
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	h.waitScreen("armed", func(s string) bool { return !strings.Contains(s, "wait a moment") })
+	h.waitScreen("the review", contains("Trust this card?"))
+	h.keys("y") // too soon
+	time.Sleep(100 * time.Millisecond)
+	if calls := h.logged("card-trust "); len(calls) != 0 {
+		t.Fatalf("trusted at once: %q", calls)
+	}
+	h.readAll()
 	h.keys("y")
+	// The hub takes the trust only with the digest of the review it sent.
 	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
 	calls := h.logged("card-trust ")
-	if len(calls) != 1 || calls[0] != `card-trust {"card":9,"rev":9,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
+	if len(calls) != 1 || !strings.HasPrefix(calls[0], `card-trust {"card":9,"rev":9,"sha256":"`) || strings.Contains(calls[0], "aaaa") {
 		t.Errorf("trust calls %q", calls)
+	}
+}
+
+// X opens the review of the card to archive; y, once read, archives it
+// at the rev shown; n there cancels at once.
+func TestHubArchivesACardFromItsReview(t *testing.T) {
+	h := startHub(t, boardRoles(), 170, 40, "")
+	h.waitScreen("the board", contains("From a web page"))
+	h.keys("l")
+	h.waitScreen("the pane has the keys", contains("↑↓ select"))
+	h.keys("X")
+	h.waitScreen("the review", contains("Archive this card?"))
+	h.keys("n")
+	h.waitScreen("cancelled", contains("Archive cancelled."))
+	h.keys("X")
+	h.waitScreen("the review", contains("Archive this card?"))
+	h.keys("y") // too soon
+	time.Sleep(100 * time.Millisecond)
+	if calls := h.logged("card-op "); len(calls) != 0 {
+		t.Fatalf("archived at once: %q", calls)
+	}
+	h.readAll()
+	h.keys("y")
+	h.waitLog("card-op ")
+	if calls := h.logged("card-op "); len(calls) != 1 || !strings.Contains(calls[0], `"op":"archive"`) || !strings.Contains(calls[0], `"seen":`) {
+		t.Errorf("op calls %q", calls)
 	}
 }
 

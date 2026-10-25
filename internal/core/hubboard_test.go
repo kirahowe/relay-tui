@@ -134,7 +134,7 @@ func TestHubCardTrustWithNoConversationOpen(t *testing.T) {
 		t.Fatalf("y before the delay: %+v %v", h.App.Board.Trust, fx)
 	}
 	h, fx = apply(t, h, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
-	want := SendCardTrust{Card: 30, Rev: 40, SHA256: shaA}
+	want := SendCardTrust{Card: 30, Rev: 40, SHA256: outsideCard(40, shaA).Review.SHA256}
 	if got := effectsOf[SendCardTrust](fx); len(got) != 1 || got[0] != want || len(effectsOf[ForSession](fx)) != 0 {
 		t.Fatalf("effects %v", fx)
 	}
@@ -169,16 +169,15 @@ func TestHubCardTrustGoesWhenTheScreenChanges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := focusMail(t, boardHub(t, outsideCard(40, shaA)))
 			h, _ = apply(t, h, PaneKey{At: t0, Action: PaneTrust})
-			if HubSurface(h).Kind != SurfaceConfirm {
+			if HubSurface(h).Kind != SurfaceReview {
 				t.Fatalf("surface %+v", HubSurface(h))
 			}
 			g, fx := apply(t, h, away...)
 			if g.view() != h.view() || len(fx) != 0 || g.App.Board.Trust == nil {
 				t.Fatalf("a move reached the core past the question: %+v %v", g.view(), fx)
 			}
-			// What the shell sends for h, l or a digit there: a pane key,
-			// which cancels.
-			g, fx = apply(t, g, PaneKey{At: t0, Action: PaneLeft}, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
+			// The review takes no pane key but its own: esc cancels it.
+			g, fx = apply(t, g, PaneKey{At: t0, Action: PaneLeft}, PaneKey{At: t0, Action: PaneEsc}, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
 			if g.App.Board.Trust != nil || len(effectsOf[SendCardTrust](fx)) != 0 {
 				t.Fatalf("trust %+v, effects %v", g.App.Board.Trust, fx)
 			}
@@ -302,6 +301,7 @@ func TestHubRequestLeavesTheBoardItsKeys(t *testing.T) {
 	if HubSurface(h).Kind != SurfaceRequest {
 		t.Fatalf("surface %+v", HubSurface(h))
 	}
+	h, _ = apply(t, h, OpenReview{At: at})
 	if _, fx = apply(t, h, PermissionQuick{At: at.Add(ArmDelay - time.Millisecond), Kind: AllowOnce}); answerCount(fx) != 0 {
 		t.Fatalf("answered before its delay from when it became the surface: %v", fx)
 	}

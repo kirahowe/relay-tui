@@ -59,7 +59,7 @@ func TestPaneGolden(t *testing.T) {
 	list.Pane.Domains = []string{"example.org"}
 
 	t.Run("side", func(t *testing.T) {
-		list.Asks = []core.Permission{{ID: 1, CallID: "t2", Name: "send_campaign", Since: t0}}
+		list.Asks = []core.Permission{{ID: 1, CallID: "t2", Name: "send_campaign"}}
 		for i := range list.Pane.Server {
 			if list.Pane.Server[i].Kind == core.ProposalItem {
 				list.Pane.Server[i].AskID = 1
@@ -101,15 +101,9 @@ func TestPaneGolden(t *testing.T) {
 		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
 	})
 	t.Run("trust_confirmation", func(t *testing.T) {
+		// The pane under the review: the review itself is pager.go's.
 		d := list
-		d.Pane.Trust = &core.TrustPrompt{Item: untrusted, Since: t0}
-		d.App.PaneFocus = true
-		d = drawn(d, t0) // drawn at t0, armed ArmDelay after
-		goldenLines(t, PaneLines(d.App, d.State, t0.Add(core.ArmDelay), 44, 24))
-	})
-	t.Run("trust_confirmation_not_armed", func(t *testing.T) {
-		d := list
-		d.Pane.Trust = &core.TrustPrompt{Item: untrusted, Since: t0}
+		d.Pane.Trust = &core.TrustPrompt{Item: untrusted}
 		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
 	})
 	t.Run("trust_command", func(t *testing.T) {
@@ -127,16 +121,17 @@ func TestPaneGolden(t *testing.T) {
 func TestPermissionBoxShowsThePreview(t *testing.T) {
 	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Contaminated: true}}
 	s.Asks = []core.Permission{{ID: 1, Name: "send_campaign", Input: `{"group":"Kira only"}`,
-		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign", Since: t0,
+		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign",
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
 	s.Pick = 1
+	s.Reviewing = &core.Reviewing{Ask: 1}
 	f := View(drawnLongAgo(core.Single{App: core.App{Moving: true}, State: s}), "", "", t0.Add(time.Second), 70, 20)
 	goldenLines(t, strings.Split(f.Content, "\n"))
 	plain := ansi.Strip(f.Content)
 	if strings.Contains(plain, "https://send") {
 		t.Error("a contaminated session's preview shows a live link")
 	}
-	if strings.Index(plain, "Sends") > strings.Index(plain, "Kira only\"") {
+	if strings.Index(plain, "Sends") > strings.Index(plain, "Kira only\"") || strings.Index(plain, "Sends") < 0 {
 		t.Error("the preview does not come above the input")
 	}
 }
@@ -223,7 +218,7 @@ func genPaneState(t *rapid.T) core.Single {
 	s.Pane.Scroll = rapid.IntRange(0, 30).Draw(t, "scroll")
 	s.Pane.Message, s.Pane.Failure, s.Pane.Command = paneText0(t, "msg"), paneText0(t, "fail"), paneText0(t, "command")
 	if len(items) > 0 && rapid.Bool().Draw(t, "trust") {
-		s.Pane.Trust = &core.TrustPrompt{Item: items[0], Since: t0}
+		s.Pane.Trust = &core.TrustPrompt{Item: items[0]}
 	}
 	refs := ""
 	for range rapid.IntRange(0, 3).Draw(t, "refs") {
@@ -334,7 +329,7 @@ func TestContaminatedItemsAreMarkedAndDefanged(t *testing.T) {
 		case 1:
 			s.Pane.Detail = true
 		case 2:
-			s.Pane.Trust = &core.TrustPrompt{Item: it, Since: t0}
+			s.Pane.Trust = &core.TrustPrompt{Item: it}
 		}
 		out := strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n")
 		plain := ansi.Strip(out)
@@ -417,7 +412,7 @@ func TestHiddenPayloadShowsInDetailAndTrust(t *testing.T) {
 		s.Pane.Relay = true
 		s.Pane.Detail = true
 		if trust {
-			s.Pane.Trust = &core.TrustPrompt{Item: it, Since: t0}
+			s.Pane.Trust = &core.TrustPrompt{Item: it}
 		}
 		out := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n"))
 		if !strings.Contains(out, `Venues\udb40\udd00\udb40\udd01\ufe0f`) || strings.ContainsRune(out, 0xE0100) || strings.ContainsRune(out, 0xFE0F) {
@@ -432,18 +427,19 @@ func TestHiddenPayloadShowsInDetailAndTrust(t *testing.T) {
 // always defangs, and the input defangs by the preview's labels too.
 func TestACleanSessionsPreviewIsDefanged(t *testing.T) {
 	ask := core.Permission{ID: 1, Name: "send_campaign", Input: `{"group":"Kira only","note":"see https://in.example.net/x"}`,
-		Preview: "Sends to all.\nDetails https://evil.example.net/x?d=1", Since: t0,
-		Labels: core.Labels{Private: true}, PreviewLabels: core.Labels{Private: true, Contaminated: true},
+		Preview: "Sends to all.\nDetails https://evil.example.net/x?d=1",
+		Labels:  core.Labels{Private: true}, PreviewLabels: core.Labels{Private: true, Contaminated: true},
 		FixedArgs: []string{"group"},
 		Options:   []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}}}
-	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Private: true}, Asks: []core.Permission{ask}}
+	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Private: true}, Asks: []core.Permission{ask},
+		Reviewing: &core.Reviewing{Ask: 1}}
 	plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content)
 	for _, live := range []string{"https://evil", "https://in."} {
 		if strings.Contains(plain, live) {
 			t.Errorf("the permission box shows %s live:\n%s", live, plain)
 		}
 	}
-	if !strings.Contains(plain, "set by your settings: group") {
+	if !strings.Contains(plain, `set by your settings: "group"`) {
 		t.Errorf("the fixed argument is not marked:\n%s", plain)
 	}
 	// Even with clean labels everywhere, the preview defangs.
@@ -451,10 +447,6 @@ func TestACleanSessionsPreviewIsDefanged(t *testing.T) {
 	s.Asks = []core.Permission{ask}
 	if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content); strings.Contains(plain, "https://evil") {
 		t.Errorf("a clean preview shows a live link:\n%s", plain)
-	}
-	e := core.Entry{Kind: core.Request, Text: "send_campaign", Detail: ask.Input, Preview: ask.Preview, Final: true}
-	if got := ansi.Strip(strings.Join(requestLines(e, 80), "\n")); strings.Contains(got, "https://evil") {
-		t.Errorf("the transcript shows a live preview link:\n%s", got)
 	}
 	clean := proposal
 	clean.Labels = core.Labels{Private: true}
@@ -479,9 +471,12 @@ func TestPropertyPreviewLinksNeverLive(t *testing.T) {
 			return core.Labels{Private: rapid.Bool().Draw(rt, name+"-p"), Contaminated: rapid.Bool().Draw(rt, name+"-c")}
 		}
 		host := rapid.StringMatching(`[a-z]{1,8}\.[a-z]{2,4}`).Draw(rt, "host")
-		ask := core.Permission{ID: 1, Name: "send", Input: `{}`, Preview: "go to https://" + host + "/p", Since: t0,
+		ask := core.Permission{ID: 1, Name: "send", Input: `{}`, Preview: "go to https://" + host + "/p",
 			Labels: lab("session"), PreviewLabels: lab("preview")}
 		s := core.State{Phase: core.Busy, Ready: true, Labels: lab("state"), Asks: []core.Permission{ask}}
+		if rapid.Bool().Draw(rt, "review") {
+			s.Reviewing = &core.Reviewing{Ask: 1}
+		}
 		if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 80, 30).Content); strings.Contains(plain, "https://") {
 			rt.Fatalf("a live link:\n%s", plain)
 		}

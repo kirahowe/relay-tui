@@ -4,13 +4,13 @@
 
 
 
+
+
+
+
+
+
 ␛[0;2m╭─␛[m permission needed ␛[0;2m─────────────────␛[m␛[0;2m╮␛[m
-␛[0;2m│␛[m ␛[0;1msend_mail␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m{␛[m␛[0;2m                                  ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m    "to": "a@example.com"␛[m␛[0;2m          ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m}␛[m␛[0;2m                                  ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m   Allow (y)␛[0;2m                        ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;1m▸ Reject (n)␛[m␛[0;2m                       ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m↑↓ enter · v all · esc cancel␛[m␛[0;2m      ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ␛[0;1msend_mail␛[m␛[0;2m · ␛[m␛[0;1;36menter␛[m␛[0;2m to review␛[m␛[0;2m        ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰─────────────────────────────────────╯␛[m
 ␛[0;2m? ␛[0;1m[private]␛[0;2m waiting for you · ␛[0;1mMOVING␛[0;2m␛[m

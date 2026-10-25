@@ -119,8 +119,6 @@ type Hub struct {
 	// Notice is a note for the status line, cleared by the next key.
 	Notice string
 	Help   bool
-	// TooSmall: see State.TooSmall.
-	TooSmall bool
 	// Drafts are what the operator is writing to each role: the text, as
 	// the shell last wrote it back, and the pastes it names. A role owns
 	// its draft; its conversations come and go without touching it.
@@ -330,33 +328,25 @@ func (SendSeen) effect()        {}
 // dropped whole: whatever the shell made of a key, it acts only where
 // the keys are.
 func ReduceHub(h Hub, e Event) (Hub, []Effect) {
+	out, fx := reduceHubTop(h, e)
+	out.App = settleSurface(out.App, HubSurface(out), HubSurfaceID(out), e.at())
+	return out, fx
+}
+
+func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	surf := HubSurface(h)
 	id := HubSurfaceID(h)
-	var st State
-	if c := h.Focused(); c != nil {
-		st = c.State
-	}
+	st := h.surfaceState(surf)
 	if !surf.takes(e) {
 		return h, nil
 	}
-	if need := authorityOf(e, surf, st); !h.App.mayTake(need, id, e.at()) {
-		h.Notice = h.App.refusal(need, id)
-		return h, nil
-	}
-	if isAllow(e, st) && !inputArmed(st, e.at()) {
-		h.Notice = inputRefusal(st)
+	if need := authorityOf(e, surf, st); !h.App.mayTake(need, surf, id, st, e.at()) {
+		h.Notice = h.App.refusal(need, surf, st)
 		return h, nil
 	}
 	switch e := e.(type) {
 	case Drawn:
-		h.App = h.App.shown(e, id)
-		if c := h.Focused(); c != nil && !e.OnlyForget && len(e.Input) > 0 {
-			h.Convs = slices.Clone(h.Convs)
-			i := slices.IndexFunc(h.Convs, func(x Conv) bool { return x.Session == c.Session && x.Role == c.Role })
-			for _, d := range e.Input {
-				seeInput(&h.Convs[i].State, d, e.At)
-			}
-		}
+		h.App = h.App.shown(e, id).seeReview(e, ReviewSubject(surf, h.App, st))
 		return h, nil
 	case KeyPressed:
 		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true
@@ -381,9 +371,6 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	r.markSeen(e.at())
 	if !fromOperator(e) && surf.Typing() && !HubSurface(r.h).Typing() && h.App.Pressed {
 		keepTypingHub(&r.h, h, surf)
-	}
-	if HubSurfaceID(r.h) != id {
-		r.h.App.Shown = Shown{} // a new surface is armed only once drawn
 	}
 	return r.h, r.fx
 }
@@ -531,7 +518,7 @@ func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
-		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited, Viewport:
+		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -630,11 +617,11 @@ func (r *hubReducer) apply(e Event) {
 		}
 	case ToggleHelp:
 		h.Help = !h.Help
-	case Viewport:
-		h.TooSmall = e.TooSmall
-	case PermissionConfirm, PermissionQuick:
-		if !h.TooSmall {
+	case ReviewKey:
+		if e.Action == ReviewBack {
 			r.toFocused(e)
+		} else {
+			h.App.Pager = scrolled(h.App.Pager, e) // a pane's question has no conversation to go through
 		}
 	case Pasted:
 		if h.Focus == "" || e.Text == "" || r.focusedExited() {

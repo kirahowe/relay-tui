@@ -27,11 +27,8 @@ func apply(t interface{ Helper() }, h Hub, es ...Event) (Hub, []Effect) {
 		h, fx = ReduceHub(h, e)
 		all = append(all, fx...)
 		// Drawn at once, as a renderer would draw it.
-		var in []InputDrawn
-		if c := h.Focused(); c != nil {
-			in = wholeInput(c.State)
-		}
-		h, _ = ReduceHub(h, Drawn{At: e.at(), Surfaces: []string{HubSurfaceID(h)}, Input: in})
+		surf := HubSurface(h)
+		h, _ = ReduceHub(h, wholeReview(surf, h.App, h.surfaceState(surf), e.at()))
 	}
 	return h, all
 }
@@ -196,7 +193,7 @@ func TestHubPermissionInTheBackgroundWaitsAndSettles(t *testing.T) {
 func TestHubAnswerGoesWithTheRequestsID(t *testing.T) {
 	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"})
 	ask := PermissionAsked{At: t0, Permission: Permission{ID: 3, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h, fx := apply(t, h, StopTyping{At: t0}, routed("s1", ask), PermissionQuick{At: t0.Add(time.Second), Kind: AllowOnce})
+	h, fx := apply(t, h, StopTyping{At: t0}, routed("s1", ask), OpenReview{At: t0}, PermissionQuick{At: t0.Add(time.Second), Kind: AllowOnce})
 	if !slices.Contains(fx, Effect(AnswerPermission{ID: 3, OptionID: "a"})) {
 		t.Fatalf("%v", fx)
 	}
@@ -745,6 +742,7 @@ func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
 			h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", ask))
 			h, _ = apply(t, h, at(time.Second, p[0])...)
 			h, _ = apply(t, h, at(time.Hour, p[1])...)
+			h, _ = apply(t, h, OpenReview{At: t0.Add(time.Hour)})
 			_, fx := apply(t, h, PermissionQuick{At: t0.Add(time.Hour + time.Millisecond), Kind: AllowOnce})
 			if answerCount(fx) != 0 {
 				t.Fatalf("answered %v", fx)
@@ -762,7 +760,7 @@ func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h, _ := apply(t, loadedHub(t), StopTyping{At: t0})
 			h.Convs = slices.Clone(h.Convs)
-			h.Convs[0].State.Pane.Trust = &TrustPrompt{Since: t0}
+			h.Convs[0].State.Pane.Trust = &TrustPrompt{}
 			h, _ = apply(t, h, leave)
 			if h.Convs[0].State.Pane.Trust != nil {
 				t.Fatal("the confirmation is still there")
@@ -772,7 +770,7 @@ func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
 	// One already sent stays: its answer is still due.
 	h := loadedHub(t)
 	h.Convs = slices.Clone(h.Convs)
-	h.Convs[0].State.Pane.Trust = &TrustPrompt{Since: t0, Sent: true}
+	h.Convs[0].State.Pane.Trust = &TrustPrompt{Sent: true}
 	h, _ = apply(t, h, Move{At: t0, Delta: -1})
 	if h.Convs[0].State.Pane.Trust == nil {
 		t.Fatal("a sent trust was dropped")
@@ -1022,33 +1020,6 @@ func TestHubPasteToARoleWithNoConversationIsKept(t *testing.T) {
 	}
 	if sent == nil || len(sent.Attachments) != 1 || sent.Attachments[0].Text != "an email body" || strings.Contains(sent.Text, "an email body") {
 		t.Fatalf("the paste did not go as an untrusted attachment: %+v", sent)
-	}
-}
-
-func TestHubTooSmallWindowMakesApprovalInert(t *testing.T) {
-	ask := PermissionAsked{At: t0, Permission: Permission{ID: 4, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h := loadedHub(t)
-	h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", ask), Viewport{At: t0, TooSmall: true})
-	late := t0.Add(time.Hour)
-	for _, e := range []Event{PermissionQuick{At: late, Kind: AllowOnce}, PermissionConfirm{At: late}, PermissionQuick{At: late, Kind: RejectOnce}} {
-		if _, fx := apply(t, h, e); answerCount(fx) != 0 {
-			t.Fatalf("%T answered in a window too small to read it", e)
-		}
-	}
-	if _, fx := apply(t, h, PermissionCancel{At: late}); answerCount(fx) != 1 {
-		t.Fatal("cancelling must still work")
-	}
-	h, _ = apply(t, h, Viewport{At: t0, TooSmall: false})
-	if _, fx := apply(t, h, PermissionQuick{At: late, Kind: AllowOnce}); answerCount(fx) != 1 {
-		t.Fatal("not answerable once it fits")
-	}
-	// Single-session mode.
-	s, _ := Reduce(State{}, Connected{At: t0})
-	s, _ = Reduce(s, Submit{At: t0, Text: "go"})
-	s, _ = Reduce(s, ask)
-	s, _ = Reduce(s, Viewport{At: t0, TooSmall: true})
-	if _, fx := Reduce(s, PermissionQuick{At: late, Kind: AllowOnce}); answerCount(fx) != 0 {
-		t.Fatal("single-session answered in a window too small")
 	}
 }
 

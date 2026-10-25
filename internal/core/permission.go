@@ -60,13 +60,17 @@ type Permission struct {
 	PreviewLabels Labels
 	FixedArgs     []string
 	Options       []PermOption
-	Since         time.Time // when it became the one on offer; see ArmDelay
-	// Seen is what of the input has been on screen, in the input as
-	// shown, whose lines have the lengths SeenLens; SeenAt is when the
-	// last of it came on screen (see inputseen.go).
-	Seen     []Span
-	SeenLens []int
-	SeenAt   time.Time
+	// Kind is the tool call's ACP kind, and Content the text of its
+	// content (but relay's preview), as the agent sent them: the review
+	// text built here for a plain agent shows them.
+	Kind    string
+	Content []string
+	// Review is relay's review text and digest for the request
+	// (_meta["relay/review"]), nil when it sent none. Refused is relay's
+	// word that it refused an earlier answer to the same tool call and
+	// asks again (_meta["relay/refused"]).
+	Review  *Review
+	Refused string
 }
 
 // Shown is the labels of what the request shows: the session's, which
@@ -84,20 +88,10 @@ func (p Permission) Label() string {
 	return "tool call"
 }
 
-// Heading is the whole of what the request is called: the tool's name and,
-// when it has one, its title. The request box cuts a long one; the full
-// text is what v puts in the transcript.
-func (p Permission) Heading() string {
-	h := p.Label()
-	if strings.TrimSpace(p.Name) != "" && strings.TrimSpace(p.Title) != "" && p.Title != h {
-		h += " · " + p.Title
-	}
-	return h
-}
-
-// ArmDelay is how long a request is on screen before a key can answer it
-// other than by cancelling. The request can appear while the person is
-// typing, and a y or an enter meant for the input must not approve a call.
+// ArmDelay is how long the last unread part of a review is on screen
+// before a key can consent to it, and how long an inline question is up
+// before a key can answer it yes. A key meant for what was there before
+// must not approve anything.
 const ArmDelay = 600 * time.Millisecond
 
 // onceOptions keeps the options that last for this one call. The person
@@ -136,11 +130,14 @@ func PickKind(opts []PermOption, k OptionKind) int {
 }
 
 // AnswerPermission is the reply to a request: the chosen option, or
-// Cancelled, which ACP uses when the person gave no answer.
+// Cancelled, which ACP uses when the person gave no answer. Review is
+// relay's digest of the review text the operator read, sent with an
+// allow when relay sent one (_meta["relay/review"]).
 type AnswerPermission struct {
 	ID        uint64
 	OptionID  string
 	Cancelled bool
+	Review    string
 }
 
 // Events about permission requests.
@@ -171,8 +168,6 @@ type (
 	}
 	// PermissionCancel answers cancelled (Esc).
 	PermissionCancel struct{ At time.Time }
-	// PermissionShowAll puts the request's whole input into the transcript.
-	PermissionShowAll struct{ At time.Time }
 )
 
 func (e PermissionAsked) at() time.Time   { return e.At }
@@ -181,15 +176,8 @@ func (e PermissionMove) at() time.Time    { return e.At }
 func (e PermissionConfirm) at() time.Time { return e.At }
 func (e PermissionQuick) at() time.Time   { return e.At }
 func (e PermissionCancel) at() time.Time  { return e.At }
-func (e PermissionShowAll) at() time.Time { return e.At }
 
 func (AnswerPermission) effect() {}
-
-// armed reports whether keys other than cancel may answer the request on
-// offer at time at.
-func (s *State) armed(at time.Time) bool {
-	return len(s.Asks) > 0 && at.Sub(s.Asks[0].Since) >= ArmDelay
-}
 
 func (r *reducer) permission(e Event) {
 	s := &r.s
@@ -210,8 +198,12 @@ func (r *reducer) permission(e Event) {
 		p := e.Permission
 		p.Options = onceOptions(p.Options)
 		if len(s.Asks) == 0 {
-			p.Since = e.At
 			s.Pick = DefaultPick(p.Options)
+			if rv := s.Reviewing; rv != nil && rv.Allowed && rv.CallID == p.CallID && p.Refused != "" {
+				// relay refused the allow it was sent and asks again: the
+				// review stays open, on the request as asked now.
+				s.Reviewing = &Reviewing{Ask: p.ID, CallID: p.CallID}
+			}
 		}
 		s.Asks = append(s.Asks, p)
 		r.proposalAsked(p)
@@ -221,26 +213,21 @@ func (r *reducer) permission(e Event) {
 			s.Pick = ((s.Pick+e.Delta)%m + m) % m
 		}
 	case PermissionConfirm:
-		if s.armed(e.At) && !s.TooSmall && s.Pick >= 0 && s.Pick < len(s.Asks[0].Options) {
+		if s.reviewing() && s.Pick >= 0 && s.Pick < len(s.Asks[0].Options) {
 			r.answer(e.At, s.Pick)
 		}
 	case PermissionQuick:
-		if s.armed(e.At) && !s.TooSmall {
+		if s.reviewing() {
 			if i := PickKind(s.Asks[0].Options, e.Kind); i >= 0 {
 				r.answer(e.At, i)
 			}
 		}
 	case PermissionCancel:
-		if len(s.Asks) > 0 {
+		if s.reviewing() {
 			r.answer(e.At, -1)
 		}
-	case PermissionShowAll:
-		if len(s.Asks) > 0 {
-			p := s.Asks[0]
-			r.add(Entry{Kind: Request, Text: p.Heading(), Detail: p.Input, Preview: p.Preview,
-				PreviewDefang: p.Shown().Union(s.Labels).Contaminated, Final: true})
-			s.InputView = &InputView{Ask: p.ID} // and opens the input, whole, to read
-		}
+	case OpenReview:
+		r.openReview(e.At)
 	}
 }
 
@@ -251,9 +238,16 @@ func (r *reducer) answer(at time.Time, i int) {
 	p := s.Asks[0]
 	s.Asks = s.Asks[1:]
 	verb, status := "cancelled", StatusCancelledAsk
+	s.Reviewing = nil
 	if i >= 0 {
 		o := p.Options[i]
-		r.emit(AnswerPermission{ID: p.ID, OptionID: o.ID})
+		ans := AnswerPermission{ID: p.ID, OptionID: o.ID}
+		if !o.Kind.Rejects() && p.Review != nil {
+			// relay checks the allow against the review it sent.
+			ans.Review = p.Review.SHA256
+			s.Reviewing = &Reviewing{CallID: p.CallID, Allowed: true}
+		}
+		r.emit(ans)
 		switch {
 		case o.Kind.Allows():
 			verb, status = "allowed", StatusAllowed
@@ -273,10 +267,10 @@ func (r *reducer) answer(at time.Time, i int) {
 	r.next(at)
 }
 
-// next starts the clock for the request now on offer, if any.
-func (r *reducer) next(at time.Time) {
+// next puts the highlight of the request now on offer, if any, on its
+// safest option.
+func (r *reducer) next(time.Time) {
 	if len(r.s.Asks) > 0 {
-		r.s.Asks[0].Since = at
 		r.s.Pick = DefaultPick(r.s.Asks[0].Options)
 	}
 }
@@ -293,4 +287,5 @@ func (r *reducer) cancelAsks() {
 	}
 	r.s.Asks = nil
 	r.s.Pick = 0
+	r.s.Reviewing = nil
 }

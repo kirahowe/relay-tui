@@ -1,7 +1,6 @@
 package ui_test
 
 import (
-	"github.com/kirahowe/relay-tui/internal/core"
 	"strings"
 	"testing"
 	"time"
@@ -143,8 +142,9 @@ func TestBoardWithoutRelay(t *testing.T) {
 	h.waitScreen("no board", func(s string) bool { return strings.Contains(s, "This agent has no board.") })
 }
 
-// t asks to trust a card with outside text; y, after a moment, sends
-// relay the rev and digest it was shown, and the clean card replaces it.
+// t opens the review of a card with outside text; y, once it is read,
+// sends relay the rev and the digest of the review it was shown, and the
+// clean card replaces it.
 func TestTrustingACardFromTheBoard(t *testing.T) {
 	h := start(t, "card_trust.jsonl", 140, 30)
 	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "outside text") })
@@ -152,13 +152,23 @@ func TestTrustingACardFromTheBoard(t *testing.T) {
 	h.keys("l")
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "t trust") })
 	h.keys("t")
-	h.waitScreen("the question", func(s string) bool { return strings.Contains(s, "It clears outside") })
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	h.waitScreen("armed", func(s string) bool { return !strings.Contains(s, "wait a moment") })
+	h.waitScreen("the review", func(s string) bool {
+		return strings.Contains(s, "Trust this card?") && strings.Contains(s, "note: Read hxxps://evil[.]test/x")
+	})
+	h.keys("y") // too soon
+	time.Sleep(100 * time.Millisecond)
+	if n := len(h.extensionCalls("_relay/cards/trust")); n != 0 {
+		t.Fatalf("trusted at once: %d calls", n)
+	}
+	h.readAll()
+	h.waitScreen("armed", func(s string) bool {
+		return !strings.Contains(s, "once all is read") && !strings.Contains(s, "a moment")
+	})
 	h.keys("y")
 	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
+	// The trust names the digest of the review relay sent with the card.
 	calls := h.extensionCalls("_relay/cards/trust")
-	if len(calls) != 1 || calls[0] != `{"card":9,"rev":9,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}` {
+	if len(calls) != 1 || calls[0] != `{"card":9,"rev":9,"sha256":"668da889e8e789bf2be3179d35cdafda2fe8a126340d22fc4c0a952cb0fd1ff3"}` {
 		t.Fatalf("trust calls %q", calls)
 	}
 }

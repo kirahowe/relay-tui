@@ -230,8 +230,9 @@ func TestHubBackgroundRequestShowsInTheSidebarAndIsAnsweredAfterSwitching(t *tes
 	}
 	h.keys("\x1b2")
 	h.waitScreen("the request", contains("permission needed"))
-	h.answer()                         // esc: while typing a request takes no keys
-	time.Sleep(700 * time.Millisecond) // past the arming delay
+	h.answer() // esc: while typing a request takes no keys
+	h.review()
+	h.readAll()
 	h.keys("y")
 	out := h.waitLog("permission fh-mail")
 	if !strings.Contains(out, `"optionId":"allow"`) {
@@ -239,6 +240,68 @@ func TestHubBackgroundRequestShowsInTheSidebarAndIsAnsweredAfterSwitching(t *tes
 	}
 	h.waitScreen("the request gone", func(s string) bool { return !strings.Contains(s, "permission needed") })
 	h.waitScreen("no mark", func(s string) bool { return !strings.Contains(s, "?1") })
+}
+
+// relay's review, end to end: the hub sends the review with the request,
+// the pager pages through it, and the allow carries its digest, which
+// the hub checks (relay-tui declares relay/review in initialize).
+func TestHubAllowCarriesTheReviewDigest(t *testing.T) {
+	h := startHub(t, threeRoles(), 100, 24, "dev")
+	h.waitScreen("dev", contains("hello from dev"))
+	if got := h.logged("initialize "); len(got) != 1 || got[0] != "initialize review=true" {
+		t.Fatalf("initialize %q", got)
+	}
+	h.say("ask dev long")
+	h.waitScreen("the request", contains("permission needed"))
+	h.answer()
+	h.review()
+	h.waitScreen("relay's text", contains("body line 1 of the mail"))
+	h.keys("y") // before the last page
+	time.Sleep(300 * time.Millisecond)
+	if got := h.logged("permission "); len(got) != 0 {
+		t.Fatalf("allowed before the last page: %v", got)
+	}
+	h.readAll()
+	h.waitScreen("the end of relay's text", contains("reject_once: Reject"))
+	h.keys("y")
+	if out := h.waitLog("permission fh-dev"); !strings.Contains(out, `"optionId":"allow"`) {
+		t.Errorf("%q", out)
+	}
+	if got := h.logged("permission-refused"); len(got) != 0 {
+		t.Errorf("the hub refused the digest: %v", got)
+	}
+}
+
+// When relay refuses an allow (here, as if it held another text), it
+// asks again for the same call; the review stays open with relay's word,
+// is read afresh, and the next allow goes through.
+func TestHubARefusedDigestKeepsTheRequestOpen(t *testing.T) {
+	h := startHub(t, threeRoles(), 100, 24, "dev")
+	h.waitScreen("dev", contains("hello from dev"))
+	h.say("refuse-digest dev")
+	h.say("ask dev")
+	h.waitScreen("the request", contains("permission needed"))
+	h.answer()
+	h.review()
+	h.readAll()
+	h.keys("y")
+	h.waitLog("permission-refused fh-dev")
+	h.waitScreen("relay's word, in the review", func(s string) bool {
+		return strings.Contains(s, "relay refused the last answer") && strings.Contains(s, "Allow this tool call?")
+	})
+	if got := h.logged("permission fh-dev"); len(got) != 0 {
+		t.Fatalf("settled though refused: %v", got)
+	}
+	h.keys("y") // right away: the re-asked request is read afresh
+	time.Sleep(200 * time.Millisecond)
+	if got := h.logged("permission-refused"); len(got) != 1 {
+		t.Fatalf("refusals %v", got)
+	}
+	h.readAll()
+	h.keys("y")
+	if out := h.waitLog("permission fh-dev"); !strings.Contains(out, `"optionId":"allow"`) {
+		t.Errorf("%q", out)
+	}
 }
 
 func TestHubAYKeyJustAfterSwitchingDoesNotApprove(t *testing.T) {
@@ -476,20 +539,38 @@ func TestHubPageKeysScrollWhileARequestWaits(t *testing.T) {
 	}
 }
 
-// In a window too small to show the request, y approves nothing, and the
-// view says why.
-func TestHubTooSmallWindowCannotApprove(t *testing.T) {
-	h := startHub(t, threeRoles(), 40, 8, "dev")
+// In a window too small for the review, nothing can be allowed and the
+// review says why; a small one pages, and y waits for the last page.
+func TestHubSmallWindowsAndTheReview(t *testing.T) {
+	h := startHub(t, threeRoles(), 60, 12, "dev")
 	h.waitScreen("dev", contains("hello from dev"))
-	h.say("ask dev " + strings.Repeat("x", 500))
+	h.say("ask dev")
 	h.waitScreen("the request", contains("permission"))
-	h.keys("\x1b") // to answer it, which the window is too small for
-	h.waitScreen("the notice", contains("too small"))
+	h.answer()
+	h.emu.Resize(40, 5)
+	h.p.Send(tea.WindowSizeMsg{Width: 40, Height: 5})
+	time.Sleep(100 * time.Millisecond)
+	h.keys("\r")
+	h.waitScreen("the notice", func(s string) bool { return strings.Contains(strings.Join(strings.Fields(s), ""), "toosmall") })
 	time.Sleep(800 * time.Millisecond)
 	h.keys("y")
 	time.Sleep(300 * time.Millisecond)
 	if got := h.logged("permission "); len(got) != 0 {
-		t.Fatalf("approved in a window too small to read the request: %v", got)
+		t.Fatalf("approved in a window too small to read the review: %v", got)
+	}
+	h.emu.Resize(40, 9)
+	h.p.Send(tea.WindowSizeMsg{Width: 40, Height: 9})
+	h.waitScreen("the first page", contains("more below"))
+	time.Sleep(800 * time.Millisecond)
+	h.keys("y")
+	time.Sleep(300 * time.Millisecond)
+	if got := h.logged("permission "); len(got) != 0 {
+		t.Fatalf("approved before the last page: %v", got)
+	}
+	h.readAll()
+	h.keys("y")
+	if out := h.waitLog("permission fh-dev"); !strings.Contains(out, `"optionId":"allow"`) {
+		t.Errorf("%q", out)
 	}
 }
 

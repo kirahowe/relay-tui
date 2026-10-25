@@ -568,7 +568,7 @@ func TestBanner(t *testing.T) {
 }
 
 // permit starts a turn that stops on a permission request and waits for
-// the request to show.
+// the request's summary to have the keys.
 func permit(t *testing.T, cols, rows int) *harness {
 	h := start(t, "permission.jsonl", cols, rows)
 	h.keys("go\r")
@@ -577,41 +577,62 @@ func permit(t *testing.T, cols, rows int) *harness {
 	return h
 }
 
-// readInput reads the whole input of the request on offer, when the box
-// cannot show it all: v, to its end, and back. Allowing waits for it.
-func (h *harness) readInput() {
+// review opens the review of the request on offer from its summary.
+func (h *harness) review() {
 	h.t.Helper()
-	if !strings.Contains(h.screen(), "read") {
-		return
-	}
-	h.keys("v")
-	h.waitScreen("the input view", func(s string) bool { return strings.Contains(s, "input of") })
-	time.Sleep(100 * time.Millisecond)
-	h.keys("G")
-	time.Sleep(200 * time.Millisecond)
-	h.keys("v")
-	h.waitScreen("the request again", func(s string) bool { return strings.Contains(s, "permission needed") })
+	h.keys("\r")
+	h.waitScreen("the review", func(s string) bool { return strings.Contains(s, "Allow this tool call?") })
 }
 
-// answer stops typing so the request on offer takes the keys, and
+// readAll pages through the review to its end, then waits out the arm
+// delay: allowing waits for both.
+func (h *harness) readAll() {
+	h.t.Helper()
+	// Each page stays a moment: one replaced within a frame or two never
+	// counts as drawn.
+	time.Sleep(150 * time.Millisecond)
+	for strings.Contains(h.screen(), "more below") {
+		was := pageOf(h.screen())
+		h.keys(" ")
+		h.waitScreen("the next page", func(s string) bool { return pageOf(s) != was })
+		time.Sleep(150 * time.Millisecond)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+}
+
+// pageOf is the review's "page N of M", or "".
+func pageOf(screen string) string {
+	i := strings.Index(screen, "page ")
+	if i < 0 {
+		return ""
+	}
+	end := strings.IndexAny(screen[i:], "·\n")
+	if end < 0 {
+		return screen[i:]
+	}
+	return screen[i : i+end]
+}
+
+// answer stops typing so the request's summary takes the keys, and
 // waits until it does: esc on its own, since an escape sent with the
 // next key reads as alt and that key.
 func (h *harness) answer() {
 	h.t.Helper()
 	h.keys("\x1b")
 	h.waitScreen("the request with the keys", func(s string) bool {
-		return strings.Contains(s, "esc cancel") || strings.Contains(s, "esc still cancels")
+		return strings.Contains(s, "enter to review") && !strings.Contains(s, "esc, then enter to review")
 	})
 }
 
 // A request that arrives while you type takes no keys: a y typed long
-// after it is text, and the request says how to answer it. Esc gives it
-// the keys, and only after its delay does y allow.
+// after it is text, and the request says how to review it. Esc gives its
+// summary the keys, which answers nothing; enter opens the review, and
+// only once it is read, after its delay, does y allow.
 func TestPermissionWaitsWhileTyping(t *testing.T) {
 	h := start(t, "permission.jsonl", 80, 24)
 	h.keys("go\r")
 	h.waitScreen("the request, waiting", func(s string) bool {
-		return strings.Contains(s, "permission needed") && strings.Contains(s, "esc to answer")
+		return strings.Contains(s, "permission needed") && strings.Contains(s, "esc, then enter to review")
 	})
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("yes y")
@@ -621,12 +642,18 @@ func TestPermissionWaitsWhileTyping(t *testing.T) {
 		t.Fatalf("typing answered the request: %s", o)
 	}
 	h.answer()
-	h.keys("y") // right behind esc: too soon
+	h.keys("y") // on the summary: nothing
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	if o := h.permissionOutcome(); o != "" {
+		t.Fatalf("a y on the summary answered: %s", o)
+	}
+	h.review()
+	h.keys("y") // right behind enter: too soon
 	time.Sleep(100 * time.Millisecond)
 	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("a y right behind esc answered: %s", o)
+		t.Fatalf("a y right behind enter answered: %s", o)
 	}
-	time.Sleep(core.ArmDelay)
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitScreen("the draft", func(s string) bool { return strings.Contains(s, "› yes y") })
@@ -655,17 +682,17 @@ func TestPermissionAllow(t *testing.T) { bothSizes(t, testPermissionAllow) }
 
 func testPermissionAllow(t *testing.T, cols, rows int) {
 	h := permit(t, cols, rows)
+	if st := h.waitScreen("the private badge", func(s string) bool { return privateBadge(s) }); !strings.Contains(st, "waiting for you") && cols >= 80 {
+		t.Errorf("status does not say it is waiting:\n%s", st)
+	}
+	h.review()
 	scr := h.screen()
 	for _, want := range []string{"web_fetch", "https://example.com/page", "Allow once (y)", "Reject (n)"} {
 		if cols >= 80 && !strings.Contains(scr, want) {
 			t.Errorf("%q not on screen:\n%s", want, scr)
 		}
 	}
-	if st := h.waitScreen("the private badge", func(s string) bool { return privateBadge(s) }); !strings.Contains(st, "waiting for you") && cols >= 80 {
-		t.Errorf("status does not say it is waiting:\n%s", st)
-	}
-	h.readInput()
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitAll("Fetched.")
@@ -678,15 +705,20 @@ func testPermissionAllow(t *testing.T, cols, rows int) {
 	if p := h.prompts(); len(p) != 1 || p[0] != "go" {
 		t.Fatalf("prompts %q: the y reached the input", p)
 	}
+	// A plain agent sent no review: relay-tui built the text itself, and
+	// the allow carries no digest.
+	if strings.Contains(h.agentLog(), "permission-meta") {
+		t.Errorf("an allow to a plain agent carried _meta:\n%s", h.agentLog())
+	}
 }
 
-// Keys before the request is armed answer nothing, and nothing typed
-// while it waits reaches the input box or sends a prompt.
+// Keys before the review is read answer nothing but a refusal, and
+// nothing typed while it waits reaches the input box or sends a prompt.
 func TestPermissionNoAccidents(t *testing.T) { bothSizes(t, testPermissionNoAccidents) }
 
 func testPermissionNoAccidents(t *testing.T, cols, rows int) {
 	h := permit(t, cols, rows)
-	h.keys("y\rhello\r")
+	h.keys("y\rhey") // y on the summary, enter opens the review, the rest is swallowed
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	if o := h.permissionOutcome(); o != "" {
 		t.Fatalf("answered before it was armed: %s", o)
@@ -707,6 +739,7 @@ func testPermissionNoAccidents(t *testing.T, cols, rows int) {
 
 func TestPermissionEscCancels(t *testing.T) {
 	h := permit(t, 80, 24)
+	h.review()
 	h.keys("\x1b")
 	h.waitOutcome(`{"outcome":"cancelled"}`)
 	h.waitAll("cancelled: web_fetch")
@@ -720,19 +753,25 @@ func TestPermissionCtrlCCancels(t *testing.T) {
 	h.wait("the cancel", h.agentLog, func(s string) bool { return strings.Contains(s, "cancel\n") })
 }
 
-// v puts the whole input into the transcript.
-func TestPermissionShowAll(t *testing.T) {
+// q leaves the review for the dashboard and answers nothing; enter
+// opens it again, read afresh.
+func TestPermissionReviewBack(t *testing.T) {
 	h := permit(t, 80, 24)
-	h.keys("v")
-	h.waitScreen("the input view", func(s string) bool { return strings.Contains(s, "input of") && strings.Contains(s, "sending the memo") })
-	h.keys("v")
-	h.waitAll("  ? web_fetch")
-	if n := count(h.all(), "sending the memo"); n < 2 {
-		t.Fatalf("the input shows %d times:\n%s", n, h.all())
-	}
+	h.review()
+	h.keys("q")
+	h.waitScreen("the summary again", func(s string) bool { return strings.Contains(s, "enter to review") })
 	if h.permissionOutcome() != "" {
-		t.Fatal("showing it answered it")
+		t.Fatal("going back answered it")
 	}
+	h.review()
+	h.keys("y")
+	time.Sleep(100 * time.Millisecond)
+	if h.permissionOutcome() != "" {
+		t.Fatal("a y right behind reopening answered it")
+	}
+	h.readAll()
+	h.keys("y")
+	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 }
 
 // bracketed is a paste as a terminal sends it.

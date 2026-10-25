@@ -1,31 +1,31 @@
 package core
 
-// feedS applies events in turn to the app and its conversation, and
-// returns the state and all the effects.
-// feedS applies events in turn, as the shell does: after each, the
-// surface is drawn at once (Drawn), as a renderer would draw it.
-// wholeInput is a renderer that draws the whole input of the request on
-// offer.
-func wholeInput(s State) []InputDrawn {
-	if len(s.Asks) == 0 {
-		return nil
+import "time"
+
+// wholeReview is what a renderer that draws the whole review at once
+// reports, for the surface surf over a and s: the review and all of its
+// text, or nothing when no review has the keys or it fails closed.
+func wholeReview(surf Surface, a App, s State, at time.Time) Drawn {
+	if surf.Kind != SurfaceReview {
+		return Drawn{At: at}
 	}
-	d := InputDrawn{Request: RequestID(s)}
-	for i, l := range FaithfulLines(s.Asks[0].Input) {
-		n := len([]rune(l))
-		d.Lens = append(d.Lens, n)
-		d.Spans = append(d.Spans, Span{Line: i, From: 0, To: n})
+	sub := ReviewSubject(surf, a, s)
+	if sub.Problem != "" {
+		return Drawn{At: at}
 	}
-	return []InputDrawn{d}
+	return Drawn{At: at, Surfaces: []string{sub.ID}, Review: &ReviewDrawn{ID: sub.ID, From: 0, To: len(sub.Text)}}
 }
 
+// feedS applies events in turn, as the shell does: after each, the
+// review, if one has the keys, is drawn whole at once (Drawn), as a
+// renderer with room for all of it would draw it.
 func feedS(x Single, events ...Event) (Single, []Effect) {
 	var all []Effect
 	for _, e := range events {
 		var fx []Effect
 		x, fx = ReduceSingle(x, e)
 		all = append(all, fx...)
-		x, _ = ReduceSingle(x, Drawn{At: e.at(), Surfaces: []string{SingleSurfaceID(x)}, Input: wholeInput(x.State)})
+		x, _ = ReduceSingle(x, wholeReview(SingleSurface(x), x.App, x.State, e.at()))
 	}
 	return x, all
 }

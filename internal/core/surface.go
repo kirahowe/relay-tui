@@ -13,9 +13,9 @@ package core
 // conversation's input, or the board's one-line editor) is a surface of
 // its own, so a request never takes keys while text is being entered,
 // and a request arriving does not move the keys or close an editor: it
-// waits, and says so, until the operator moves to its conversation. A
-// request is answered only while it is the surface, and its delay starts
-// when it becomes the surface (see ReduceHub and ReduceSingle).
+// waits, and says so, until the operator moves to its conversation.
+// There it is only summarised, and enter opens its review, the one
+// surface that answers it (see review.go).
 
 // SurfaceKind is the kind of thing that has the keys.
 type SurfaceKind int
@@ -29,12 +29,15 @@ const (
 	// SurfaceEditor is the board's one-line editor (a card's title, an
 	// item's text), typing.
 	SurfaceEditor
-	// SurfaceRequest is the permission request on offer in the
-	// conversation on screen, while moving.
+	// SurfaceRequest is the summary of the permission request on offer
+	// in the conversation on screen, while moving: enter opens its
+	// review. It answers nothing.
 	SurfaceRequest
-	// SurfaceConfirm is a question the pane asks: archive a card, trust a
-	// card or a doc. Its next key answers or cancels it.
-	SurfaceConfirm
+	// SurfaceReview is the review: the full-screen pager over what the
+	// operator consents to (Surface.Subject says what), the request on
+	// offer or a question the pane asks (archive a card, trust a card or
+	// a doc). Only it allows, trusts or archives anything.
+	SurfaceReview
 	// SurfacePane is the workspace pane (the board or the items), moving.
 	SurfacePane
 	// SurfaceList is the list of roles (hub mode only).
@@ -47,9 +50,6 @@ const (
 	// (against a single agent; in hub mode the conversation is always
 	// drawn whole).
 	SurfaceTranscript
-	// SurfaceInputView is the input of the request on offer, opened with
-	// v in the request's place, to read all of it.
-	SurfaceInputView
 )
 
 // Column is the column of the screen the keys are in: the list of
@@ -65,14 +65,17 @@ const (
 // Surface is what has the keys, and where. Under is the surface the help
 // covers, when Kind is SurfaceHelp (and the same as Kind otherwise), so
 // the help can list the keys of what it covers. Column is where the keys
-// are, under any overlay.
+// are, under any overlay. Subject is what a review is about.
 type Surface struct {
 	Kind, Under SurfaceKind
 	Column      Column
+	Subject     SubjectKind
 }
 
 // Covered is the surface the help covers, or s itself.
-func (s Surface) Covered() Surface { return Surface{Kind: s.Under, Under: s.Under, Column: s.Column} }
+func (s Surface) Covered() Surface {
+	return Surface{Kind: s.Under, Under: s.Under, Column: s.Column, Subject: s.Subject}
+}
 
 // Typing says the keys type text: into the conversation's input or the
 // board's editor. Nothing typed answers, confirms or trusts anything.
@@ -85,20 +88,20 @@ func HubSurface(h Hub) Surface {
 	if c := h.Focused(); c != nil && col != ColumnList {
 		st = c.State
 	}
-	under := SurfaceConversation
+	under, subj := SurfaceConversation, SubjectNone
 	switch {
 	case col == ColumnList:
 		under = SurfaceList
 	case col == ColumnPane:
-		under = paneSurface(h.App, st)
+		under, subj = paneSurface(h.App, st)
 	case !h.App.Moving:
 		under = SurfaceInput
-	case st.viewing():
-		under = SurfaceInputView
+	case st.reviewing():
+		under, subj = SurfaceReview, SubjectRequest
 	case len(st.Asks) > 0:
 		under = SurfaceRequest
 	}
-	s := Surface{Kind: under, Under: under, Column: col}
+	s := Surface{Kind: under, Under: under, Column: col, Subject: subj}
 	switch {
 	case h.Help:
 		s.Kind = SurfaceHelp
@@ -112,42 +115,45 @@ func HubSurface(h Hub) Surface {
 // no list, and the transcript is an overlay.
 func SingleSurface(x Single) Surface {
 	col := ColumnConversation
-	under := SurfaceConversation
+	under, subj := SurfaceConversation, SubjectNone
 	switch {
 	case x.State.Transcript.Open && !x.State.Shared:
 		under = SurfaceTranscript
 	case x.App.PaneFocus:
-		col, under = ColumnPane, paneSurface(x.App, x.State)
+		col = ColumnPane
+		under, subj = paneSurface(x.App, x.State)
 	case !x.App.Moving:
 		under = SurfaceInput
-	case x.State.viewing():
-		under = SurfaceInputView
+	case x.State.reviewing():
+		under, subj = SurfaceReview, SubjectRequest
 	case len(x.State.Asks) > 0:
 		under = SurfaceRequest
 	}
-	s := Surface{Kind: under, Under: under, Column: col}
+	s := Surface{Kind: under, Under: under, Column: col, Subject: subj}
 	if x.State.Help {
 		s.Kind = SurfaceHelp
 	}
 	return s
 }
 
-// paneSurface is what has the keys in the pane: its editor, a question
-// it asks, or the pane itself, in the order the pane takes a key (see
-// paneKey and boardKey).
-func paneSurface(a App, s State) SurfaceKind {
+// paneSurface is what has the keys in the pane: its editor, the review
+// of a question it asks, or the pane itself, in the order the pane takes
+// a key (see paneKey and boardKey).
+func paneSurface(a App, s State) (SurfaceKind, SubjectKind) {
 	b := a.Board
 	switch {
 	case s.Pane.Trust != nil && !s.Pane.Trust.Sent:
-		return SurfaceConfirm
+		return SurfaceReview, SubjectDocTrust
 	case b.Items:
-		return SurfacePane
+		return SurfacePane, SubjectNone
 	case b.Input != nil:
-		return SurfaceEditor
-	case b.Confirm != 0 || (b.Trust != nil && !b.Trust.Sent):
-		return SurfaceConfirm
+		return SurfaceEditor, SubjectNone
+	case b.Confirm != 0:
+		return SurfaceReview, SubjectArchive
+	case b.Trust != nil && !b.Trust.Sent:
+		return SurfaceReview, SubjectCardTrust
 	}
-	return SurfacePane
+	return SurfacePane, SubjectNone
 }
 
 // takes says the surface takes an event of the operator's. Every other
@@ -171,8 +177,13 @@ func (s Surface) takes(e Event) bool {
 		return in(SurfaceHelp, SurfaceInput, SurfaceConversation, SurfaceList, SurfacePane, SurfaceTranscript)
 	case Submit, Pasted, TrustPaste, StartConversation, StopTyping:
 		return k == SurfaceInput
-	case PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll:
+	case PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel:
+		// Only the request's review answers it.
+		return k == SurfaceReview && s.Subject == SubjectRequest
+	case OpenReview:
 		return k == SurfaceRequest
+	case ReviewKey:
+		return k == SurfaceReview && (e.Action != ReviewBack || s.Subject == SubjectRequest)
 	case PaneKey:
 		if e.Action == PaneToggle {
 			// Into or out of the pane, as a column: the shell sends Move,
@@ -181,11 +192,13 @@ func (s Surface) takes(e Event) bool {
 			// keeps the keys.
 			return in(SurfaceConversation, SurfaceInput, SurfaceList, SurfacePane, SurfaceRequest)
 		}
-		return in(SurfacePane, SurfaceEditor, SurfaceConfirm)
+		if k == SurfaceReview {
+			// The pane's question answers y, and cancels on any other key.
+			return s.Subject != SubjectRequest && (e.Action == PaneYes || e.Action == PaneEsc)
+		}
+		return in(SurfacePane, SurfaceEditor)
 	case ListMove, ListOpen:
 		return k == SurfaceList
-	case InputViewKey:
-		return k == SurfaceInputView
 	case AskEnd:
 		return k == SurfaceConversation
 	case ConfirmEnd:
@@ -202,12 +215,13 @@ func (s Surface) takes(e Event) bool {
 		if e.Action == TranscriptClose {
 			return k == SurfaceTranscript
 		}
-		// The wheel scrolls the conversation wherever the keys are.
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceConfirm)
+		// The wheel scrolls the conversation wherever the keys are, but
+		// under the review, which covers it.
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceReview)
 	case Interrupt:
 		return !in(SurfaceHelp, SurfaceEnd)
 	case EOF:
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceConfirm)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceReview)
 	}
 	return true
 }

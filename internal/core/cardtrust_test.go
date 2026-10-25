@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,11 +11,16 @@ import (
 const shaA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 // outsideCard is a checklist with outside text, at rev, with the digest
-// relay sends with it.
+// relay sends with it and a review whose text says both; "" for a card
+// relay sent neither with.
 func outsideCard(rev int64, sha string) Card {
 	c := checklist(30, rev, false)
 	c.Labels = Labels{Private: true, Contaminated: true}
 	c.SHA256 = sha
+	c.Review = nil
+	if sha != "" {
+		c.Review = reviewOf(fmt.Sprintf("card 30 rev %d %s\nSteps\nstep", rev, sha))
+	}
 	return c
 }
 
@@ -30,7 +36,7 @@ func TestTrustingACard(t *testing.T) {
 		t.Fatalf("y before the delay: %+v %v", s.Board.Trust, fx)
 	}
 	s, fx = feedS(s, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
-	want := SendCardTrust{Card: 30, Rev: 40, SHA256: shaA}
+	want := SendCardTrust{Card: 30, Rev: 40, SHA256: outsideCard(40, shaA).Review.SHA256}
 	if got := effectsOf[SendCardTrust](fx); len(got) != 1 || got[0] != want || !s.Board.Trust.Sent {
 		t.Fatalf("effects %v, trust %+v", fx, s.Board.Trust)
 	}
@@ -44,7 +50,7 @@ func TestTrustingACard(t *testing.T) {
 }
 
 func TestCardTrustCancelsAndRefuses(t *testing.T) {
-	s, fx := boardKeys(onBoard(outsideCard(40, shaA)), PaneTrust, PaneDown)
+	s, fx := boardKeys(onBoard(outsideCard(40, shaA)), PaneTrust, PaneEsc)
 	if s.Board.Trust != nil || s.Board.Message != "Trust cancelled." || len(fx) != 0 {
 		t.Fatalf("a key other than y: %+v %v", s.Board, fx)
 	}
@@ -104,7 +110,7 @@ func TestATrustIsOnlyForTheCardAsShown(t *testing.T) {
 			}
 			for _, e := range effectsOf[SendCardTrust](fx) {
 				held := s.Board.Cards[0]
-				if shown == nil || e.Rev != shown.Rev || e.SHA256 != shown.SHA256 || e.Rev != held.Rev || e.SHA256 != held.SHA256 {
+				if shown == nil || e.Rev != shown.Rev || e.SHA256 != shown.Review.SHA256 || e.Rev != held.Rev || e.SHA256 != held.Review.SHA256 {
 					t.Fatalf("step %d sent %+v; shown %+v, held rev %d %q", i, e, shown, held.Rev, held.SHA256)
 				}
 			}

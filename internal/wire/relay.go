@@ -174,6 +174,32 @@ type rawItem struct {
 	Preview      *string         `json:"preview"`
 	Status       string          `json:"status"`
 	FixedArgs    []string        `json:"fixedArgs"`
+	Review       json.RawMessage `json:"review"`
+}
+
+// ReviewKey is where relay puts the review text and digest of a
+// permission request, in its params' _meta; RefusedKey, its word that it
+// refused an earlier answer and asks again.
+const (
+	ReviewKey  = "relay/review"
+	RefusedKey = "relay/refused"
+)
+
+// Review reads relay's review member, {"text", "sha256"}: nil when there
+// is none or it cannot be read, so the review fails closed. The text is
+// taken as relay sent it; the core checks it against the digest.
+func Review(raw json.RawMessage) *core.Review {
+	if len(raw) == 0 {
+		return nil
+	}
+	var r struct {
+		Text   *string `json:"text"`
+		SHA256 string  `json:"sha256"`
+	}
+	if strictjson.Unmarshal(raw, &r) != nil || r.Text == nil || !sha256Hex.MatchString(r.SHA256) {
+		return nil
+	}
+	return &core.Review{Text: *r.Text, SHA256: r.SHA256}
 }
 
 // Items translates the answer to _relay/items. A plain agent answers
@@ -192,7 +218,7 @@ func Items(raw json.RawMessage, err error, at time.Time) core.ItemsLoaded {
 	for _, it := range r.Items {
 		out := core.Item{Ref: it.Ref, Path: it.Path, CallID: it.CallID, At: it.At, Title: it.Title, Text: it.Text,
 			Labels: labelNames(it.Labels), SHA256: it.SHA256, CanTrust: it.CanTrust, TrustCommand: it.TrustCommand,
-			Tool: it.Tool, Status: it.Status}
+			Tool: it.Tool, Status: it.Status, Review: Review(it.Review)}
 		// The version stays the literal relay listed, to send back exactly.
 		if v := jsontext.Value(it.Version); v.Kind() == '0' {
 			if _, err := strconv.ParseInt(string(v), 10, 64); err == nil {
@@ -341,9 +367,10 @@ type rawCard struct {
 		Column int    `json:"column"`
 		State  string `json:"state"`
 	} `json:"cells"`
-	Note   *rawText `json:"note"`
-	SHA256 string   `json:"sha256"`
-	Text   string   `json:"text"`
+	Note   *rawText        `json:"note"`
+	SHA256 string          `json:"sha256"`
+	Text   string          `json:"text"`
+	Review json.RawMessage `json:"review"`
 }
 
 func elems(raw []rawText) ([]core.CardElem, bool) {
@@ -366,7 +393,7 @@ func card(raw json.RawMessage) (core.Card, bool) {
 		return core.Card{}, false
 	}
 	c := core.Card{ID: *r.ID, Kind: r.Kind, Status: r.Status, Complete: r.Complete, Rev: r.Rev, Owner: r.Owner,
-		AddedAt: r.AddedAt, Labels: labelNames(r.Labels), Text: r.Text}
+		AddedAt: r.AddedAt, Labels: labelNames(r.Labels), Text: r.Text, Review: Review(r.Review)}
 	if sha256Hex.MatchString(r.SHA256) {
 		c.SHA256 = r.SHA256
 	}

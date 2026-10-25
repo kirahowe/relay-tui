@@ -92,8 +92,9 @@ func TestLabelsUnion(t *testing.T) {
 }
 
 // P-perm1: a request is answered with an option it offered, exactly once,
-// and the answer is the option the key stands for. Keys before the
-// request is armed answer nothing.
+// and the answer is the option the key stands for. Keys before its review
+// is open answer nothing (the review's own arming is the app's; see
+// review_test.go).
 func TestPermissionAnswersAnOfferedOption(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := busyState()
@@ -118,14 +119,14 @@ func TestPermissionAnswersAnOfferedOption(t *testing.T) {
 		if len(s.Asks) != 1 || s.Pick < 0 || (len(opts) > 0 && s.Pick >= len(opts)) {
 			t.Fatalf("asks %d pick %d of %d", len(s.Asks), s.Pick, len(opts))
 		}
-		// Too early: nothing is answered.
-		early := t0.Add(ArmDelay - time.Millisecond)
-		for _, e := range []Event{PermissionConfirm{At: early}, PermissionQuick{At: early, Kind: AllowOnce}, PermissionQuick{At: early, Kind: RejectOnce}} {
+		// With its review not open, nothing is answered.
+		for _, e := range []Event{PermissionConfirm{At: t0}, PermissionQuick{At: t0, Kind: AllowOnce}, PermissionQuick{At: t0, Kind: RejectOnce}, PermissionCancel{At: t0}} {
 			next, fx := Reduce(s, e)
 			if len(answers(fx)) != 0 || len(next.Asks) != 1 {
-				t.Fatalf("%T before the delay answered: %+v", e, fx)
+				t.Fatalf("%T with no review open answered: %+v", e, fx)
 			}
 		}
+		s, _ = Reduce(s, OpenReview{At: t0})
 		for range rapid.IntRange(0, 6).Draw(t, "moves") {
 			s, _ = Reduce(s, PermissionMove{At: t0, Delta: rapid.IntRange(-3, 3).Draw(t, "delta")})
 			if len(opts) > 0 && (s.Pick < 0 || s.Pick >= len(opts)) {
@@ -159,13 +160,6 @@ func TestPermissionAnswersAnOfferedOption(t *testing.T) {
 				t.Fatalf("cancel: %+v asks %d", a, len(next.Asks))
 			}
 			return
-		case 4:
-			e = PermissionShowAll{At: late}
-			next, fx := Reduce(s, e)
-			if len(answers(fx)) != 0 || len(next.Asks) != 1 || next.Entries[len(next.Entries)-1].Kind != Request {
-				t.Fatalf("show all answered or left no entry")
-			}
-			return
 		}
 		next, fx := Reduce(s, e)
 		a := answers(fx)
@@ -182,7 +176,8 @@ func TestPermissionAnswersAnOfferedOption(t *testing.T) {
 }
 
 // P-perm2: with several requests queued, each is answered once, in order,
-// and each gets its own arming delay from the moment it comes up.
+// and each from its own review: a key after one is answered does not
+// reach the next until its review is opened.
 func TestPermissionQueue(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := busyState()
@@ -195,6 +190,7 @@ func TestPermissionQueue(t *testing.T) {
 			t.Fatalf("%d queued of %d", len(s.Asks), n)
 		}
 		now := t0.Add(ArmDelay)
+		s, _ = Reduce(s, OpenReview{At: t0})
 		for i := 1; i <= n; i++ {
 			var fx []Effect
 			s, fx = Reduce(s, PermissionQuick{At: now, Kind: AllowOnce})
@@ -203,11 +199,13 @@ func TestPermissionQueue(t *testing.T) {
 				t.Fatalf("answer %d: %+v", i, a)
 			}
 			if i < n {
-				// The next one is not armed at the instant it comes up.
+				// The next one waits on the dashboard: a stray key answers
+				// nothing until its review is opened.
 				s2, fx2 := Reduce(s, PermissionQuick{At: now, Kind: AllowOnce})
 				if len(answers(fx2)) != 0 || len(s2.Asks) != n-i {
 					t.Fatalf("request %d answered at once by a stray key", i+1)
 				}
+				s, _ = Reduce(s, OpenReview{At: now})
 				now = now.Add(ArmDelay)
 			}
 		}
@@ -225,6 +223,7 @@ func TestPermissionsAlwaysAnswered(t *testing.T) {
 		for i := 1; i <= n; i++ {
 			s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: uint64(i), Options: genOptions(t)}})
 		}
+		s, _ = Reduce(s, OpenReview{At: t0})
 		end := rapid.SampledFrom([]Event{
 			PromptDone{At: t0, Stop: EndTurn}, PromptDone{At: t0, Stop: Cancelled}, PromptFailed{At: t0, Message: "x"},
 			AgentExited{At: t0}, Interrupt{At: t0, InputEmpty: true}, EOF{At: t0}, PermissionCancel{At: t0},
@@ -309,6 +308,7 @@ func TestNoAlwaysOptions(t *testing.T) {
 			}
 		}
 		late := t0.Add(ArmDelay)
+		s, _ = Reduce(s, OpenReview{At: t0})
 		for _, e := range []Event{PermissionConfirm{At: late}, PermissionQuick{At: late, Kind: AllowAlways}, PermissionQuick{At: late, Kind: RejectAlways}} {
 			_, fx := Reduce(s, e)
 			for _, a := range answers(fx) {
@@ -330,6 +330,7 @@ func TestOnlyAlwaysOptionsLeavesCancel(t *testing.T) {
 	s := busyState()
 	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Options: []PermOption{
 		{ID: "a", Kind: AllowAlways}, {ID: "r", Kind: RejectAlways}}}})
+	s, _ = Reduce(s, OpenReview{At: t0})
 	late := t0.Add(ArmDelay)
 	if _, fx := Reduce(s, PermissionConfirm{At: late}); len(answers(fx)) != 0 {
 		t.Fatalf("enter answered with nothing offered: %+v", fx)

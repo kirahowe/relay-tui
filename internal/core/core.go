@@ -222,9 +222,6 @@ const (
 	// Thought is the agent's thinking: one line inline, the text itself
 	// in the transcript view.
 	Thought
-	// Request is a permission request's whole input, shown at the user's
-	// request: Text names the call, Detail is its arguments.
-	Request
 )
 
 // Call is one tool call.
@@ -257,11 +254,6 @@ type Entry struct {
 	// Defang says the session was contaminated when the agent wrote this,
 	// so URLs in it show defanged. See render.Defang.
 	Defang bool
-	// Preview is relay's description of a request, shown above its
-	// input, always defanged. PreviewDefang says the input's URLs show
-	// defanged too.
-	Preview       string
-	PreviewDefang bool
 }
 
 // Cost is an amount of money: the session's spend so far.
@@ -322,16 +314,12 @@ type State struct {
 	// Pane is the conversation's part of the workspace pane: its items.
 	// The board, and whether the pane has the keys, are the app's.
 	Pane Pane
-	// InputView is the input of the request on offer, opened with v.
-	InputView *InputView
+	// Reviewing is the request whose review is open (see review.go).
+	Reviewing *Reviewing
 	// Transcript is the full-screen view; Help says the list of keys
 	// shows.
 	Transcript Transcript
 	Help       bool
-	// TooSmall says the window cannot show the request on offer whole, with
-	// the keys that answer it; those keys then do nothing. The shell sets it
-	// from what it drew (Viewport).
-	TooSmall bool
 	// Shared says this is one conversation among several on a hub
 	// connection; see shared.go.
 	Shared bool
@@ -380,10 +368,14 @@ func (r *reducer) apply(e Event) {
 	case PermissionAsked:
 		r.closeTranscript()
 		r.permission(e)
-	case LabelsSeen, PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, PermissionShowAll:
+	case LabelsSeen, PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, OpenReview:
 		r.permission(e)
-	case Viewport:
-		s.TooSmall = e.TooSmall
+	case ReviewKey:
+		if e.Action == ReviewBack {
+			s.Reviewing = nil // the request waits on the dashboard
+		} else {
+			r.a.Pager = scrolled(r.a.Pager, e)
+		}
 	case UserChunk, ConvAttached, Settled, RemoteIdle, ReplayEnd, Blurred, Focused:
 		r.shared(e)
 	case TextChunk, ThoughtChunk, ToolStarted, ToolUpdated, Ignored:
@@ -467,8 +459,6 @@ func (r *reducer) apply(e Event) {
 		r.show(&s.Transcript.Thinking, e.At)
 	case TranscriptKey:
 		r.transcriptKey(e)
-	case InputViewKey:
-		r.inputViewKey(e)
 	case ToggleHelp:
 		s.Help = !s.Help
 	case EOF:
@@ -619,7 +609,7 @@ func (r *reducer) appendText(id, text string) {
 // add appends an entry. A new entry closes the open agent entry or run
 // of tool calls before it; the run is final once its calls are.
 func (r *reducer) add(e Entry) {
-	if e.Kind != User && e.Kind != Banner && e.Kind != Request { // the operator's own words, and what is being approved, show as they are
+	if e.Kind != User && e.Kind != Banner { // the operator's own words show as they are
 		e.Defang = e.Defang || r.s.Labels.Contaminated
 	}
 	if n := len(r.s.Entries); n > 0 {

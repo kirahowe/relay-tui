@@ -18,10 +18,13 @@ import (
 	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
-// Capabilities is what relay-tui tells the agent it supports: notices, and
-// no file system or terminal access.
+// Capabilities is what relay-tui tells the agent it supports: notices,
+// no file system or terminal access, and relay's review: it shows the
+// review text relay sends, and gives back its digest with an allow or a
+// trust (_meta["relay/review"]: 1).
 func Capabilities() acp.ClientCapabilities {
 	return acp.ClientCapabilities{
+		Meta:    map[string]json.RawMessage{ReviewKey: json.RawMessage("1")},
 		Session: &acp.ClientSessionCapabilities{Notices: &acp.NoticeCapabilities{}},
 	}
 }
@@ -218,6 +221,15 @@ func Permission(req acp.RequestPermissionRequest, input string, id uint64, at ti
 	if t := req.ToolCall.Title; t != nil {
 		p.Title = *t
 	}
+	if k := req.ToolCall.Kind; k != nil {
+		p.Kind = string(*k)
+	}
+	p.Content = callContent(req.ToolCall.Content)
+	p.Review = Review(req.Meta[ReviewKey])
+	var refused string
+	if strictjson.Unmarshal(req.Meta[RefusedKey], &refused) == nil {
+		p.Refused = refused
+	}
 	for _, o := range req.Options {
 		p.Options = append(p.Options, core.PermOption{ID: string(o.OptionId), Name: o.Name, Kind: core.OptionKind(o.Kind)})
 	}
@@ -232,9 +244,38 @@ func Outcome(a core.AnswerPermission) acp.RequestPermissionResponse {
 			Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 		}}
 	}
-	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
+	r := acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 		Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(a.OptionID), Outcome: "selected"},
 	}}
+	if a.Review != "" {
+		h, _ := json.Marshal(a.Review) // a string always encodes
+		r.Meta = map[string]json.RawMessage{ReviewKey: h}
+	}
+	return r
+}
+
+// callContent is what a tool call's content says, but relay's preview:
+// each text block, each diff (its path and new text), and each
+// terminal by id, for a review text built here.
+func callContent(content []acp.ToolCallContent) []string {
+	var out []string
+	for _, c := range content {
+		switch {
+		case c.Content != nil && c.Content.Content.Text != nil:
+			if t := c.Content.Content.Text; string(t.Meta[previewKey]) != "true" {
+				out = append(out, t.Text)
+			}
+		case c.Diff != nil:
+			d := "diff of " + c.Diff.Path + ":\n"
+			if c.Diff.OldText != nil {
+				d += "was:\n" + *c.Diff.OldText + "\nnow:\n"
+			}
+			out = append(out, d+c.Diff.NewText)
+		case c.Terminal != nil:
+			out = append(out, "terminal "+string(c.Terminal.TerminalId))
+		}
+	}
+	return out
 }
 
 // labelsKey is where agentloop puts the session's labels in _meta.

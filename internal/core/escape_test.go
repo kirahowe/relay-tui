@@ -28,7 +28,7 @@ func genText(t *rapid.T, label string) string {
 }
 
 // nothing hidden is left: every rune is printable or a space or newline.
-func visible(s string) (rune, bool) {
+func allShown(s string) (rune, bool) {
 	for _, r := range s {
 		if r != '\n' && !unicode.IsPrint(r) {
 			return r, false
@@ -50,7 +50,7 @@ func TestFaithfulLinesRoundTrip(t *testing.T) {
 		var want any
 		_ = json.Unmarshal(raw, &want) // what the agent's input is, after invalid UTF-8 is cleaned
 		shown := strings.Join(FaithfulLines(string(raw)), "\n")
-		if r, ok := visible(shown); !ok {
+		if r, ok := allShown(shown); !ok {
 			t.Fatalf("U+%04X is raw in %q", r, shown)
 		}
 		var got any
@@ -74,7 +74,7 @@ func TestFaithfulLinesPlainText(t *testing.T) {
 		if len(lines) != 1 {
 			t.Fatalf("%d lines", len(lines))
 		}
-		if r, ok := visible(lines[0]); !ok {
+		if r, ok := allShown(lines[0]); !ok {
 			t.Fatalf("U+%04X is raw in %q", r, lines[0])
 		}
 		var got string
@@ -145,7 +145,7 @@ func TestEscapeLabelRoundTrip(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genText(t, "label")
 		e := EscapeLabel(s)
-		if r, ok := visible(e); !ok || strings.ContainsRune(e, '\n') {
+		if r, ok := allShown(e); !ok || strings.ContainsRune(e, '\n') {
 			t.Fatalf("U+%04X or a newline is raw in %q", r, e)
 		}
 		if got := unescapeLabel(e); got != s {
@@ -158,6 +158,7 @@ func TestEscapeLabelRoundTrip(t *testing.T) {
 func TestAnswerNoteIsEscaped(t *testing.T) {
 	s := busyState()
 	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "ok\u202etool", Options: []PermOption{{ID: "a", Kind: AllowOnce}}}})
+	s, _ = Reduce(s, OpenReview{At: t0})
 	s, _ = Reduce(s, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
 	if n := s.Entries[len(s.Entries)-1]; n.Text != `allowed: ok\u202etool` {
 		t.Fatalf("note %q", n.Text)

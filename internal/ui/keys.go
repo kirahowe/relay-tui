@@ -207,47 +207,61 @@ func NewlineHint(c Caps) string {
 	return "ctrl+j for a new line"
 }
 
-// AskAction is what a key press does while a permission request waits.
-type AskAction int
+// ReviewAction is what a key press does in the review.
+type ReviewAction int
 
 const (
-	AskNone      AskAction = iota // swallowed: the input box is not in play
-	AskUp                         // highlight the previous option
-	AskDown                       // highlight the next option
-	AskConfirm                    // answer with the highlighted option
-	AskAllow                      // answer with the first allow_once
-	AskReject                     // answer with the first reject_once
-	AskCancel                     // answer cancelled
-	AskShowAll                    // put the whole input in the transcript
-	AskInterrupt                  // Ctrl-C: stop the turn, which cancels the request
-	AskEOF                        // Ctrl-D
+	ReviewNone      ReviewAction = iota // swallowed
+	ReviewUp                            // up, k
+	ReviewDown                          // down, j
+	ReviewPageUp                        // pgup, b
+	ReviewPageDown                      // pgdown, space, f
+	ReviewTop                           // home, g
+	ReviewBottom                        // end, G
+	ReviewNext                          // tab, right: the next option
+	ReviewPrev                          // shift+tab, left: the one before
+	ReviewPick                          // enter: the highlighted option
+	ReviewYes                           // y: allow once, trust, archive
+	ReviewNo                            // n: reject once, or cancel
+	ReviewCancel                        // esc: cancel
+	ReviewBack                          // q: back to the dashboard, answering nothing
+	ReviewInterrupt                     // ctrl+c
 )
 
-// ClassifyAsk decides what a key press does while a request waits. Every
-// key is swallowed but these, so nothing typed reaches the input box and
-// no Enter can send a prompt. It is pure.
-func ClassifyAsk(k tea.KeyPressMsg) AskAction {
+// ClassifyReview decides what a key press does in the review. It is
+// pure. Every other key is swallowed: nothing reaches the input box.
+func ClassifyReview(k tea.KeyPressMsg) ReviewAction {
 	switch k.String() {
-	case "up", "k", "shift+tab":
-		return AskUp
-	case "down", "j", "tab":
-		return AskDown
+	case "up", "k":
+		return ReviewUp
+	case "down", "j":
+		return ReviewDown
+	case "pgup", "b":
+		return ReviewPageUp
+	case "pgdown", "space", "f":
+		return ReviewPageDown
+	case "home", "g":
+		return ReviewTop
+	case "end", "G":
+		return ReviewBottom
+	case "tab", "right":
+		return ReviewNext
+	case "shift+tab", "left":
+		return ReviewPrev
 	case "enter":
-		return AskConfirm
+		return ReviewPick
 	case "y", "Y":
-		return AskAllow
+		return ReviewYes
 	case "n", "N":
-		return AskReject
+		return ReviewNo
 	case "esc":
-		return AskCancel
-	case "v":
-		return AskShowAll
+		return ReviewCancel
+	case "q":
+		return ReviewBack
 	case "ctrl+c":
-		return AskInterrupt
-	case "ctrl+d":
-		return AskEOF
+		return ReviewInterrupt
 	}
-	return AskNone
+	return ReviewNone
 }
 
 // ClassifyPane decides what a key press does while the workspace pane has

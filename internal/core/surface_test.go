@@ -21,7 +21,7 @@ func genOperator(t *rapid.T, at time.Time) Event {
 	actions := []PaneAction{PaneToggle, PaneUp, PaneDown, PagePrev, PageNext, PaneEnter, PaneEsc, PaneTrust, PaneYes,
 		PaneBoard, PaneRefresh, PaneLeft, PaneRight, PaneMark, PaneAdd, PaneAddColumn, PaneEdit, PaneEditColumn,
 		PaneArchive, PaneChar, PaneBackspace, PaneOther}
-	switch rapid.IntRange(0, 25).Draw(t, "op") {
+	switch rapid.IntRange(0, 28).Draw(t, "op") {
 	case 0:
 		return Submit{At: at, Text: "hello"}
 	case 1:
@@ -64,6 +64,10 @@ func genOperator(t *rapid.T, at time.Time) Event {
 		return AskEnd{At: at}
 	case 24:
 		return ConfirmEnd{At: at, Yes: true}
+	case 25, 26:
+		return OpenReview{At: at}
+	case 27:
+		return ReviewKey{At: at, Action: ReviewAction(rapid.IntRange(0, int(ReviewBack)).Draw(t, "raction")), Max: 3, Page: 2}
 	}
 	return StartConversation{At: at}
 }
@@ -74,6 +78,26 @@ func contaminatedCard() Card {
 	c.Labels = Labels{Contaminated: true}
 	c.SHA256 = "abc"
 	return c
+}
+
+// drawSingle and drawHub are a renderer's report after an event: the
+// review that has the keys drawn whole, or only its first half (part).
+func drawSingle(x Single, at time.Time, part bool) Drawn {
+	return halve(wholeReview(SingleSurface(x), x.App, x.State, at), part)
+}
+
+func drawHub(h Hub, at time.Time, part bool) Drawn {
+	surf := HubSurface(h)
+	return halve(wholeReview(surf, h.App, h.surfaceState(surf), at), part)
+}
+
+func halve(d Drawn, part bool) Drawn {
+	if part && d.Review != nil {
+		r := *d.Review
+		r.To /= 2
+		d.Review = &r
+	}
+	return d
 }
 
 // authorizes says an effect acts on the operator's authority: an allow,
@@ -94,18 +118,23 @@ func authorizes(f Effect) bool {
 
 // surfaceChecks runs events at random through reduce, as the shell
 // sends them: each operator event after a KeyPressed, live or replayed,
-// the agent's events, and Drawn for what has the keys. It checks that a
-// typing surface's event never answers, trusts, confirms or sends a card
-// op but the editor's own; that an event of the agent's never takes the
-// keys from a typing surface; and that nothing is authorized but by a
-// live key at least ArmDelay after the surface it lands on was drawn.
+// the agent's events, and Drawn for the review that has the keys, whole
+// or in part. It checks that a typing surface's event never answers,
+// trusts, confirms or sends a card op but the editor's own; that an
+// event of the agent's never takes the keys from a typing surface; that
+// no consent (an allow, a card's or a doc's trust, an archive) is given
+// but by a live key from its review, all of which was drawn ArmDelay
+// before, about what it showed then; and that the inline questions (an
+// end, a paste's trust) are answered yes only by a live key ArmDelay
+// after they came up.
 func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), surface func(S) Surface,
-	surfaceID func(S) string, shows func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
+	surfaceID func(S) string, shows func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event,
+	draw func(S, time.Time, bool) Drawn) {
 	at := t0
 	// A key first: before any, the start may move the keys (App.Pressed).
 	x, _ = reduce(x, KeyPressed{At: t0})
-	drawnID, drawnAt := surfaceID(x), t0 // the set-up drew it at t0
-	drawnShows := shows(x)
+	became, becameAt := surfaceID(x), t0
+	readID, readAt, readShows := "", time.Time{}, ""
 	var n uint64
 	for step := range rapid.IntRange(1, 100).Draw(t, "steps") {
 		at = at.Add(time.Duration(rapid.IntRange(0, 900).Draw(t, "ms")) * time.Millisecond)
@@ -117,9 +146,10 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 			n++
 			e = agent(t, at, n)
 		case k <= 2:
-			e = Drawn{At: at, Surfaces: []string{id}}
-			if drawnID != id {
-				drawnID, drawnAt, drawnShows = id, at, shows(x)
+			d := draw(x, at, k == 2)
+			e = d
+			if d.Review != nil && k == 1 && readID != id {
+				readID, readAt, readShows = id, at, shows(x)
 			}
 		default:
 			replayed = rapid.IntRange(0, 3).Draw(t, "replayed") == 0
@@ -148,13 +178,21 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 				}
 			}
 			if authorizes(f) {
+				_, end := f.(EndConversation)
+				_, paste := f.(ReplaceInput)
 				switch {
 				case !operator || replayed:
 					t.Fatalf("step %d: %T (operator %v, replayed %v) authorized %#v", step, e, operator, replayed, f)
-				case drawnID != id || at.Sub(drawnAt) < ArmDelay:
-					t.Fatalf("step %d: %T authorized %#v on %q, drawn %q %v before", step, e, f, id, drawnID, at.Sub(drawnAt))
-				case shows(x) != drawnShows:
-					t.Fatalf("step %d: %T authorized %#v on %q, which shows %q, drawn showing %q", step, e, f, id, shows(x), drawnShows)
+				case end || paste:
+					if became != id || at.Sub(becameAt) < ArmDelay {
+						t.Fatalf("step %d: %T answered %#v on %q, up since %q %v before", step, e, f, id, became, at.Sub(becameAt))
+					}
+				case surf.Kind != SurfaceReview:
+					t.Fatalf("step %d: %T consented %#v from %v, not a review", step, e, f, surf.Kind)
+				case readID != id || at.Sub(readAt) < ArmDelay:
+					t.Fatalf("step %d: %T consented %#v on %q, read whole %q %v before", step, e, f, id, readID, at.Sub(readAt))
+				case shows(x) != readShows:
+					t.Fatalf("step %d: %T consented %#v on %q, which shows %q, read showing %q", step, e, f, id, shows(x), readShows)
 				}
 			}
 		}
@@ -163,7 +201,7 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 		}
 		x = next
 		if surfaceID(x) != id {
-			drawnID = "" // a new surface, not yet drawn
+			became, becameAt, readID = surfaceID(x), at, "" // a new surface, up now, not yet drawn
 		}
 	}
 }
@@ -177,7 +215,7 @@ func confirmShows(a App, s State) string {
 	card := func(id int64) string {
 		for _, c := range b.Cards {
 			if c.ID == id {
-				return fmt.Sprintf("%d/%d/%s/%q", c.ID, c.Rev, c.SHA256, c.Title.Text)
+				return fmt.Sprintf("%d/%d/%v/%q", c.ID, c.Rev, c.Review, c.Title.Text)
 			}
 		}
 		return "gone"
@@ -190,7 +228,7 @@ func confirmShows(a App, s State) string {
 	case s.Pane.Trust != nil:
 		for _, it := range PaneItems(s) {
 			if it.Path == s.Pane.Trust.Item.Path {
-				return "doc " + it.Version + "/" + it.SHA256
+				return fmt.Sprintf("doc %s/%v", it.Version, it.Review)
 			}
 		}
 		return "doc gone"
@@ -252,7 +290,7 @@ func TestSurfaceRulesInTheHubCore(t *testing.T) {
 				return PermissionSettled{At: at, Session: session, CallID: fmt.Sprint(n - 1)}
 			}
 			return Routed{Session: session, Event: PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}}
-		})
+		}, drawHub)
 	})
 }
 
@@ -270,7 +308,7 @@ func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 					return PromptDone{At: at, Stop: EndTurn}
 				}
 				return PermissionAsked{At: at, Permission: Permission{ID: n, CallID: fmt.Sprint(n), Options: surfaceOpts}}
-			})
+			}, drawSingle)
 	})
 }
 

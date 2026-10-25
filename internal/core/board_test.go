@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -19,6 +20,7 @@ func checklist(id, rev int64, done ...bool) Card {
 			c.Done++
 		}
 	}
+	c.Review = reviewOf(fmt.Sprintf("card %d rev %d\nSteps", id, rev))
 	return c
 }
 
@@ -26,7 +28,7 @@ func tracker(id, rev int64, cells ...Cell) Card {
 	return Card{ID: id, Kind: CardTracker, Status: CardActive, Rev: rev, Title: txt("Accounts", id),
 		Rows:    []CardElem{{ID: 1, CardText: txt("BMO", id)}, {ID: 2, CardText: txt("RBC", id)}},
 		Columns: []CardElem{{ID: 1, CardText: txt("Jun", id)}, {ID: 2, CardText: txt("Jul", id)}},
-		Cells:   cells}
+		Cells:   cells, Review: reviewOf(fmt.Sprintf("card %d rev %d\nAccounts", id, rev))}
 }
 
 // onBoard is a session with the pane focused on a loaded board.
@@ -413,7 +415,7 @@ func TestUnchangedEditIsNotSent(t *testing.T) {
 
 func TestArchiveNeedsConfirming(t *testing.T) {
 	s := onBoard(checklist(10, 10), checklist(20, 20))
-	s, fx := boardKeys(s, PaneDown, PaneArchive, PaneOther)
+	s, fx := boardKeys(s, PaneDown, PaneArchive, PaneEsc)
 	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Message != "Archive cancelled." {
 		t.Fatal("archived without a y")
 	}

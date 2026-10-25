@@ -51,6 +51,9 @@ type Item struct {
 	SHA256       string
 	CanTrust     bool
 	TrustCommand string
+	// Review is relay's review text of a doc, which its trust is
+	// confirmed from; nil when relay sent none.
+	Review *Review
 	// A proposal's tool, arguments (JSON), relay's preview and status,
 	// and the arguments the operator set (Permission.FixedArgs).
 	Tool      string
@@ -108,12 +111,12 @@ const (
 	CiteExternal = "external"
 )
 
-// TrustPrompt is a trust the operator is being asked to confirm. It holds
-// the item as it was listed, so what is confirmed is what was shown.
+// TrustPrompt is a trust the operator is being asked to confirm, in its
+// review. It holds the item as it was listed, so what is confirmed is
+// what was shown.
 type TrustPrompt struct {
-	Item  Item
-	Since time.Time
-	Sent  bool
+	Item Item
+	Sent bool
 }
 
 // Pane is a conversation's part of the workspace pane: its items, and
@@ -573,11 +576,11 @@ func (r *reducer) paneKey(e PaneKey) {
 	if t := p.Trust; t != nil {
 		switch {
 		case t.Sent:
-		case e.Action == PaneYes:
-			if e.At.Sub(t.Since) >= ArmDelay {
-				p.Trust = &TrustPrompt{Item: t.Item, Since: t.Since, Sent: true}
-				r.emit(SendTrust{Path: t.Item.Path, Version: t.Item.Version, SHA256: t.Item.SHA256})
-			}
+		case e.Action == PaneYes && t.Item.Review != nil:
+			// The review armed it (see review.go); relay checks the digest
+			// against the review it sent.
+			p.Trust = &TrustPrompt{Item: t.Item, Sent: true}
+			r.emit(SendTrust{Path: t.Item.Path, Version: t.Item.Version, SHA256: t.Item.Review.SHA256})
 		default:
 			p.Trust = nil
 			p.Message = "Trust cancelled."
@@ -640,8 +643,8 @@ func (r *reducer) startTrust(at time.Time, i int) {
 		p.Message = "Only shown items can be trusted. A proposal is approved when it asks."
 	case !it.Labels.Contaminated:
 		p.Message = "Nothing to trust: this item is not marked contaminated."
-	case p.Relay && it.CanTrust && it.Path != "" && it.Version != "" && it.SHA256 != "":
-		p.Trust = &TrustPrompt{Item: it, Since: at}
+	case p.Relay && it.CanTrust && it.Path != "" && it.Version != "" && it.Review != nil:
+		p.Trust = &TrustPrompt{Item: it}
 	case it.TrustCommand != "":
 		p.Message = "Trust needs a terminal. Run this there:"
 		p.Command = it.TrustCommand

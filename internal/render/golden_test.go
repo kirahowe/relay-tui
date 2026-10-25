@@ -204,27 +204,25 @@ func TestBannerGolden(t *testing.T) {
 	requireGolden(t, strings.Join(out, "\n"))
 }
 
-// drawnLongAgo is x as the shell would have it with its surface on
-// screen for a while: armed.
+// drawnLongAgo is x as the shell would have it with its review, if one
+// has the keys, on screen and read whole for a while: armed.
 func drawnLongAgo(x core.Single) core.Single { return drawn(x, t0.Add(-time.Hour)) }
 
-// drawn is x with its surface drawn at at, and a request's input read
-// whole by then.
+// drawn is x with the review that has the keys, if one does, drawn
+// whole at at.
 func drawn(x core.Single, at time.Time) core.Single {
-	x.App.Shown = core.Shown{Surface: core.SingleSurfaceID(x), At: at}
-	x, _ = core.ReduceSingle(x, core.Drawn{At: at, Surfaces: []string{core.SingleSurfaceID(x)}, Input: wholeInputOf(x.State)})
+	x, _ = core.ReduceSingle(x, core.Tick{At: at}) // the pager follows the review
+	x, _ = core.ReduceSingle(x, wholeReview(core.SingleSurface(x), x.App, x.State, at))
 	return x
 }
 
-// wholeInputOf is a frame that drew all of the input of the request on
-// offer.
-func wholeInputOf(s core.State) []core.InputDrawn {
-	if len(s.Asks) == 0 {
-		return nil
+// wholeReview is a frame that drew all of the review that has the keys.
+func wholeReview(surf core.Surface, a core.App, s core.State, at time.Time) core.Drawn {
+	sub := core.ReviewSubject(surf, a, s)
+	if surf.Kind != core.SurfaceReview || sub.Problem != "" {
+		return core.Drawn{At: at}
 	}
-	p := s.Asks[0]
-	_, spans, lens := inputRows(p, p.Shown().Union(s.Labels).Contaminated, 1000)
-	return drawnInput(s, spans, lens, 0, len(spans))
+	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text)}}
 }
 
 func TestPermissionGolden(t *testing.T) {
@@ -260,9 +258,41 @@ func TestPermissionGolden(t *testing.T) {
 		s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: cases["short"]})
 		requireGolden(t, View(core.Single{State: s}, "› half a thought", "", t0.Add(time.Second), 60, 24).Content)
 	})
-	t.Run("request_entry", func(t *testing.T) {
-		requireGolden(t, strings.Join(Entries(nil, []core.Entry{{Kind: core.Request, Text: "web_fetch", Detail: long, Final: true}}, 50, t0), "\n"))
-	})
+}
+
+// The review of a request, read and armed, and before it is: its text
+// whole on the first page, the options, and the keys.
+func TestReviewGolden(t *testing.T) {
+	opts := []core.PermOption{
+		{ID: "allow", Name: "Allow once", Kind: core.AllowOnce},
+		{ID: "reject", Name: "Reject", Kind: core.RejectOnce},
+	}
+	long := `{"url":"https://example.com/collect?d=` + strings.Repeat("secret", 40) + `","method":"POST","headers":{"x":"y"},` +
+		`"body":"line one\nline two","a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7,"h":8}`
+	ready, _ := core.Reduce(core.State{}, core.Connected{At: t0})
+	busy, _ := core.Reduce(ready, core.Submit{At: t0, Text: "send it"})
+	busy, _ = core.Reduce(busy, core.LabelsSeen{At: t0, Labels: core.Labels{Private: true, Contaminated: true}})
+	cases := map[string]core.Permission{
+		"short": {ID: 1, Name: "web_fetch", Title: `web_fetch {"url":"https://x.test"}`, Input: `{"url":"https://x.test"}`, Options: opts},
+		"long":  {ID: 1, Name: "web_fetch", Input: long, Options: opts},
+		"hostile": {ID: 1, Title: "evil\x1b[2J title", Input: "not json \x1b[31m\x07 text", Options: []core.PermOption{
+			{ID: "a", Name: "Allow\x1b[2J once", Kind: core.AllowOnce}, {ID: "b", Name: "Always", Kind: core.AllowAlways}}},
+		"relay": {ID: 1, Name: "send_mail", Review: &core.Review{Text: "role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject",
+			SHA256: core.Digest("role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject")}, Options: opts},
+	}
+	for name, p := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
+			s, _ = core.Reduce(s, core.OpenReview{At: t0})
+			x := core.Single{App: core.App{Moving: true}, State: s}
+			x, _ = core.ReduceSingle(x, core.Tick{At: t0})
+			t.Run("unread", func(t *testing.T) { requireGolden(t, View(x, "› ", "", t0.Add(time.Second), 60, 16).Content) })
+			for _, w := range []int{60, 30} {
+				f := View(drawnLongAgo(x), "› ", "", t0.Add(time.Second), w, 24)
+				t.Run(strconv.Itoa(w), func(t *testing.T) { requireGolden(t, f.Content) })
+			}
+		})
+	}
 }
 
 func TestBadgesGolden(t *testing.T) {

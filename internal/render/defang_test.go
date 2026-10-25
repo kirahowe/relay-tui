@@ -108,9 +108,8 @@ func TestContaminatedStampsEntries(t *testing.T) {
 }
 
 // P-esc2: the approval view never loses a character: every control and
-// format character in a request shows as a \u escape, none is raw, and
-// the whole input is in the transcript view, unwrapped back to the same
-// JSON.
+// format character in a request shows as a \u{…} escape in its review,
+// and none is raw, there or on the dashboard.
 func TestApprovalViewIsFaithful(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		val := rapid.SampledFrom([]string{"a\u202eb", "x\x1b[2Jy", "z\u200bw", "\U000e0001tag", "plain", "\u0085", "a\\u202eb"}).Draw(t, "val")
@@ -119,25 +118,25 @@ func TestApprovalViewIsFaithful(t *testing.T) {
 		s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
 		s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: val, Title: val, Input: input,
 			Options: []core.PermOption{{ID: "a", Name: val, Kind: core.AllowOnce}}}})
-		s, _ = core.Reduce(s, core.PermissionShowAll{At: t0})
+		s, _ = core.Reduce(s, core.OpenReview{At: t0})
 		width := rapid.IntRange(8, 80).Draw(t, "width")
-		f := View(core.Single{State: s}, "\u203a ", "", t0.Add(core.ArmDelay), width, 40)
-		var rows []string
-		rows = append(rows, strings.Split(f.Content, "\n")...)
-		rows = append(rows, Entries(nil, s.Entries[len(s.Entries)-1:], width, t0)...)
-		for _, r := range rows {
-			for _, c := range sgrRE.ReplaceAllString(r, "") {
-				if c != '\n' && !isPrintOrSpace(c) {
-					t.Fatalf("U+%04X is raw in %q", c, r)
+		x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+		for _, f := range []string{View(core.Single{State: s}, "\u203a ", "", t0.Add(core.ArmDelay), width, 40).Content,
+			View(x, "\u203a ", "", t0.Add(core.ArmDelay), width, 40).Content} {
+			for _, r := range strings.Split(f, "\n") {
+				for _, c := range sgrRE.ReplaceAllString(r, "") {
+					if c != '\n' && !isPrintOrSpace(c) {
+						t.Fatalf("U+%04X is raw in %q", c, r)
+					}
 				}
 			}
 		}
-		last := ansi.Strip(strings.Join(Entries(nil, s.Entries[len(s.Entries)-1:], 1000, t0), "\n"))
-		if strings.Contains(val, "\u202e") && !strings.Contains(last, `\u202e`) {
-			t.Fatalf("the escape is missing: %q", last)
+		text := core.ReviewSubject(core.SingleSurface(x), x.App, x.State).Text
+		if strings.Contains(val, "\u202e") && !strings.Contains(text, `\u{202e}`) {
+			t.Fatalf("the escape is missing: %q", text)
 		}
-		if strings.Contains(val, "\U000e0001") && !strings.Contains(last, `\udb40\udc01`) {
-			t.Fatalf("the tag character is missing: %q", last)
+		if strings.Contains(val, "\U000e0001") && !strings.Contains(text, `\u{e0001}`) {
+			t.Fatalf("the tag character is missing: %q", text)
 		}
 	})
 }

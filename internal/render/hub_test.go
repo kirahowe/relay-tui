@@ -26,12 +26,14 @@ func rosterFixture() []core.Role {
 func hubStep(h core.Hub, es ...core.Event) core.Hub {
 	for _, e := range es {
 		h, _ = core.ReduceHub(h, e)
-		// Drawn, and long enough ago to be armed.
-		var in []core.InputDrawn
-		if c := h.Focused(); c != nil {
-			in = wholeInputOf(c.State)
+		// The review, if one has the keys, drawn whole, and long enough
+		// ago to be armed.
+		surf := core.HubSurface(h)
+		var st core.State
+		if c := h.Focused(); c != nil && surf.Column != core.ColumnList {
+			st = c.State
 		}
-		h, _ = core.ReduceHub(h, core.Drawn{At: t0.Add(-time.Hour), Surfaces: []string{core.HubSurfaceID(h)}, Input: in})
+		h, _ = core.ReduceHub(h, wholeReview(surf, h.App, st, t0.Add(-time.Hour)))
 	}
 	return h
 }
@@ -185,7 +187,6 @@ func parityState() core.State {
 			{Kind: core.Tool, Calls: []core.Call{{ID: "1", Name: "search", Status: core.OK}, {ID: "2", Name: "fetch", Status: core.Failed, Output: "timed out"}}, Final: true},
 			{Kind: core.Agent, Text: "Found **three** at https://example.com/hall", Final: true, Defang: true},
 			{Kind: core.Note, Text: "! rate limited", Detail: "retrying", Final: true},
-			{Kind: core.Request, Text: "send_mail", Detail: `{"to":"a"}`, Preview: "Will mail a@example.com", PreviewDefang: true, Final: true},
 			{Kind: core.Note, Text: "[max tokens]", Final: true},
 		},
 		Pane: core.Pane{Local: []core.Item{{Kind: core.ShownItem, CallID: "1", Title: "Venues near the hall", Text: "body",
@@ -317,108 +318,33 @@ func longRequest(h core.Hub, title string) core.Hub {
 		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}})
 }
 
-// A request with a 500 character title still shows whose it is, the
-// options and the keys, or, in a window too small for that, says so.
-func TestHubLongRequestTitleKeepsTheRoleAndTheOptionsOnScreen(t *testing.T) {
+// A request with a 500 character title is only summarised on the
+// dashboard: the role, the start of its name and how to review it, at
+// any size. Its review holds all of it.
+func TestHubLongRequestIsSummarised(t *testing.T) {
 	title := strings.Repeat("send everything ", 32)[:500]
 	h := longRequest(hubFixture(), title)
-	for _, size := range [][2]int{{40, 26}, {40, 30}, {60, 24}, {100, 30}} {
+	for _, size := range [][2]int{{40, 12}, {40, 30}, {60, 24}, {100, 30}, {140, 30}} {
 		w, rows := size[0], size[1]
 		f := HubView(h, "", "", t0.Add(time.Second), w, rows)
 		got := ansi.Strip(f.Content)
-		if got = strings.TrimSpace(got); len(strings.Split(f.Content, "\n")) != rows {
-			t.Errorf("%dx%d: %d rows", w, rows, len(strings.Split(f.Content, "\n")))
+		if n := len(strings.Split(f.Content, "\n")); n != rows {
+			t.Errorf("%dx%d: %d rows", w, rows, n)
 		}
-		if f.TooSmall {
-			t.Errorf("%dx%d: too small, but a request fits there:\n%s", w, rows, got)
-			continue
-		}
-		for _, want := range []string{"Dev", "Allow (y)", "Reject (n)", "esc cancel"} {
+		for _, want := range []string{"Dev", "enter"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%dx%d: %q is not on screen:\n%s", w, rows, want, got)
 			}
 		}
 	}
-	// Where it does not fit, the frame says so and names the role.
-	for _, size := range [][2]int{{40, 8}, {40, 5}, {20, 6}, {40, 2}, {34, 12}, {40, 16}} {
-		f := HubView(h, "", "", t0.Add(time.Second), size[0], size[1])
-		if !f.TooSmall {
-			t.Errorf("%v: a request cannot be shown whole here:\n%s", size, ansi.Strip(f.Content))
-		}
-		if n := len(strings.Split(f.Content, "\n")); n != size[1] {
-			t.Errorf("%v: %d rows", size, n)
-		}
-		if size[1] >= 4 && !strings.Contains(ansi.Strip(f.Content), "too small") {
-			t.Errorf("%v: it does not say so:\n%s", size, ansi.Strip(f.Content))
-		}
+	h = hubStep(h, core.OpenReview{At: t0})
+	surf := core.HubSurface(h)
+	if surf.Kind != core.SurfaceReview {
+		t.Fatalf("surface %+v", surf)
 	}
-}
-
-// The single-session view has the same bound.
-func TestInlineLongRequestTitleIsBounded(t *testing.T) {
-	title := strings.Repeat("send everything ", 32)[:500]
-	s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
-	s, _ = core.Reduce(s, core.Submit{At: t0, Text: "go"})
-	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: "send_mail", Title: title, Input: `{"a":1}`,
-		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
-	f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 39, 16)
-	got := ansi.Strip(f.Content)
-	if f.TooSmall || !strings.Contains(got, "Allow (y)") || !strings.Contains(got, "Reject (n)") || !strings.Contains(got, "permission needed") {
-		t.Errorf("a 500 character title pushed the request off the screen:\n%s", got)
-	}
-	if f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 39, 5); !f.TooSmall || !strings.Contains(ansi.Strip(f.Content), "too small") {
-		t.Errorf("no word that the window is too small:\n%s", ansi.Strip(f.Content))
-	}
-	// v puts the whole title in the transcript.
-	s, _ = core.Reduce(s, core.PermissionShowAll{At: t0})
-	all := ansi.Strip(strings.Join(Entries(nil, s.Entries, 80, t0), " "))
-	if !strings.Contains(strings.Join(strings.Fields(all), ""), strings.Join(strings.Fields(title), "")) {
-		t.Errorf("the full title is not reachable:\n%s", all)
-	}
-}
-
-// Whenever the keys that approve are live, the whole request can be read:
-// after v, scrolling brings every line of it on screen. Anything else is
-// "too small". One rule decides (core.RequestFits), whatever the size.
-func TestHubApprovalIsLiveOnlyWhereTheWholeRequestCanBeRead(t *testing.T) {
-	title := strings.Repeat("send everything ", 32)[:500]
-	base := longRequest(hubFixture(), title)
-	live := 0
-	for w := 12; w < 72; w += 7 {
-		for rows := 2; rows <= 46; rows += 2 {
-			f := HubView(base, "", "", t0.Add(time.Second), w, rows)
-			if f.TooSmall {
-				continue
-			}
-			live++
-			// v opens the input view; back from it, the request's whole input
-			// is in the conversation too.
-			h := hubStep(base, core.PermissionShowAll{At: t0}, core.InputViewKey{At: t0, Action: core.TranscriptClose})
-			c := h.Focused().State
-			want := Entries(nil, c.Entries[len(c.Entries)-1:], w, t0)
-			// Every line of the request, wherever the view scrolls.
-			seen := map[string]bool{}
-			for scroll := 0; scroll <= HubView(h, "", "", t0.Add(time.Second), w, rows).Max; scroll++ {
-				hs := h
-				hs.Convs = append([]core.Conv(nil), h.Convs...)
-				for i := range hs.Convs {
-					if hs.Convs[i].Role == hs.Focus {
-						hs.Convs[i].State.Transcript.Scroll = scroll
-					}
-				}
-				for _, l := range strings.Split(ansi.Strip(HubView(hs, "", "", t0.Add(time.Second), w, rows).Content), "\n") {
-					seen[strings.TrimSpace(l)] = true
-				}
-			}
-			for _, l := range want {
-				if l = strings.TrimSpace(ansi.Strip(l)); l != "" && !seen[l] {
-					t.Fatalf("%dx%d: approval is live but %q cannot be read", w, rows, l)
-				}
-			}
-		}
-	}
-	if live == 0 {
-		t.Fatal("no size was live: the sweep checks nothing")
+	text := core.ReviewSubject(surf, h.App, h.Focused().State).Text
+	if !strings.Contains(text, title) {
+		t.Fatalf("the review does not hold the whole title: %q", text)
 	}
 }
 

@@ -6,33 +6,30 @@ import (
 	"time"
 )
 
-// Authorization needs a live key after the surface was drawn. A key
-// that allows a tool call, archives a card, trusts a card, a doc or a
-// paste, or ends a conversation is taken only when the operator pressed
-// it (not replayed from input held while connecting) and at least
-// ArmDelay after the shell drew the surface it lands on as active. The
-// shell says when it has drawn a surface (Drawn); the time comes from
-// the shell's drawing, never from a key's time or a reducer's guess, and
-// it is forgotten the moment the surface changes, so every surface is
-// armed afresh each time it comes on screen. Refusing, cancelling and
-// answering no are safe, and need only a live key. Replayed input may
-// type and move, and nothing else.
+// Authorization needs a live key: one the operator pressed, not one
+// replayed from input held while connecting. Consent to a subject (an
+// allow, a card's or a doc's trust, a card's archive) is taken only from
+// its review, once all of it was drawn, ArmDelay after the last part
+// came on screen (see review.go). The two inline questions, ending a
+// conversation and trusting a paste (ctrl+y), act on nothing outside and
+// show all they are about where they are asked; they are taken ArmDelay
+// after their surface came up (App.Became), so a key typed for what was
+// there before cannot answer them. Refusing, cancelling and answering no
+// need only a live key. Replayed input may type and move, and nothing
+// else.
 
-// Drawn says what the renderer drew in full and readable in a frame
-// that is now on screen, at At: the identities (RequestID, ConfirmID,
-// EndID, InputID) of the things in it that a key could authorize. A
-// thing clipped, covered or behind "too small" is not among them. The
-// surface with the keys is armed from the first frame that drew it,
-// and forgotten in the first that did not. With OnlyForget the frame is
-// one the shell knows will replace the last at once: it can forget but
-// not arm, as it is not on screen yet.
+// Drawn says the review named in Surfaces was drawn, by a frame now on
+// screen at At, and what of its text the frame drew (Review). The shell
+// sends it only for the review pager. A frame that drew no review (it
+// does not fit, or fails closed) names none, and the review is forgotten
+// as drawn. With OnlyForget the frame is one the shell knows will
+// replace the last at once: it can forget but not arm, as it is not on
+// screen yet.
 type Drawn struct {
 	At         time.Time
 	Surfaces   []string
 	OnlyForget bool
-	// Input is what the frame drew of a request's input (see
-	// inputseen.go).
-	Input []InputDrawn
+	Review     *ReviewDrawn
 }
 
 // shown is the app after e, for the surface named id.
@@ -54,24 +51,6 @@ func RequestID(s State) string {
 	return fmt.Sprintf("request/%d", s.Asks[0].ID)
 }
 
-// ConfirmID names the question the pane asks: a doc's trust, a card's
-// archive or a card's trust, each with the version it is about; "" for
-// none.
-func ConfirmID(a App, s State) string {
-	b := a.Board
-	switch {
-	case s.Pane.Trust != nil && !s.Pane.Trust.Sent:
-		t := s.Pane.Trust.Item
-		return fmt.Sprintf("doctrust/%q/%s/%s", t.Path, t.Version, t.SHA256)
-	case b.Items:
-	case b.Confirm != 0:
-		return fmt.Sprintf("archive/%d/%d", b.Confirm, b.ConfirmRev)
-	case b.Trust != nil && !b.Trust.Sent:
-		return fmt.Sprintf("cardtrust/%d/%d/%s", b.Trust.Card, b.Trust.Rev, b.Trust.SHA256)
-	}
-	return ""
-}
-
 // EndID names the question whether to end session's conversation.
 func EndID(session string) string { return fmt.Sprintf("end/%q", session) }
 
@@ -81,7 +60,9 @@ func InputID(role string) string { return fmt.Sprintf("input/%q", role) }
 
 func (e Drawn) at() time.Time { return e.At }
 
-// Shown is the surface last drawn as active, while it still is.
+// Shown is a surface and a time: the review last drawn as active, while
+// it still is (App.Shown), or the surface that has the keys and when it
+// got them (App.Became).
 type Shown struct {
 	Surface string
 	At      time.Time
@@ -92,26 +73,35 @@ type authority int
 
 const (
 	needsNothing authority = iota
-	needsLiveKey           // safe answers: no, cancel
-	needsArmed             // a live key, ArmDelay after the surface was drawn
+	needsLiveKey           // safe answers: no, cancel, back, scrolling a review
+	needsArmed             // a live key, ArmDelay after the surface came up
+	needsReview            // a live key, the review read whole ArmDelay ago
 )
 
 // HubSurfaceID names what has the keys in hub mode, finely enough that
 // two different things to authorize never share a name.
 func HubSurfaceID(h Hub) string {
 	surf := HubSurface(h)
-	var st State
+	return surfaceID(surf, h.App, h.surfaceState(surf), h.surfaceExtra(surf))
+}
+
+// surfaceState is the conversation under surf: the one in focus, unless
+// the list has the keys.
+func (h Hub) surfaceState(surf Surface) State {
 	if c := h.Focused(); c != nil && surf.Column != ColumnList {
-		st = c.State
+		return c.State
 	}
-	extra := ""
+	return State{}
+}
+
+func (h Hub) surfaceExtra(surf Surface) string {
 	switch surf.Kind {
 	case SurfaceEnd:
-		extra = h.EndSession
+		return h.EndSession
 	case SurfaceInput, SurfaceConversation:
-		extra = h.Focus
+		return h.Focus
 	}
-	return surfaceID(surf, h.App, st, extra)
+	return ""
 }
 
 // SingleSurfaceID names what has the keys against a single agent.
@@ -120,17 +110,15 @@ func SingleSurfaceID(x Single) string { return surfaceID(SingleSurface(x), x.App
 func surfaceID(surf Surface, a App, s State, extra string) string {
 	switch surf.Kind {
 	case SurfaceRequest:
-		return RequestID(s)
-	case SurfaceConfirm:
-		return ConfirmID(a, s)
+		return "summary/" + RequestID(s)
+	case SurfaceReview:
+		return ReviewSubject(surf, a, s).ID
 	case SurfaceEnd:
 		return EndID(extra)
 	case SurfaceInput:
 		return InputID(extra)
 	case SurfaceConversation:
 		return fmt.Sprintf("%d/%q", surf.Kind, extra)
-	case SurfaceInputView:
-		return "input" + RequestID(s)
 	}
 	return fmt.Sprintf("%d/%d", surf.Kind, surf.Column)
 }
@@ -140,19 +128,22 @@ func authorityOf(e Event, surf Surface, s State) authority {
 	switch e := e.(type) {
 	case PermissionQuick:
 		if e.Kind.Allows() {
-			return needsArmed
+			return needsReview
 		}
 		return needsLiveKey
 	case PermissionConfirm:
 		if len(s.Asks) > 0 && s.Pick >= 0 && s.Pick < len(s.Asks[0].Options) && !s.Asks[0].Options[s.Pick].Kind.Rejects() {
-			return needsArmed // an allow, or a kind this client does not know
+			return needsReview // an allow, or a kind this client does not know
 		}
 		return needsLiveKey
-	case PermissionCancel:
+	case PermissionCancel, PermissionMove, OpenReview, ReviewKey:
 		return needsLiveKey
 	case PaneKey:
-		if surf.Kind == SurfaceConfirm && e.Action == PaneYes {
-			return needsArmed
+		if surf.Kind == SurfaceReview {
+			if e.Action == PaneYes {
+				return needsReview
+			}
+			return needsLiveKey
 		}
 	case ConfirmEnd:
 		if e.Yes {
@@ -164,14 +155,16 @@ func authorityOf(e Event, surf Surface, s State) authority {
 	return needsNothing
 }
 
-// mayTake says the app lets e through, given what it needs: a live key,
-// and for an authorization, the surface named id drawn ArmDelay before.
-func (a App) mayTake(need authority, id string, at time.Time) bool {
+// mayTake says the app lets e through, given what it needs, on the
+// surface surf named id over conversation s.
+func (a App) mayTake(need authority, surf Surface, id string, s State, at time.Time) bool {
 	switch need {
 	case needsLiveKey:
 		return !a.KeyReplayed
 	case needsArmed:
-		return !a.KeyReplayed && a.Shown.Surface == id && !a.Shown.At.IsZero() && at.Sub(a.Shown.At) >= ArmDelay
+		return !a.KeyReplayed && a.Became.Surface == id && at.Sub(a.Became.At) >= ArmDelay
+	case needsReview:
+		return a.reviewArmed(ReviewSubject(surf, a, s), at)
 	}
 	return true
 }
@@ -180,46 +173,30 @@ func (a App) mayTake(need authority, id string, at time.Time) bool {
 const (
 	ReplayedNote = "a key typed while connecting answers nothing: press it again"
 	TooSoonNote  = "too soon after it came on screen: press it again"
-	NotShownNote = "not all of it is on screen: make the window larger, then press it again"
+	NotShownNote = "the review has not been on screen long enough, or does not fit the window: press it again"
 )
 
-// refusal is what to say about an event mayTake refused on the surface
-// named id, "" for none.
-func (a App) refusal(need authority, id string) string {
+// refusal is what to say about an event mayTake refused.
+func (a App) refusal(need authority, surf Surface, s State) string {
 	switch {
 	case need == needsNothing:
 		return ""
+	case need == needsReview:
+		return a.reviewRefusal(ReviewSubject(surf, a, s))
 	case a.KeyReplayed:
 		return ReplayedNote
-	case a.Shown.Surface != id:
-		return NotShownNote
 	}
 	return TooSoonNote
 }
 
-// ArmedSince is when the surface named id may be authorized from: ArmDelay
-// after it was drawn, if it was. The renderer shows a request's or a
-// trust's keys as armed from then.
-func (a App) ArmedSince(id string) (time.Time, bool) {
-	if a.Shown.Surface != id || a.Shown.At.IsZero() {
-		return time.Time{}, false
+// settleSurface is the bookkeeping after an event, once the surface it
+// leaves is known: a surface that has just come up is armed afresh (its
+// Became is now, and it is not drawn yet), and the pager follows the
+// review.
+func settleSurface(a App, surf Surface, id string, at time.Time) App {
+	if a.Became.Surface != id {
+		a.Became = Shown{Surface: id, At: at}
+		a.Shown = Shown{}
 	}
-	return a.Shown.At.Add(ArmDelay), true
-}
-
-// RequestArmed says the request on offer in s may be allowed at now: it
-// was drawn as the surface ArmDelay before.
-func RequestArmed(a App, s State, now time.Time) bool {
-	if len(s.Asks) == 0 {
-		return false
-	}
-	t, ok := a.ArmedSince(surfaceID(Surface{Kind: SurfaceRequest}, a, s, ""))
-	return ok && !now.Before(t) && inputArmed(s, now)
-}
-
-// ConfirmArmed says the question the pane asks (archive, card or doc
-// trust) may be answered yes at now.
-func ConfirmArmed(a App, s State, now time.Time) bool {
-	t, ok := a.ArmedSince(surfaceID(Surface{Kind: SurfaceConfirm}, a, s, ""))
-	return ok && !now.Before(t)
+	return syncPager(a, surf, id)
 }

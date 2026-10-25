@@ -27,10 +27,15 @@ func TestPermissionViewBounded(t *testing.T) {
 		for range rapid.IntRange(1, 3).Draw(t, "asks") {
 			s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: text, Title: text, Input: text, Options: opts}})
 		}
+		if rapid.Bool().Draw(t, "review") {
+			s, _ = core.Reduce(s, core.OpenReview{At: t0})
+		}
 		width := rapid.IntRange(1, 90).Draw(t, "width")
 		height := rapid.IntRange(2, 40).Draw(t, "height")
 		now := t0.Add(time.Duration(rapid.IntRange(0, 2000).Draw(t, "ms")) * time.Millisecond)
-		f := View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", now, width, height)
+		x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+		x = drawn(x, t0)
+		f := View(x, "› ", "", now, width, height)
 		rows := strings.Split(f.Content, "\n")
 		if len(rows) != height-1 {
 			t.Fatalf("%d rows, want %d", len(rows), height-1)
@@ -48,9 +53,10 @@ func TestPermissionViewBounded(t *testing.T) {
 	})
 }
 
-// With a request on offer the live view shows the tool, its input and
-// the option keys, and the long input is cut with the way to see it all.
-func TestPermissionBoxContent(t *testing.T) {
+// With a request on offer the dashboard shows only its summary, which
+// says how to review it; the review shows the tool, its whole input and
+// the option keys.
+func TestRequestSummaryAndReviewContent(t *testing.T) {
 	s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
 	s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
 	var in []string
@@ -61,9 +67,23 @@ func TestPermissionBoxContent(t *testing.T) {
 		Input:   "{" + strings.Join(in, ",") + "}",
 		Options: []core.PermOption{{ID: "a", Name: "Allow once", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
 	out := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 60, 30).Content)
-	for _, want := range []string{"permission needed", "memo_send", `"k": 1`, "more lines · v to read them", "Allow once (y)", "▸ Reject (n)", "v to read all before y", "esc cancel"} {
+	for _, want := range []string{"permission needed", "memo_send", "enter to review"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q missing from:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{`"k": 1`, "Allow once", "(y)"} {
+		if strings.Contains(out, not) {
+			t.Errorf("the summary shows %q:\n%s", not, out)
+		}
+	}
+	s, _ = core.Reduce(s, core.OpenReview{At: t0})
+	x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+	out = ansi.Strip(View(x, "› ", "", t0.Add(time.Second), 60, 30).Content)
+	for _, want := range []string{"Allow this tool call?", `tool: "memo_send"`, `"k": 1`, "Allow once (y)", "▸ Reject (n)",
+		"page 1 of 3", "more below", "y allow once all is read", "esc cancel"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q missing from the review:\n%s", want, out)
 		}
 	}
 }
@@ -80,12 +100,13 @@ func TestRequestInputLinksDefangWhenContaminated(t *testing.T) {
 		Options: []core.PermOption{{ID: "r", Name: "Reject", Kind: core.RejectOnce}}}
 	s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
 	box := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "› ", "", t0.Add(time.Second), 80, 30).Content)
-	if strings.Contains(box, "https://") || !strings.Contains(box, "hxxps://attacker[.]example") {
-		t.Errorf("box:\n%s", box)
+	if strings.Contains(box, "https://") {
+		t.Errorf("summary:\n%s", box)
 	}
-	s, _ = core.Reduce(s, core.PermissionShowAll{At: t0})
-	all := ansi.Strip(strings.Join(Entries(nil, s.Entries, 80, t0), "\n"))
-	if strings.Contains(all, "https://attacker") {
-		t.Errorf("transcript:\n%s", all)
+	s, _ = core.Reduce(s, core.OpenReview{At: t0})
+	x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+	all := ansi.Strip(View(x, "› ", "", t0.Add(time.Second), 80, 30).Content)
+	if strings.Contains(all, "https://") || !strings.Contains(all, `https\u{003a}//attacker\u{002e}example`) {
+		t.Errorf("review:\n%s", all)
 	}
 }

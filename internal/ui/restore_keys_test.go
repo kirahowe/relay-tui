@@ -26,7 +26,7 @@ func update(m Model, msgs ...tea.Msg) Model {
 		next, _ := m.Update(msg)
 		m = next.(Model)
 		if m.drawnPending {
-			next, _ = m.Update(drawnMsg{gen: m.drawnGen, set: m.drawnSet})
+			next, _ = m.Update(drawnMsg{gen: m.drawnGen, set: m.drawnSet, review: m.drawnReview})
 			m = next.(Model)
 		}
 	}
@@ -279,12 +279,13 @@ func TestHeldEscYAndTYAuthorizeNothing(t *testing.T) {
 	roles := []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}
 	m = update(m, ev(core.HubConnected{At: clock}), ev(core.Attached{At: clock, Role: "dev", Session: "s1"}),
 		ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)}), ev(core.RosterUpdate{At: clock, Roles: roles}))
-	if len(calls) != 0 || core.HubSurface(m.hub).Kind != core.SurfaceRequest || m.hub.Notice != core.ReplayedNote {
+	if len(calls) != 0 || core.HubSurface(m.hub).Kind != core.SurfaceRequest {
 		t.Fatalf("calls %+v surface %+v notice %q", calls, core.HubSurface(m.hub), m.hub.Notice)
 	}
+	m = update(m, key("enter"))
 	clock = clock.Add(core.ArmDelay)
 	if m = update(m, key("y")); len(calls) != 1 || calls[0].option != "allow" {
-		t.Fatalf("a live y once armed: %+v", calls)
+		t.Fatalf("a live y once read: %+v", calls)
 	}
 
 	calls = nil

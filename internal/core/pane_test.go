@@ -30,7 +30,11 @@ var trustable = Item{
 	Text: "see https://example.org/v", Sources: []Source{{Title: "List", Ref: "web:https://example.org/list"}},
 	Labels: Labels{Private: true, Contaminated: true}, Version: "412", SHA256: "abc123def456abc123",
 	CanTrust: true, TrustCommand: "relay trust doc shown/2026-10-18/x.md",
+	Review: reviewOf("doc shown/2026-10-18/x.md v412\nVenues\nsee hxxps://example[.]org/v"),
 }
+
+// reviewOf is relay's review of text t: t and its digest.
+func reviewOf(t string) *Review { return &Review{Text: t, SHA256: Digest(t)} }
 
 // focused is a connected session with relay's list loaded and the pane
 // focused on the first item.
@@ -174,12 +178,13 @@ func TestPermissionFlowStillGuardsApproval(t *testing.T) {
 	if len(answers(fx)) != 0 || len(s2.Asks) != 1 {
 		t.Fatalf("pane keys changed a waiting request: %#v", fx)
 	}
-	// h gives the keys to the conversation, where the request is the
-	// surface: its delay starts then.
+	// h gives the keys to the conversation, where the request's summary
+	// is the surface; enter opens its review, and its delay starts then.
 	s, _ = feed(s, Move{At: t0, Delta: -1})
 	if SingleSurface(s).Kind != SurfaceRequest {
 		t.Fatalf("surface %+v", SingleSurface(s))
 	}
+	s, _ = feed(s, OpenReview{At: t0})
 	// The existing flow answers, after the arm delay, and the domains of
 	// what was approved become known.
 	if s.Pane.NewHosts("https://send.example.net/a")[0] != "send.example.net" {
@@ -220,7 +225,7 @@ func TestTrustFlow(t *testing.T) {
 	// Armed, y sends what was listed.
 	s, fx = feed(s, key(t0.Add(ArmDelay), PaneYes))
 	send := effectsOf[SendTrust](fx)
-	if len(send) != 1 || send[0] != (SendTrust{Path: trustable.Path, Version: "412", SHA256: trustable.SHA256}) {
+	if len(send) != 1 || send[0] != (SendTrust{Path: trustable.Path, Version: "412", SHA256: trustable.Review.SHA256}) {
 		t.Fatalf("effects %#v", fx)
 	}
 	// While it is out, keys do nothing.
@@ -236,22 +241,26 @@ func TestTrustFlow(t *testing.T) {
 	}
 }
 
-func TestTrustCancelsOnAnyOtherKey(t *testing.T) {
-	// PaneToggle is not among them: the question has the keys, so the core
-	// takes no column move while it asks, and the shell sends h and l
-	// there as pane keys, which cancel.
-	for _, a := range []PaneAction{PaneOther, PaneUp, PaneDown, PaneEsc, PaneEnter, PaneTrust, PaneLeft} {
+// In its review a trust is answered by y and cancelled by esc (the shell
+// sends n and q as esc too); no other pane key reaches it, so none can
+// cancel or confirm it by accident.
+func TestTrustAnswersOnlyItsKeys(t *testing.T) {
+	for _, a := range []PaneAction{PaneOther, PaneUp, PaneDown, PaneEnter, PaneTrust, PaneLeft, PaneToggle} {
 		s := focused(trustable)
 		s, _ = feed(s, key(t0, PaneTrust))
 		s, fx := feed(s, key(t0.Add(time.Hour), a))
-		if s.Pane.Trust != nil || len(effectsOf[SendTrust](fx)) != 0 {
-			t.Errorf("action %d left the confirmation or sent a trust", a)
+		if s.Pane.Trust == nil || len(fx) != 0 {
+			t.Errorf("action %d reached the review: %+v %v", a, s.Pane.Trust, fx)
 		}
-		// And a late y afterwards sends nothing.
-		_, fx = feed(s, key(t0.Add(2*time.Hour), PaneYes))
-		if len(effectsOf[SendTrust](fx)) != 0 {
-			t.Errorf("action %d: a y after the cancel sent a trust", a)
-		}
+	}
+	s := focused(trustable)
+	s, _ = feed(s, key(t0, PaneTrust), key(t0.Add(time.Hour), PaneEsc))
+	if s.Pane.Trust != nil || s.Pane.Message != "Trust cancelled." {
+		t.Fatalf("esc did not cancel: %+v", s.Pane)
+	}
+	// And a late y afterwards sends nothing.
+	if _, fx := feed(s, key(t0.Add(2*time.Hour), PaneYes)); len(effectsOf[SendTrust](fx)) != 0 {
+		t.Error("a y after the cancel sent a trust")
 	}
 }
 
@@ -373,8 +382,8 @@ func TestPaneKeysCannotApproveOrSend(t *testing.T) {
 			}
 			for _, st := range effectsOf[SendTrust](fx) {
 				pk, _ := e.(PaneKey)
-				if pk.Action != PaneYes || prev.Pane.Trust == nil || pk.At.Sub(prev.Pane.Trust.Since) < ArmDelay ||
-					st != (SendTrust{Path: trustable.Path, Version: trustable.Version, SHA256: trustable.SHA256}) {
+				if pk.Action != PaneYes || prev.Pane.Trust == nil ||
+					st != (SendTrust{Path: trustable.Path, Version: trustable.Version, SHA256: trustable.Review.SHA256}) {
 					t.Fatalf("trust sent by %+v with prompt %+v", e, prev.Pane.Trust)
 				}
 			}
@@ -416,17 +425,6 @@ func TestDomainsOnlyGrow(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestShowAllCarriesThePreview(t *testing.T) {
-	s := busySingle()
-	s, _ = feed(s, LabelsSeen{At: t0, Labels: Labels{Contaminated: true}}, StopTyping{At: t0},
-		PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "send", Input: `{"a":1}`, Preview: "will send x"}},
-		PermissionShowAll{At: t0})
-	e := s.Entries[len(s.Entries)-1]
-	if e.Kind != Request || e.Preview != "will send x" || !e.PreviewDefang || e.Detail != `{"a":1}` {
-		t.Fatalf("entry %+v", e)
-	}
 }
 
 func TestStatusCountsPaneItems(t *testing.T) {

@@ -42,15 +42,18 @@ func TestWorkspaceSidePaneAndApproval(t *testing.T) {
 	if strings.Contains(scr, "https://example.org") || strings.Contains(scr, "https://send.example.net") {
 		t.Errorf("a live link on screen:\n%s", scr)
 	}
-	// The preview sits in the permission box too, above the input.
-	box := scr[strings.Index(scr, "permission needed"):]
-	if !strings.Contains(box, "Sends") || strings.Index(box, "Sends") > strings.Index(box, "Kira only\"") {
-		t.Errorf("no preview above the input in the box:\n%s", scr)
+	// The review holds the preview, above the input, and has the whole
+	// screen: l does not take the pane.
+	h.review()
+	scr = h.screen()
+	if !strings.Contains(scr, "Sends") || strings.Index(scr, "Sends") > strings.Index(scr, "Kira only\"") {
+		t.Errorf("no preview above the input in the review:\n%s", scr)
 	}
-	// Keys belong to the request: l does not take the pane.
+	if strings.Contains(scr, "https://send.example.net") {
+		t.Errorf("a live link in the review:\n%s", scr)
+	}
 	h.keys("l")
-	time.Sleep(100 * time.Millisecond)
-	time.Sleep(core.ArmDelay)
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -72,7 +75,8 @@ func TestWorkspaceSidePaneAndApproval(t *testing.T) {
 func TestWorkspaceTrust(t *testing.T) {
 	h := wideWorkspace(t)
 	h.waitScreen("the pane", func(s string) bool { return strings.Contains(s, "waiting for you") })
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -83,8 +87,8 @@ func TestWorkspaceTrust(t *testing.T) {
 	h.keys("quz")
 	h.keys("j") // to the shown item
 	h.keys("t")
-	scr := h.waitScreen("the confirmation", func(s string) bool { return strings.Contains(s, "Trust this?") })
-	for _, want := range []string{"Trust this?", "contaminated from what", "Three venues are open late.", "shown/2026-10-18/t1.md", "v412"} {
+	scr := h.waitScreen("the review", func(s string) bool { return strings.Contains(s, "Trust this doc?") })
+	for _, want := range []string{"Trust this doc?", "Three venues are open late.", "shown/2026-10-18/t1.md", "version 412", "hxxps://example[.]org/venues"} {
 		if !strings.Contains(scr, want) {
 			t.Errorf("%q not in the confirmation:\n%s", want, scr)
 		}
@@ -98,12 +102,13 @@ func TestWorkspaceTrust(t *testing.T) {
 	if len(h.extensionCalls("_relay/trust")) != 0 {
 		t.Fatal("trust sent before the arm delay")
 	}
-	time.Sleep(core.ArmDelay)
+	h.readAll()
 	h.keys("y")
 	scr = h.waitScreen("the outcome", func(s string) bool { return strings.Contains(s, "Trusted.") })
+	// The trust names the digest of the review relay sent.
 	calls := h.extensionCalls("_relay/trust")
 	if len(calls) != 1 || !strings.Contains(calls[0], `"path":"shown/2026-10-18/t1.md"`) || !strings.Contains(calls[0], `"version":412`) ||
-		!strings.Contains(calls[0], `"sha256":"0123456789abcdef`) || !strings.Contains(calls[0], `"sessionId":"fake-session"`) {
+		!strings.Contains(calls[0], `"sha256":"208ac2382a3ec822fff331007355c892ab945ea6727c6ead359fbca3652693b6"`) || !strings.Contains(calls[0], `"sessionId":"fake-session"`) {
 		t.Fatalf("trust calls %q", calls)
 	}
 	// Relay's new list has the item without the contaminated label.
@@ -126,7 +131,8 @@ const ctrlXHint = "l to focus"
 func TestWorkspaceTrustCancelledByAnotherKey(t *testing.T) {
 	h := wideWorkspace(t)
 	h.waitScreen("the pane", func(s string) bool { return strings.Contains(s, "waiting for you") })
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -134,7 +140,7 @@ func TestWorkspaceTrustCancelledByAnotherKey(t *testing.T) {
 	h.keys("l")
 	h.keys("j")
 	h.keys("t")
-	h.waitScreen("the confirmation", func(s string) bool { return strings.Contains(s, "Trust this?") })
+	h.waitScreen("the review", func(s string) bool { return strings.Contains(s, "Trust this doc?") })
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("n")
 	h.waitScreen("cancel", func(s string) bool { return strings.Contains(s, "Trust cancelled.") })
@@ -149,7 +155,8 @@ func TestWorkspaceOverlayOnANarrowScreen(t *testing.T) {
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -185,7 +192,8 @@ func TestDisplayStaysOutOfToolOutput(t *testing.T) {
 	h.keys("go\r")
 	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
 	h.answer() // esc: while typing a request takes no keys
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
+	h.readAll()
 	h.keys("y")
 	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
 	h.waitIdle()
@@ -207,7 +215,7 @@ func TestWorkspaceWithoutRelay(t *testing.T) {
 	if !strings.Contains(scr, "untrusted") {
 		t.Errorf("no untrusted mark:\n%s", scr)
 	}
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.review()
 	h.keys("n")
 	h.waitOutcome(`{"optionId":"reject","outcome":"selected"}`)
 	h.waitIdle()

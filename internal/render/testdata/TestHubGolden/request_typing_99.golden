@@ -8,9 +8,9 @@
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m                                                                        ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m                                                                        ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m                                                                        ␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;1;7m permission needed ␛[m ␛[0;1msend_mail␛[m␛[0;2m · esc to answer␛[m                          ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;1;7m permission needed ␛[m ␛[0;1msend_mail␛[m␛[0;2m · esc, then enter to review␛[m              ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m───────────────────────────────────────────────────────────────────────␛[m␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;36m›␛[m                                                                      ␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m? ␛[0;1m[private]␛[0;2m waiting for you · esc to answer · l workspace (1)␛[m          ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m? ␛[0;1m[private]␛[0;2m waiting for you · esc, then enter to review␛[m                ␛[m ␛[0;36m│␛[m
 ␛[0;2m╰␛[m␛[0;2m──────────────────────␛[m␛[0;2m╯␛[m␛[m␛[0;36m╰␛[m␛[0;36m─────────────────────────────────────────────────────────────────────────␛[m␛[0;36m╯␛[m
- ␛[0;1mTYPING␛[m  ␛[0;36mesc␛[m␛[0;2m answer␛[m␛[0;2m • ␛[m␛[0;36malt+1␛[m␛[0;2m role␛[m
+ ␛[0;1mTYPING␛[m  ␛[0;36mesc,␛[m␛[0;2m then enter to review␛[m␛[0;2m • ␛[m␛[0;36malt+1␛[m␛[0;2m role␛[m
