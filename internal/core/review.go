@@ -147,18 +147,27 @@ type Span struct{ From, To int }
 // of its text has been drawn, and when the last part not drawn before
 // came on screen, once every part has (ReadAt). Its zero ReadAt says not
 // all of it has.
+//
+// Pick is the request's highlighted option as a frame last drew it whole
+// (-1 for none), and PickAt when it first did since the highlight last
+// moved: enter sends the highlighted option only once it has been on
+// screen ArmDelay (see pickArmed).
 type Pager struct {
 	ID     string
 	Scroll int
 	Seen   []Span
 	ReadAt time.Time
+	Pick   int
+	PickAt time.Time
 }
 
 // ReviewDrawn is what a frame drew of the review named ID: bytes From to
-// To of its text.
+// To of its text, and Pick, the request's highlighted option it drew
+// whole, by its index in Options (-1 for none, or no request).
 type ReviewDrawn struct {
 	ID       string
 	From, To int
+	Pick     int
 }
 
 // see is p after a frame drew d at at, of a text n bytes long.
@@ -170,8 +179,35 @@ func (p Pager) see(d ReviewDrawn, n int, at time.Time) Pager {
 	if p.ReadAt.IsZero() && covers(p.Seen, n) {
 		p.ReadAt = at
 	}
+	switch {
+	case d.Pick < 0:
+		p.Pick, p.PickAt = -1, time.Time{} // not on screen whole: shown afresh when it is
+	case p.PickAt.IsZero() || p.Pick != d.Pick:
+		p.Pick, p.PickAt = d.Pick, at
+	}
 	return p
 }
+
+// pickMoved is p once the highlight has moved: it is armed afresh from
+// the next frame that draws it.
+func pickMoved(p *Pager) *Pager {
+	if p == nil {
+		return nil
+	}
+	n := *p
+	n.Pick, n.PickAt = -1, time.Time{}
+	return &n
+}
+
+// pickArmed says enter may send the highlighted option of s at at: a
+// frame drew it whole ArmDelay before, and it has not moved since.
+func (a App) pickArmed(s State, at time.Time) bool {
+	p := a.Pager
+	return p != nil && p.Pick == s.Pick && p.Pick >= 0 && !p.PickAt.IsZero() && at.Sub(p.PickAt) >= ArmDelay
+}
+
+// PickNote is what an enter refused for its highlight says.
+const PickNote = "the highlighted option has not been on screen long enough, or does not fit: press enter again, or widen the window"
 
 // mergeSpans is spans sorted, with those that touch or overlap joined.
 func mergeSpans(spans []Span) []Span {
@@ -272,7 +308,7 @@ func syncPager(a App, surf Surface, id string) App {
 	case surf.Kind != SurfaceReview:
 		a.Pager = nil
 	case a.Pager == nil || a.Pager.ID != id:
-		a.Pager = &Pager{ID: id}
+		a.Pager = &Pager{ID: id, Pick: -1}
 	}
 	return a
 }

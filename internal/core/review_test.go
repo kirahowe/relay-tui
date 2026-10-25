@@ -443,7 +443,7 @@ func TestAnAllowNeedsEveryPageReadAndTheDelay(t *testing.T) {
 				from := rapid.IntRange(0, n).Draw(t, "from")
 				to := rapid.IntRange(from, min(n, from+rapid.IntRange(0, 300).Draw(t, "len"))).Draw(t, "to")
 				id := SingleSurfaceID(x)
-				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to}})
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to, Pick: x.State.Pick}})
 				grew := false
 				for i := from; i < to; i++ {
 					grew = grew || !covered[i]
@@ -456,10 +456,6 @@ func TestAnAllowNeedsEveryPageReadAndTheDelay(t *testing.T) {
 				replayed := rapid.IntRange(0, 3).Draw(t, "replayed") == 0
 				x, _ = ReduceSingle(x, KeyPressed{At: at, Replayed: replayed})
 				var e Event = PermissionQuick{At: at, Kind: AllowOnce}
-				if rapid.Bool().Draw(t, "enter") {
-					x, _ = ReduceSingle(x, PermissionMove{At: at, Delta: 1})
-					e = PermissionConfirm{At: at}
-				}
 				next, fx := ReduceSingle(x, e)
 				if a := allowed(fx); len(a) > 0 {
 					if replayed || !read() || at.Sub(lastNew) < ArmDelay {
@@ -631,4 +627,59 @@ func TestContentFieldsStayApart(t *testing.T) {
 	if _, fx := feedS(x, PermissionQuick{At: t0, Kind: RejectOnce}); len(answers(fx)) != 1 {
 		t.Fatal("rejecting must still work")
 	}
+}
+
+// Codex round 1, finding 3: enter sends the highlighted option, so it
+// allows only once a frame has drawn that option whole, ArmDelay after
+// the highlight last moved; y, which names its option, needs only the
+// review read. Frames here draw the highlight whole or not at random (a
+// narrow row may not hold it).
+func TestEnterNeedsTheHighlightOnScreen(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		x := busySingle()
+		x, _ = feedS(x, StopTyping{At: t0}, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c1", Name: "send",
+			Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}, {ID: "b", Kind: AllowOnce}}}})
+		x, _ = ReduceSingle(x, OpenReview{At: t0})
+		id := SingleSurfaceID(x)
+		n := len(ReviewSubject(SingleSurface(x), x.App, x.State).Text)
+		x, _ = ReduceSingle(x, Drawn{At: t0, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Pick: -1}}) // read, highlight cut
+		var pickAt time.Time                                                                                         // when the highlight, as it is now, was first drawn whole
+		at := t0
+		for range rapid.IntRange(1, 40).Draw(t, "steps") {
+			at = at.Add(time.Duration(rapid.IntRange(0, 500).Draw(t, "ms")) * time.Millisecond)
+			if len(x.State.Asks) == 0 {
+				return
+			}
+			switch rapid.IntRange(0, 2).Draw(t, "what") {
+			case 0:
+				x, _ = ReduceSingle(x, PermissionMove{At: at, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")})
+				pickAt = time.Time{}
+			case 1:
+				whole := rapid.Bool().Draw(t, "whole")
+				pick := -1
+				if whole {
+					pick = x.State.Pick
+					if pickAt.IsZero() {
+						pickAt = at
+					}
+				} else {
+					pickAt = time.Time{}
+				}
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Pick: pick}})
+			default:
+				allow := x.State.Asks[0].Options[x.State.Pick].Kind == AllowOnce
+				next, fx := ReduceSingle(x, PermissionConfirm{At: at})
+				ok := !pickAt.IsZero() && at.Sub(pickAt) >= ArmDelay
+				switch {
+				case allow && len(allowed(fx)) > 0 && !ok:
+					t.Fatalf("enter allowed with the highlight drawn whole since %v (%v)", pickAt, at.Sub(pickAt))
+				case allow && len(allowed(fx)) == 0 && ok:
+					t.Fatalf("enter refused with the highlight on screen %v: %q", at.Sub(pickAt), next.State.Message.Text)
+				case !allow && len(answers(fx)) != 1:
+					t.Fatalf("enter on a reject did not answer at once: %v", fx)
+				}
+				x = next
+			}
+		}
+	})
 }

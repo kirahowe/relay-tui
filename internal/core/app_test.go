@@ -13,7 +13,11 @@ func wholeReview(surf Surface, a App, s State, at time.Time) Drawn {
 	if sub.Problem != "" {
 		return Drawn{At: at}
 	}
-	return Drawn{At: at, Surfaces: []string{sub.ID}, Review: &ReviewDrawn{ID: sub.ID, From: 0, To: len(sub.Text)}}
+	pick := -1
+	if surf.Subject == SubjectRequest {
+		pick = s.Pick // the highlighted option, on a row with room
+	}
+	return Drawn{At: at, Surfaces: []string{sub.ID}, Review: &ReviewDrawn{ID: sub.ID, From: 0, To: len(sub.Text), Pick: pick}}
 }
 
 // feedS applies events in turn, as the shell does: after each, the

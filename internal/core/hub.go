@@ -341,7 +341,7 @@ func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 		return h, nil
 	}
 	if need := authorityOf(e, surf, st); !h.App.mayTake(need, surf, id, st, e.at()) {
-		h.Notice = h.App.refusal(need, surf, st)
+		h.Notice = h.App.refusal(need, surf, st, e.at())
 		return h, nil
 	}
 	switch e := e.(type) {

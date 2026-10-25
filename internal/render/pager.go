@@ -149,8 +149,13 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	}
 	request := sub.Kind == core.SubjectRequest
 	var foot []string
+	pickDrawn := -1
 	if request && len(s.Asks) > 0 {
-		foot = append(foot, optionsLine(s, core.ReviewArmed(surf, a, s, now), width))
+		row, ok := optionsLine(s, core.ReviewArmed(surf, a, s, now), width)
+		foot = append(foot, row)
+		if ok {
+			pickDrawn = s.Pick
+		}
 	}
 	back := "esc cancel"
 	if request {
@@ -204,7 +209,7 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	out = append(out, keysLines(sub, a, s, surf, note, now, lines, scroll, end, rows, width)...)
 	return PagerFrame{
 		Content: strings.Join(out, "\n"),
-		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to},
+		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to, Pick: pickDrawn},
 		Max:     mx, Page: rows,
 	}
 }
@@ -233,10 +238,16 @@ func doneWord(k core.SubjectKind) string {
 // optionsLine is the request's options by their number in T and their
 // ACP kind, the protocol's own words, the highlighted one marked. The
 // names are the agent's, so they are only in T. Before the review is
-// armed the allows are faint.
-func optionsLine(s core.State, armed bool, width int) string {
+// armed the allows are faint. When not all fit, the row shows a window
+// of them that always holds the highlighted one, with ‹ and › where more
+// lie; drawn says the highlighted entry is on the row whole, which enter
+// needs (core's pickArmed). One that cannot fit at all is not drawn.
+func optionsLine(s core.State, armed bool, width int) (line string, drawn bool) {
 	p := s.Asks[0]
-	var parts []string
+	if len(p.Options) == 0 {
+		return styled(faint, truncate("nothing to choose · esc cancel", width)), false
+	}
+	entries := make([]string, len(p.Options))
 	for i, o := range p.Options {
 		mark := "  "
 		if i == s.Pick {
@@ -253,12 +264,41 @@ func optionsLine(s core.State, armed bool, width int) string {
 		if !armed && !o.Kind.Rejects() {
 			st |= faint
 		}
-		parts = append(parts, styled(st, t))
+		entries[i] = styled(st, t)
 	}
-	if len(parts) == 0 {
-		return styled(faint, truncate("nothing to choose · esc cancel", width))
+	const gap, more = "   ", "‹ "
+	span := func(lo, hi int) int {
+		w := Width(strings.Join(entries[lo:hi+1], gap))
+		if lo > 0 {
+			w += Width(more)
+		}
+		if hi < len(entries)-1 {
+			w += Width(more)
+		}
+		return w
 	}
-	return truncate(strings.Join(parts, "   "), width)
+	pick := min(max(s.Pick, 0), len(entries)-1)
+	lo, hi := pick, pick
+	if span(lo, hi) > width {
+		return styled(bold, truncate("the highlighted option does not fit: widen the window", width)), false
+	}
+	for grew := true; grew; {
+		grew = false
+		if hi+1 < len(entries) && span(lo, hi+1) <= width {
+			hi, grew = hi+1, true
+		}
+		if lo > 0 && span(lo-1, hi) <= width {
+			lo, grew = lo-1, true
+		}
+	}
+	line = strings.Join(entries[lo:hi+1], gap)
+	if lo > 0 {
+		line = styled(faint, "‹ ") + line
+	}
+	if hi < len(entries)-1 {
+		line += styled(faint, " ›")
+	}
+	return line, s.Pick >= 0 && s.Pick < len(entries)
 }
 
 // keysLines is the review's foot: where it is in T and how much is left,

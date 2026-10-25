@@ -222,7 +222,11 @@ func wholeReview(surf core.Surface, a core.App, s core.State, at time.Time) core
 	if surf.Kind != core.SurfaceReview || sub.Problem != "" {
 		return core.Drawn{At: at}
 	}
-	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text)}}
+	pick := -1
+	if surf.Subject == core.SubjectRequest {
+		pick = s.Pick
+	}
+	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text), Pick: pick}}
 }
 
 func TestPermissionGolden(t *testing.T) {

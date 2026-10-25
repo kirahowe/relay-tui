@@ -18,6 +18,6 @@ options:
 
 
 ␛[0;2m──────────────────────────────␛[m
-  1 allow_once (y)   ␛[0;1m▸ 2 reje…␛[m
+␛[0;2m‹ ␛[m␛[0;1m▸ 2 reject_once (n)␛[m
 ␛[0;2mpage 1 of 1␛[m
 ␛[0;1;36my allow␛[m␛[0;2m · n reject · esc canc…␛[m

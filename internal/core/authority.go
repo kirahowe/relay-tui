@@ -72,10 +72,11 @@ type Shown struct {
 type authority int
 
 const (
-	needsNothing authority = iota
-	needsLiveKey           // safe answers: no, cancel, back, scrolling a review
-	needsArmed             // a live key, ArmDelay after the surface came up
-	needsReview            // a live key, the review read whole ArmDelay ago
+	needsNothing       authority = iota
+	needsLiveKey                 // safe answers: no, cancel, back, scrolling a review
+	needsArmed                   // a live key, ArmDelay after the surface came up
+	needsReview                  // a live key, the review read whole ArmDelay ago
+	needsReviewAndPick           // needsReview, and the highlighted option drawn whole ArmDelay ago
 )
 
 // HubSurfaceID names what has the keys in hub mode, finely enough that
@@ -133,7 +134,9 @@ func authorityOf(e Event, surf Surface, s State) authority {
 		return needsLiveKey
 	case PermissionConfirm:
 		if len(s.Asks) > 0 && s.Pick >= 0 && s.Pick < len(s.Asks[0].Options) && !s.Asks[0].Options[s.Pick].Kind.Rejects() {
-			return needsReview // an allow, or a kind this client does not know
+			// An allow, or a kind this client does not know: what is sent
+			// is the highlighted option, so it must have been seen too.
+			return needsReviewAndPick
 		}
 		return needsLiveKey
 	case PermissionCancel, PermissionMove, OpenReview, ReviewKey:
@@ -165,6 +168,8 @@ func (a App) mayTake(need authority, surf Surface, id string, s State, at time.T
 		return !a.KeyReplayed && a.Became.Surface == id && at.Sub(a.Became.At) >= ArmDelay
 	case needsReview:
 		return a.reviewArmed(ReviewSubject(surf, a, s), at)
+	case needsReviewAndPick:
+		return a.reviewArmed(ReviewSubject(surf, a, s), at) && a.pickArmed(s, at)
 	}
 	return true
 }
@@ -176,13 +181,18 @@ const (
 	NotShownNote = "the review has not been on screen long enough, or does not fit the window: press it again"
 )
 
-// refusal is what to say about an event mayTake refused.
-func (a App) refusal(need authority, surf Surface, s State) string {
+// refusal is what to say about an event mayTake refused at at.
+func (a App) refusal(need authority, surf Surface, s State, at time.Time) string {
 	switch {
 	case need == needsNothing:
 		return ""
 	case need == needsReview:
 		return a.reviewRefusal(ReviewSubject(surf, a, s))
+	case need == needsReviewAndPick:
+		if sub := ReviewSubject(surf, a, s); !a.reviewArmed(sub, at) {
+			return a.reviewRefusal(sub)
+		}
+		return PickNote
 	case a.KeyReplayed:
 		return ReplayedNote
 	}

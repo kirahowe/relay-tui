@@ -128,7 +128,7 @@ func reduceSingleTop(x Single, e Event) (Single, []Effect) {
 		return x, nil
 	}
 	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, surf, id, x.State, e.at()) {
-		x.State.Message = Message{Text: x.App.refusal(need, surf, x.State), At: e.at()}
+		x.State.Message = Message{Text: x.App.refusal(need, surf, x.State, e.at()), At: e.at()}
 		return x, nil
 	}
 	switch e := e.(type) {

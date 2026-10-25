@@ -272,3 +272,41 @@ func TestNothingAgentWrittenOutsideTheBody(t *testing.T) {
 		}
 	})
 }
+
+// Codex round 1, finding 3: at any width, wherever the highlight is, the
+// options row holds the highlighted entry whole when it says it drew it,
+// and the frame reports the highlight drawn only then.
+func TestTheHighlightedOptionIsAlwaysInView(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
+		s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
+		kinds := []core.OptionKind{core.AllowOnce, core.RejectOnce}
+		var opts []core.PermOption
+		for i := range rapid.IntRange(1, 6).Draw(t, "options") {
+			opts = append(opts, core.PermOption{ID: fmt.Sprint(i), Name: "opt", Kind: rapid.SampledFrom(kinds).Draw(t, "kind"), N: i + 1})
+		}
+		s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: "send", Options: opts}})
+		s, _ = core.Reduce(s, core.OpenReview{At: t0})
+		for range rapid.IntRange(0, 6).Draw(t, "moves") {
+			s, _ = core.Reduce(s, core.PermissionMove{At: t0, Delta: 1})
+		}
+		x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
+		width := rapid.IntRange(10, 100).Draw(t, "width")
+		f := Review(core.SingleSurface(x), x.App, x.State, "", t0, width, 20)
+		p := x.State.Asks[0]
+		want := fmt.Sprintf("▸ %d %s", p.Number(x.State.Pick), p.Options[x.State.Pick].Kind)
+		shown := false
+		for _, r := range strings.Split(ansi.Strip(f.Content), "\n") {
+			shown = shown || strings.Contains(r, want)
+		}
+		if f.Drawn == nil {
+			t.Fatalf("no review drawn at %d", width)
+		}
+		if (f.Drawn.Pick == x.State.Pick) != shown {
+			t.Fatalf("width %d: the frame says the highlight %d drawn %v, the screen shows %q: %v\n%s", width, x.State.Pick, f.Drawn.Pick, want, shown, ansi.Strip(f.Content))
+		}
+		if width >= 24 && !shown {
+			t.Fatalf("width %d: the highlight %q is out of view\n%s", width, want, ansi.Strip(f.Content))
+		}
+	})
+}

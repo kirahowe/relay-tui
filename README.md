@@ -82,7 +82,9 @@ never cut, never escaped again and never shortened, so the pager's
 lines put together are T. Nothing the agent wrote shows anywhere else
 on the review. The top row says what you are asked, in relay-tui's own
 words ("Allow this tool call?"). The foot names a request's options by
-their number in T and their ACP kind (`▸ 2 reject_once (n)`), then
+their number in T and their ACP kind (`▸ 2 reject_once (n)`), always
+keeping the highlighted one in view, with `‹` and `›` where more lie
+(when even it does not fit, the row says to widen the window), then
 shows which page you are on, how many are left, and the keys.
 
 Keys in the review:
@@ -94,7 +96,7 @@ Keys in the review:
 | `g`, `home` / `G`, `end` | the top, the end |
 | `y` | allow once (a request), or trust, or archive |
 | `tab`, `right` / `shift+tab`, `left` | the next option, or the one before (a request) |
-| `enter` | the highlighted option (a request; it starts on a reject) |
+| `enter` | the highlighted option (a request; it starts on a reject). An allow waits until the highlighted entry has been on screen whole for 600 ms since it last moved |
 | `n` | reject once (a request), or cancel |
 | `esc` | cancel (a request answers cancelled) |
 | `q` | back to the dashboard, answering nothing (a request); cancel (the pane's questions) |
