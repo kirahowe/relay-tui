@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/caelis-labs/acp-go-sdk"
+	"pgregory.net/rapid"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 )
@@ -101,4 +103,37 @@ func TestCallContentFields(t *testing.T) {
 			t.Errorf("%q not named in %q", want, unshown)
 		}
 	}
+}
+
+// Round 3: a field name or type the agent chose reached the review's fail
+// screen as itself, bidi overrides and C1 controls included. Whatever the
+// agent sends, every reason the content cannot be shown is printable
+// ASCII, so agent text shows only inside a review's text.
+func TestUnshownIsPrintableASCII(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		name := rapid.OneOf(rapid.String(), rapid.SampledFrom([]string{"x\u202eevil\u009b31m\u200b", "a\"b", "\\"}))
+		var items []map[string]any
+		for range rapid.IntRange(1, 4).Draw(t, "items") {
+			kind := rapid.OneOf(rapid.SampledFrom([]string{"content", "diff", "terminal"}), name).Draw(t, "type")
+			block := map[string]any{"type": rapid.OneOf(rapid.SampledFrom([]string{"text", "resource"}), name).Draw(t, "block"), "text": "t"}
+			block[name.Draw(t, "blockField")] = 1
+			it := map[string]any{"type": kind, "content": block, "path": "p", "newText": "n", "terminalId": "t"}
+			it[name.Draw(t, "field")] = 1
+			items = append(items, it)
+		}
+		raw, err := json.Marshal(items)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, unshown := CallContent(raw)
+		for _, u := range unshown {
+			for i := 0; i < len(u); {
+				r, n := utf8.DecodeRuneInString(u[i:])
+				if r < 0x20 || r > 0x7e {
+					t.Fatalf("unshown %q holds U+%04X", u, r)
+				}
+				i += n
+			}
+		}
+	})
 }

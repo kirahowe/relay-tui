@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/strictjson"
@@ -71,7 +73,7 @@ func CallContent(raw json.RawMessage) (pieces []core.CallContent, unshown []stri
 			}
 			pieces = append(pieces, core.CallContent{Kind: core.ContentTerminal, TerminalID: *tm.ID})
 		default:
-			unshown = append(unshown, fmt.Sprintf("%s (of type %q)", where, kind))
+			unshown = append(unshown, where+" (of type "+named(kind)+")")
 		}
 	}
 	return pieces, unshown
@@ -133,7 +135,7 @@ func blockOf(b map[string]json.RawMessage) (core.CallContent, string) {
 		c.Blob, c.BlobSize, c.BlobSHA256 = true, len(data), hex.EncodeToString(sum[:])
 		return c, ""
 	}
-	return core.CallContent{}, fmt.Sprintf("a block of type %q", kind)
+	return core.CallContent{}, "a block of type " + named(kind)
 }
 
 // extra names the members of m that are not among known, or "".
@@ -148,9 +150,16 @@ func extra(m map[string]json.RawMessage, known ...string) string {
 		return ""
 	}
 	sort.Strings(out)
-	b, _ := json.Marshal(out)
-	return "fields " + string(b)
+	for i, k := range out {
+		out[i] = named(k)
+	}
+	return "fields " + strings.Join(out, ", ")
 }
+
+// named is a name the agent chose, for a reason the review gives: quoted
+// in printable ASCII, so nothing the agent wrote reaches the screen as
+// itself outside the review's text.
+func named(s string) string { return strconv.QuoteToASCII(s) }
 
 func orWhole(bad string) string {
 	if bad == "" {
