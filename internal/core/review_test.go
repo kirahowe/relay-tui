@@ -716,10 +716,18 @@ func TestEnterNeedsTheHighlightOnScreen(t *testing.T) {
 				allow := x.State.Asks[0].Options[x.State.Pick].Kind == AllowOnce
 				next, fx := ReduceSingle(x, PermissionConfirm{At: at})
 				ok := !pickAt.IsZero() && at.Sub(pickAt) >= ArmDelay
+				// Any answer but the reject and a cancel is an allow: there
+				// are two allow_once options here.
+				allows := 0
+				for _, a := range answers(fx) {
+					if !a.Cancelled && a.OptionID != "r" {
+						allows++
+					}
+				}
 				switch {
-				case allow && len(allowed(fx)) > 0 && !ok:
+				case allow && allows > 0 && !ok:
 					t.Fatalf("enter allowed with the highlight drawn whole since %v (%v)", pickAt, at.Sub(pickAt))
-				case allow && len(allowed(fx)) == 0 && ok:
+				case allow && allows == 0 && ok:
 					t.Fatalf("enter refused with the highlight on screen %v: %q", at.Sub(pickAt), next.State.Message.Text)
 				case !allow && len(answers(fx)) != 1:
 					t.Fatalf("enter on a reject did not answer at once: %v", fx)
