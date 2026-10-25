@@ -83,8 +83,10 @@ every key that authorizes something: archiving a card, trusting a card,
 a doc or a paste (Ctrl-Y), and ending a conversation each wait 600 ms
 from when their question, or the input, was drawn, and the status line
 says "too soon" if you press it before. Drawn means drawn in full: a
-request behind "Window too small", or a question the window clips (a
-tall draft can leave the pane no room), is not armed at all, and the
+request is armed only when its heading, preview and every option show
+whole, and a question only with all it is about, never a shortened
+form; one behind "Window too small", or that the window clips (a tall
+draft can leave the pane no room), is not armed at all, and the
 status line says to make the window larger. When it next shows whole,
 its 600 ms start again. Other keys are ignored while
 the request has the keys, so no prompt can go out. Requests
@@ -301,7 +303,9 @@ Keys on the board:
   archive also carries the rev you saw (`seen`). A doc's trust is cancelled the same way when relay lists a
   newer version. relay's CLI can restore an archived card.
 - t trusts the selected card when it holds outside text. The pane shows
-  the whole card and asks "Trust …? It clears outside text from what it
+  every text of the card in full, one after another (its title, items,
+  rows, columns or note; not the tracker's grid, which shortens them),
+  and asks "Trust …? It clears outside text from what it
   says now." After a short delay, y confirms, and any other key cancels.
   relay-tui sends relay the card's rev and the digest relay sent with it
   (`_relay/cards/trust`), so a card that changed in the meantime is not

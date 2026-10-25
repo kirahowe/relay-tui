@@ -74,7 +74,17 @@ func howToAnswer(surf core.Surface) string {
 	return "to answer, go to its conversation"
 }
 
-func permissionBox(s core.State, armed bool, width, room int) []string {
+// permissionBox draws the request on offer in room rows. As a review
+// (see review.go) its heading, preview and options are drawn whole;
+// otherwise they are cut to fit, and the box says to make the window
+// larger.
+func permissionBox(s core.State, armed bool, width, room int, review bool) []string {
+	whole := func(lines []string, n, w int) []string {
+		if review {
+			return lines
+		}
+		return capLines(lines, n, w)
+	}
 	p := s.Asks[0]
 	inner := InputWidth(width)
 	title := core.EscapeLabel(p.Label())
@@ -91,7 +101,7 @@ func permissionBox(s core.State, armed bool, width, room int) []string {
 	var lines []string
 	// A title is the model's to write and can be as long as it likes, so
 	// it takes at most titleRows rows; v puts all of it in the transcript.
-	for _, l := range capLines(wrapAll([]string{title}, inner), titleRows, inner) {
+	for _, l := range whole(wrapAll([]string{title}, inner), titleRows, inner) {
 		lines = append(lines, styled(bold, l))
 	}
 	var opts []string
@@ -107,7 +117,7 @@ func permissionBox(s core.State, armed bool, width, room int) []string {
 		if k := optionKey(o.Kind); k != "" {
 			text += " (" + k + ")"
 		}
-		for j, l := range capLines(wrapAll([]string{text}, inner-2), optionRows, inner-2) {
+		for j, l := range whole(wrapAll([]string{text}, inner-2), optionRows, inner-2) {
 			lead := "  "
 			if j == 0 {
 				lead = mark
@@ -125,6 +135,9 @@ func permissionBox(s core.State, armed bool, width, room int) []string {
 	if n := len(s.Asks) - 1; n > 0 {
 		hint += fmt.Sprintf(" · %d more waiting", n)
 	}
+	if !review {
+		hint = largerNote
+	}
 	budget := max(room-2-len(lines)-len(opts)-1, 1)
 	// Relay's preview of what the call will do goes above the input, cut
 	// the same way. It is what a service said, which can be anyone's
@@ -132,6 +145,9 @@ func permissionBox(s core.State, armed bool, width, room int) []string {
 	if p.Preview != "" {
 		pv := textLines(p.Preview, true, inner)
 		show := min(permissionBody, max(budget/2, 1))
+		if review {
+			show = len(pv) + 1 // all of it
+		}
 		for i, l := range pv {
 			if i == show-1 && len(pv) > show {
 				lines = append(lines, styled(faint, truncate(fmt.Sprintf("… %d more lines · v to see all", len(pv)-i), inner)))
@@ -160,7 +176,11 @@ func permissionBox(s core.State, armed bool, width, room int) []string {
 	}
 	lines = append(lines, capLines(fixedLines(p.FixedArgs, def, inner), 2, inner)...)
 	lines = append(lines, opts...)
-	lines = append(lines, styled(faint, truncate(hint, inner)))
+	if review {
+		lines = append(lines, styled(faint, truncate(hint, inner)))
+	} else {
+		lines = append(lines, wrap(styled(bold, hint), inner)...)
+	}
 	return box("permission needed", lines, width)
 }
 

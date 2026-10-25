@@ -557,7 +557,8 @@ func trustBody(s core.State, width int) []string {
 	it := s.Pane.Trust.Item
 	inner := max(width-2, 1)
 	out := wrap(styled(bold, "Trust this?")+" It clears contaminated from what it says now.", width)
-	out = append(out, "", untrustedMark()+" "+itemTitle(it, true))
+	out = append(out, "")
+	out = append(out, hang(untrustedMark()+" ", itemTitle(it, true), width)...)
 	var ids []string
 	for _, id := range []string{it.Path, "v" + it.Version} {
 		ids = append(ids, paneLine(id, true))

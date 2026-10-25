@@ -574,9 +574,12 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		active = core.SurfaceEnd
 		armable = core.EndID(h.EndSession)
 	case asking:
-		bottom = append(bottom, permissionBox(s, core.RequestArmed(h.App, s, now), width, height-1-len(bottom)-2)...)
+		// The review must leave the conversation its rows, as the frame
+		// asks of any request (below).
+		box, arm := requestBox(h.App, s, now, width, height-1-len(bottom)-2, height-2-len(bottom)-core.MinTranscriptRows)
+		bottom = append(bottom, box...)
 		active = core.SurfaceRequest
-		armable = core.RequestID(s)
+		armable = arm
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.
 	default:

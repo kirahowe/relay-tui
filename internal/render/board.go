@@ -395,9 +395,10 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
 	case b.Trust != nil:
-		// What the operator vouches for: the whole card, as it is now.
+		// What the operator vouches for: every text of the card, as it is
+		// now, whole (its review; see review.go).
 		if i := slices.IndexFunc(b.Cards, func(x core.Card) bool { return x.ID == b.Trust.Card }); i >= 0 {
-			pr.body, _, _ = cardPanel(b, b.Cards[i], width, true, false)
+			pr.body = cardReview(b.Cards[i], width)
 		}
 	case b.Detail && sel >= 0:
 		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, focus)
