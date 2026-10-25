@@ -10,6 +10,6 @@
     │ }
   option 1: "Allow once" kind "allow_once"
 ␛[0;2m────────────────────────────────────────────────────────────␛[m
-␛[0;2m  1 allow_once (y)␛[m   ␛[0;1m▸ 2 reject_once (n)␛[m
+␛[0;2m  1 allow_once (y)␛[m  ␛[0;1m▸ 2 reject_once (n)␛[m
 ␛[0;2mpage 1 of 2 · 1 more below: space␛[m
 ␛[0;2my allow once all is read␛[m␛[0;2m · n reject · esc cancel · q back ·…␛[m

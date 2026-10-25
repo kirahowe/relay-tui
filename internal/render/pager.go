@@ -290,7 +290,7 @@ func optionsLine(s core.State, armed bool, width int) (line string, drawn []int)
 		}
 		entries[i] = styled(st, t)
 	}
-	const gap, more = "   ", "‹ "
+	const gap, more = "  ", "‹ "
 	span := func(lo, hi int) int {
 		w := Width(strings.Join(entries[lo:hi+1], gap))
 		if lo > 0 {
