@@ -91,8 +91,10 @@ func TestPermissionPreviewAndLabels(t *testing.T) {
 		"options":[{"optionId":"a","name":"Allow","kind":"allow_once"}]}`), &req); err != nil {
 		t.Fatal(err)
 	}
+	// The preview mark is read as a claim, on its block; the core decides.
 	p := Permission(req, "", 3, t0).Permission
-	if p.Preview != "Sends X" || p.CallID != "c1" || p.Labels != (core.Labels{Private: true}) {
+	if len(p.Content) != 3 || !p.Content[0].Preview || p.Content[0].Text != "Sends X" || p.Content[1].Preview || p.Content[2].Preview ||
+		p.CallID != "c1" || p.Labels != (core.Labels{Private: true}) {
 		t.Errorf("permission %#v", p)
 	}
 	if l, ok := PermissionLabels(req, t0); !ok || !l.Labels.Private {
@@ -189,8 +191,8 @@ func TestPermissionPreviewLabelsAndFixedArgs(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := Permission(req, "", 3, t0).Permission
-	if p.PreviewLabels != (core.Labels{Private: true, Contaminated: true}) || p.Labels != (core.Labels{Private: true}) {
-		t.Errorf("labels %#v / %#v", p.Labels, p.PreviewLabels)
+	if len(p.Content) != 1 || p.Content[0].PreviewLabels != (core.Labels{Private: true, Contaminated: true}) || p.Labels != (core.Labels{Private: true}) {
+		t.Errorf("labels %#v / %#v", p.Labels, p.Content)
 	}
 	if strings.Join(p.FixedArgs, ",") != "group,send_now" {
 		t.Errorf("fixed %v", p.FixedArgs)

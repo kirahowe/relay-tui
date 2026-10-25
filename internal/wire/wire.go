@@ -211,8 +211,9 @@ func Permission(req acp.RequestPermissionRequest, input string, id uint64, at ti
 	if input == "" {
 		input = rawJSON(req.ToolCall.RawInput)
 	}
+	// relay's keys are read as claims; the core decides whether they
+	// count (core.trustRelay).
 	p := core.Permission{ID: id, Input: input, CallID: string(req.ToolCall.ToolCallId),
-		Preview: Preview(req.ToolCall.Content), PreviewLabels: PreviewLabels(req.ToolCall.Content),
 		FixedArgs: fixedArgs(req.ToolCall.Meta)}
 	p.Labels, _ = labelsOf(req.ToolCall.Meta)
 	if n := req.ToolCall.Name; n != nil {
@@ -226,10 +227,10 @@ func Permission(req acp.RequestPermissionRequest, input string, id uint64, at ti
 	}
 	raw, _ := json.Marshal(req.ToolCall.Content)
 	p.Content, p.Unshown = CallContent(raw)
-	p.Review = Review(req.Meta[ReviewKey])
+	p.Claims.Review = Review(req.Meta[ReviewKey])
 	var refused string
 	if strictjson.Unmarshal(req.Meta[RefusedKey], &refused) == nil {
-		p.Refused = refused
+		p.Claims.Refused = refused
 	}
 	for i, o := range req.Options {
 		p.Options = append(p.Options, core.PermOption{ID: string(o.OptionId), Name: o.Name, Kind: core.OptionKind(o.Kind), N: i + 1})

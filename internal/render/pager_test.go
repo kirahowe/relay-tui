@@ -74,12 +74,14 @@ func TestPagerLinesAreTheTextExactly(t *testing.T) {
 // reviewOf is relay's review of text t.
 func reviewOf(t string) *core.Review { return &core.Review{Text: t, SHA256: core.Digest(t)} }
 
-// reviewing is a single agent's session with a request on offer whose
-// review is open, its text rv.
+// reviewing is a session with a request on offer whose review is open,
+// its text rv. With rv the conversation is one of relay's hub (Shared),
+// where relay's review counts (core's trustRelay).
 func reviewing(rv *core.Review) core.Single {
 	s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
 	s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
-	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, CallID: "c", Name: "send_mail", Review: rv,
+	s.Shared = rv != nil
+	s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, CallID: "c", Name: "send_mail", Claims: core.RelayClaims{Review: rv},
 		Options: []core.PermOption{{ID: "a", Name: "Allow once", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}})
 	s, _ = core.Reduce(s, core.OpenReview{At: t0})
 	x, _ := core.ReduceSingle(core.Single{App: core.App{Moving: true}, State: s}, core.Tick{At: t0})
@@ -246,7 +248,8 @@ func TestNothingAgentWrittenOutsideTheBody(t *testing.T) {
 		}
 		s, _ := core.Reduce(core.State{}, core.Connected{At: t0})
 		s, _ = core.Reduce(s, core.Submit{At: t0, Text: "x"})
-		s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: name, Title: title, Review: rv,
+		s.Shared = rv != nil
+		s, _ = core.Reduce(s, core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, Name: name, Title: title, Claims: core.RelayClaims{Review: rv},
 			Input:   `{"a":"` + mark("input") + `"}`,
 			Options: []core.PermOption{{ID: "a", Name: opt1, Kind: core.AllowOnce, N: 1}, {ID: "r", Name: opt2, Kind: core.RejectOnce, N: 2}}}})
 		s, _ = core.Reduce(s, core.OpenReview{At: t0})

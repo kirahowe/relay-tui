@@ -281,12 +281,14 @@ func TestReviewGolden(t *testing.T) {
 		"long":  {ID: 1, Name: "web_fetch", Input: long, Options: opts},
 		"hostile": {ID: 1, Title: "evil\x1b[2J title", Input: "not json \x1b[31m\x07 text", Options: []core.PermOption{
 			{ID: "a", Name: "Allow\x1b[2J once", Kind: core.AllowOnce}, {ID: "b", Name: "Always", Kind: core.AllowAlways}}},
-		"relay": {ID: 1, Name: "send_mail", Review: &core.Review{Text: "role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject",
-			SHA256: core.Digest("role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject")}, Options: opts},
+		"relay": {ID: 1, Name: "send_mail", Claims: core.RelayClaims{Review: &core.Review{Text: "role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject",
+			SHA256: core.Digest("role: clerk\ntool: send_mail (egress)\ninput:\n{\n  \"to\": \"a@example.org\"\n}\noptions:\n  allow_once: Allow once\n  reject_once: Reject")}}, Options: opts},
 	}
 	for name, p := range cases {
 		t.Run(name, func(t *testing.T) {
-			s, _ := core.Reduce(busy, core.PermissionAsked{At: t0, Permission: p})
+			b := busy
+			b.Shared = p.Claims.Review != nil // relay's review counts from its hub
+			s, _ := core.Reduce(b, core.PermissionAsked{At: t0, Permission: p})
 			s, _ = core.Reduce(s, core.OpenReview{At: t0})
 			x := core.Single{App: core.App{Moving: true}, State: s}
 			x, _ = core.ReduceSingle(x, core.Tick{At: t0})

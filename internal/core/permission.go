@@ -87,6 +87,9 @@ type Permission struct {
 	// asks again (_meta["relay/refused"]).
 	Review  *Review
 	Refused string
+	// Claims is what the request said under relay's _meta keys, which
+	// count only as trustRelay decides (relaymeta.go).
+	Claims RelayClaims
 }
 
 // Kinds of a tool call's content a review text built here shows.
@@ -113,6 +116,11 @@ type CallContent struct {
 	Blob       bool
 	BlobSize   int
 	BlobSHA256 string
+	// Preview says a text block was marked relay's preview
+	// (_meta["relay/preview"]), with PreviewLabels its relay/labels: a
+	// claim, honoured only from relay's hub (see trustRelay).
+	Preview       bool
+	PreviewLabels Labels
 }
 
 // Shown is the labels of what the request shows: the session's, which
@@ -237,7 +245,7 @@ func (r *reducer) permission(e Event) {
 		}
 		// The request moves no keys and closes nothing: it waits until its
 		// conversation has the keys while moving (see Surface).
-		p := e.Permission
+		p := trustRelay(e.Permission, s.Shared)
 		p.Options = onceOptions(p.Options)
 		reasked := p.Refused != "" && s.Shared && len(s.Asks) == 0 &&
 			s.Reviewing != nil && s.Reviewing.Allowed && s.Reviewing.CallID == p.CallID

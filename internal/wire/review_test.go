@@ -27,7 +27,8 @@ func TestReviewMember(t *testing.T) {
 }
 
 // A request carries relay's review and its refusal of an earlier answer,
-// and the call's kind and content for a review built here.
+// read as claims the core decides on, and the call's kind and content for
+// a review built here.
 func TestPermissionReview(t *testing.T) {
 	kind := acp.ToolKindFetch
 	req := acp.RequestPermissionRequest{
@@ -40,8 +41,8 @@ func TestPermissionReview(t *testing.T) {
 		}},
 	}
 	p := Permission(req, "", 1, time.Now()).Permission
-	if p.Review == nil || p.Review.Text != "T" || p.Refused != "the digest does not match" || p.Kind != "fetch" ||
-		len(p.Content) != 1 || p.Content[0].Text != "does a thing" || p.Preview != "preview" {
+	if p.Claims.Review == nil || p.Claims.Review.Text != "T" || p.Claims.Refused != "the digest does not match" || p.Kind != "fetch" ||
+		p.Review != nil || p.Refused != "" || len(p.Content) != 2 || p.Content[0].Text != "does a thing" || !p.Content[1].Preview {
 		t.Fatalf("%+v", p)
 	}
 }

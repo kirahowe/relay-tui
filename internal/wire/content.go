@@ -16,8 +16,9 @@ import (
 // CallContent reads a tool call's content, as JSON, into the pieces a
 // review text built here shows, each field apart: a text block, a diff
 // (path, old text, new text), a terminal, or an embedded resource (its
-// URI, mime type and text, or a blob's size and digest). relay's preview
-// block is not among them (see Preview). Whatever this client does not
+// URI, mime type and text, or a blob's size and digest). A text block
+// relay's preview marks is read with its claim (core.CallContent.Preview),
+// which only the core decides on. Whatever this client does not
 // understand, a content variant or a field of one, is named in unshown:
 // a review that cannot show all of a request does not allow it. _meta,
 // ACP's place for extensions, is not shown; it says nothing the call
@@ -43,7 +44,6 @@ func CallContent(raw json.RawMessage) (pieces []core.CallContent, unshown []stri
 			}
 			p, why := blockOf(block)
 			switch {
-			case why == "preview":
 			case why != "":
 				unshown = append(unshown, where+" ("+why+")")
 			default:
@@ -78,8 +78,7 @@ func CallContent(raw json.RawMessage) (pieces []core.CallContent, unshown []stri
 }
 
 // blockOf reads a content block: a text, or an embedded resource. It
-// says "preview" for relay's preview block, and otherwise why it cannot
-// show the block, or "".
+// says why it cannot show the block, or "".
 func blockOf(b map[string]json.RawMessage) (core.CallContent, string) {
 	var kind string
 	_ = strictjson.Unmarshal(b["type"], &kind)
@@ -93,10 +92,16 @@ func blockOf(b map[string]json.RawMessage) (core.CallContent, string) {
 		}
 		var meta map[string]json.RawMessage
 		_ = strictjson.Unmarshal(b["_meta"], &meta)
+		c := core.CallContent{Kind: core.ContentText, Text: *t.Text}
 		if string(meta[previewKey]) == "true" {
-			return core.CallContent{}, "preview"
+			// relay's preview, as claimed: the core decides (trustRelay).
+			c.Preview = true
+			var names []string
+			if strictjson.Unmarshal(meta[previewLabelsKey], &names) == nil {
+				c.PreviewLabels = labelNames(names)
+			}
 		}
-		return core.CallContent{Kind: core.ContentText, Text: *t.Text}, ""
+		return c, ""
 	case "resource":
 		var r map[string]json.RawMessage
 		if bad := extra(b, "type", "resource", "_meta"); bad != "" || strictjson.Unmarshal(b["resource"], &r) != nil {

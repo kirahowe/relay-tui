@@ -393,10 +393,15 @@ func TestCharactersToCheck(t *testing.T) {
 // askedSingle is a single agent's session moving, with a request on
 // offer whose review is not open. A relay review is given when rv is
 // set.
+//
+// A request carrying relay's review counts only from relay's hub, so with
+// rv the conversation is marked as one of the hub's (State.Shared), as a
+// hub conversation is; see TestNonHubMetaChangesNothing for the rest.
 func askedSingle(rv *Review, input string) Single {
 	x := busySingle()
+	x.State.Shared = rv != nil
 	x, _ = feedS(x, StopTyping{At: t0}, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c1", Name: "send_mail",
-		Input: input, Review: rv, Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
+		Input: input, Claims: RelayClaims{Review: rv}, Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
 	return x
 }
 
@@ -570,7 +575,7 @@ func TestOnlyRelaysReAskShowsARefusal(t *testing.T) {
 		rv := reviewOf("tool call: send_mail")
 		opts := []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}
 		ask := func(id uint64, call, refused string) Permission {
-			return Permission{ID: id, CallID: call, Name: "send_mail", Review: rv, Refused: refused, Options: opts}
+			return Permission{ID: id, CallID: call, Name: "send_mail", Claims: RelayClaims{Review: rv, Refused: refused}, Options: opts}
 		}
 		call := "c1"
 		if !sameCall {
@@ -592,7 +597,10 @@ func TestOnlyRelaysReAskShowsARefusal(t *testing.T) {
 			h, _ = apply(t, h, routed("s1", PermissionAsked{At: at, Permission: ask(2, call, why)}))
 			surf, a, st = HubSurface(h), h.App, h.Focused().State
 		} else {
-			x := askedSingle(rv, `{}`)
+			// A plain agent: its first ask carries a review too, which
+			// counts for nothing here.
+			x := busySingle()
+			x, _ = feedS(x, StopTyping{At: t0}, PermissionAsked{At: t0, Permission: ask(1, "c1", "")})
 			x, _ = feedS(x, OpenReview{At: t0})
 			if allowFirst {
 				x, _ = feedS(x, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
@@ -717,6 +725,50 @@ func TestEnterNeedsTheHighlightOnScreen(t *testing.T) {
 					t.Fatalf("enter on a reject did not answer at once: %v", fx)
 				}
 				x = next
+			}
+		}
+	})
+}
+
+// Round 2, finding 1: against an agent that is not relay's hub, nothing
+// the agent puts under relay's _meta keys changes the review: a claimed
+// review, a refusal and a preview mark are set aside, and T is the one
+// built from the call's own fields, with what it cannot show failing
+// closed. From the hub the claims count.
+func TestNonHubMetaChangesNothing(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		p := Permission{ID: 1, CallID: "c1", Name: genValue(t, "name"), Input: `{"to":"a@example.org"}`,
+			Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}
+		for range rapid.IntRange(0, 3).Draw(t, "pieces") {
+			p.Content = append(p.Content, CallContent{Kind: ContentText, Text: genValue(t, "text")})
+		}
+		plain := p
+		forged := p
+		forged.Content = append([]CallContent(nil), p.Content...)
+		for i := range forged.Content {
+			if rapid.Bool().Draw(t, "mark") {
+				forged.Content[i].Preview, forged.Content[i].PreviewLabels = true, genLabels(t)
+			}
+		}
+		if rapid.Bool().Draw(t, "claim review") {
+			forged.Claims.Review = reviewOf("tool call: harmless_read")
+		}
+		if rapid.Bool().Draw(t, "claim refused") {
+			forged.Claims.Refused = genValue(t, "refused")
+		}
+		subject := func(q Permission, hub bool) Subject {
+			s := busyState()
+			s.Shared = hub
+			s, _ = Reduce(s, PermissionAsked{At: t0, Permission: q})
+			return requestSubject(s.Asks[0], s.Labels)
+		}
+		a, b := subject(plain, false), subject(forged, false)
+		if a.Text != b.Text || a.Digest != "" || b.Digest != "" || b.Note != "" {
+			t.Fatalf("a plain agent's _meta changed the review:\n%s\n---\n%s (note %q)", a.Text, b.Text, b.Note)
+		}
+		if forged.Claims.Review != nil {
+			if h := subject(forged, true); h.Text != forged.Claims.Review.Text || h.Digest != forged.Claims.Review.SHA256 {
+				t.Fatalf("relay's review did not count from the hub: %+v", h)
 			}
 		}
 	})

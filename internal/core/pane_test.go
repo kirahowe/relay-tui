@@ -168,7 +168,7 @@ func TestCitationsAreResolvedOnce(t *testing.T) {
 
 func TestPermissionFlowStillGuardsApproval(t *testing.T) {
 	s := focused(trustable)
-	s, _ = feed(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send", Preview: "does X at https://send.example.net/a",
+	s, _ = feed(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send", Input: `{"at":"https://send.example.net/a"}`,
 		Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}})
 	if !s.PaneFocus {
 		t.Error("the request took the keys from the pane")
