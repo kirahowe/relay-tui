@@ -163,22 +163,29 @@ type Pager struct {
 }
 
 // ReviewDrawn is what a frame drew of the review named ID: bytes From to
-// To of its text, and Options, the request's options whose entries it
-// drew whole, by their index in Options.
+// To of its text, Options, the request's options whose entries it drew
+// whole, by their index in Options, and Pick, the highlight it drew. A
+// move of the highlight makes the next frame a new report, and a frame
+// drawn before the move arms nothing after it.
 type ReviewDrawn struct {
 	ID       string
 	From, To int
 	Options  []int
+	Pick     int
 }
 
-// see is p after a frame drew d at at, of a text n bytes long.
-func (p Pager) see(d ReviewDrawn, n int, at time.Time) Pager {
+// see is p after a frame drew d at at, of a text n bytes long, with the
+// highlight now on pick.
+func (p Pager) see(d ReviewDrawn, n int, pick int, at time.Time) Pager {
 	if d.ID != p.ID || d.From < 0 || d.To > n || d.From > d.To {
 		return p
 	}
 	p.Seen = mergeSpans(append(slices.Clone(p.Seen), Span{d.From, d.To}))
 	if p.ReadAt.IsZero() && covers(p.Seen, n) {
 		p.ReadAt = at
+	}
+	if d.Pick != pick {
+		return p // drawn before the highlight moved: its entries arm nothing
 	}
 	opts := make([]time.Time, 0, len(p.Opts))
 	for i := 0; i <= slices.Max(append(slices.Clone(d.Options), len(p.Opts)-1)); i++ {
@@ -349,11 +356,11 @@ func syncPager(a App, surf Surface, id string) App {
 }
 
 // seeReview adds what a frame drew of the review to the app's pager.
-func (a App) seeReview(e Drawn, sub Subject) App {
+func (a App) seeReview(e Drawn, sub Subject, pick int) App {
 	if e.OnlyForget || e.Review == nil || a.Pager == nil || e.Review.ID != sub.ID || sub.Problem != "" {
 		return a
 	}
-	p := a.Pager.see(*e.Review, len(sub.Text), e.At)
+	p := a.Pager.see(*e.Review, len(sub.Text), pick, e.At)
 	a.Pager = &p
 	return a
 }

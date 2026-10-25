@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -167,5 +168,58 @@ func TestConsentOnlyFromAReviewReadWhole(t *testing.T) {
 				}
 			})
 		})
+	}
+}
+
+// Round 3: moving the highlight changes only its mark, so a short review
+// drew the same report after the move and no report armed the new
+// highlight: tab then enter never allowed, and a second allow_once could
+// not be sent at all. Each highlight is now a report of its own.
+func TestTheMovedHighlightCanAllow(t *testing.T) {
+	two := surfaceAsk
+	two.Options = []core.PermOption{{ID: "allow", Kind: core.AllowOnce}, {ID: "allow-edit", Kind: core.AllowOnce}, {ID: "reject", Kind: core.RejectOnce}}
+	cases := []struct {
+		name string
+		ask  core.Permission
+		tabs int
+		want string
+	}{
+		{"tab to the allow", surfaceAsk, 1, "allow"},
+		{"tab to the second allow", two, 2, "allow-edit"},
+	}
+	for _, c := range cases {
+		for _, hub := range []bool{false, true} {
+			clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+			var calls []call
+			ask := c.ask
+			ask.ID, ask.CallID = 1, "c1"
+			asked := core.PermissionAsked{At: clock, Permission: ask}
+			var m Model
+			if hub {
+				m = surfaceHub(&calls, &clock)
+				m = update(m, ev(core.Routed{Session: "s1", Event: asked}))
+			} else {
+				m = surfaceSingle(&calls, &clock)
+				m = update(m, ev(asked))
+			}
+			m = update(m, key("esc"))
+			clock = clock.Add(time.Second)
+			m = update(m, key("enter")) // open the review
+			clock = clock.Add(2 * time.Second)
+			for range c.tabs {
+				m = update(m, key("tab"))
+			}
+			clock = clock.Add(2 * time.Second)
+			m = update(m, key("enter"))
+			var sent []string
+			for _, cl := range calls {
+				if cl.what == "answer" {
+					sent = append(sent, cl.option)
+				}
+			}
+			if !slices.Equal(sent, []string{c.want}) {
+				t.Errorf("%s (hub %v): sent %v, want [%s]", c.name, hub, sent, c.want)
+			}
+		}
 	}
 }

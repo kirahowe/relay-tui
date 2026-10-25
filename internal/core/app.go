@@ -133,7 +133,7 @@ func reduceSingleTop(x Single, e Event) (Single, []Effect) {
 	}
 	switch e := e.(type) {
 	case Drawn:
-		x.App = x.App.shown(e, id).seeReview(e, ReviewSubject(surf, x.App, x.State))
+		x.App = x.App.shown(e, id).seeReview(e, ReviewSubject(surf, x.App, x.State), x.State.Pick)
 		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true

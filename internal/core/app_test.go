@@ -19,7 +19,7 @@ func wholeReview(surf Surface, a App, s State, at time.Time) Drawn {
 			opts = append(opts, i) // every option, on a row with room
 		}
 	}
-	return Drawn{At: at, Surfaces: []string{sub.ID}, Review: &ReviewDrawn{ID: sub.ID, From: 0, To: len(sub.Text), Options: opts}}
+	return Drawn{At: at, Surfaces: []string{sub.ID}, Review: &ReviewDrawn{ID: sub.ID, From: 0, To: len(sub.Text), Options: opts, Pick: s.Pick}}
 }
 
 // feedS applies events in turn, as the shell does: after each, the

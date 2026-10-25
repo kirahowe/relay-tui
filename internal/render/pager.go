@@ -210,7 +210,7 @@ func Review(surf core.Surface, a core.App, s core.State, note string, now time.T
 	out = append(out, keysLines(sub, a, s, surf, note, now, lines, scroll, end, rows, width)...)
 	return PagerFrame{
 		Content: strings.Join(out, "\n"),
-		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to, Options: optsDrawn},
+		Drawn:   &core.ReviewDrawn{ID: sub.ID, From: from, To: to, Options: optsDrawn, Pick: s.Pick},
 		Max:     mx, Page: rows,
 	}
 }

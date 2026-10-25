@@ -346,7 +346,7 @@ func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	}
 	switch e := e.(type) {
 	case Drawn:
-		h.App = h.App.shown(e, id).seeReview(e, ReviewSubject(surf, h.App, st))
+		h.App = h.App.shown(e, id).seeReview(e, ReviewSubject(surf, h.App, st), st.Pick)
 		return h, nil
 	case KeyPressed:
 		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true

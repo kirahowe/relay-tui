@@ -448,7 +448,7 @@ func TestAnAllowNeedsEveryPageReadAndTheDelay(t *testing.T) {
 				from := rapid.IntRange(0, n).Draw(t, "from")
 				to := rapid.IntRange(from, min(n, from+rapid.IntRange(0, 300).Draw(t, "len"))).Draw(t, "to")
 				id := SingleSurfaceID(x)
-				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to, Options: []int{0, 1}}})
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, From: from, To: to, Options: []int{0, 1}, Pick: x.State.Pick}})
 				grew := false
 				for i := from; i < to; i++ {
 					grew = grew || !covered[i]
@@ -679,7 +679,8 @@ func TestContentFieldsStayApart(t *testing.T) {
 // allow (enter, the highlighted option; y, the highlighted allow_once or
 // else the first) sends only an option whose entry a frame drew whole,
 // ArmDelay after the highlight last moved. Frames here draw any subset of
-// the entries (a narrow row holds some). Refusals are taken at once.
+// the entries (a narrow row holds some), and some were drawn before the
+// last move. Refusals are taken at once.
 func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		kinds := []OptionKind{AllowOnce, AllowOnce, RejectOnce}
@@ -692,8 +693,8 @@ func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 		x, _ = ReduceSingle(x, OpenReview{At: t0})
 		id := SingleSurfaceID(x)
 		n := len(ReviewSubject(SingleSurface(x), x.App, x.State).Text)
-		x, _ = ReduceSingle(x, Drawn{At: t0, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n}}) // read, no entry whole
-		since := make([]time.Time, len(opts))                                                              // when each entry was drawn whole, since the highlight last moved
+		x, _ = ReduceSingle(x, Drawn{At: t0, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Pick: x.State.Pick}}) // read, no entry whole
+		since := make([]time.Time, len(opts))                                                                                  // when each entry was drawn whole, since the highlight last moved
 		at := t0
 		for range rapid.IntRange(1, 40).Draw(t, "steps") {
 			at = at.Add(time.Duration(rapid.IntRange(0, 500).Draw(t, "ms")) * time.Millisecond)
@@ -705,6 +706,17 @@ func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 				x, _ = ReduceSingle(x, PermissionMove{At: at, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "delta")})
 				since = make([]time.Time, len(opts))
 			case 1:
+				if len(opts) > 1 && rapid.IntRange(0, 4).Draw(t, "stale") == 0 {
+					// A frame drawn before the highlight moved, reported after:
+					// its entries arm nothing.
+					every := make([]int, len(opts))
+					for i := range every {
+						every[i] = i
+					}
+					stale := (x.State.Pick + 1) % len(opts)
+					x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Options: every, Pick: stale}})
+					break
+				}
 				var drawn []int
 				all := rapid.IntRange(0, 2).Draw(t, "all") > 0 // a row with room, mostly
 				for i := range opts {
@@ -717,7 +729,7 @@ func TestAnAllowSendsOnlyAnEntryOnScreen(t *testing.T) {
 						since[i] = time.Time{}
 					}
 				}
-				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Options: drawn}})
+				x, _ = ReduceSingle(x, Drawn{At: at, Surfaces: []string{id}, Review: &ReviewDrawn{ID: id, To: n, Options: drawn, Pick: x.State.Pick}})
 			default:
 				var e Event = PermissionConfirm{At: at}
 				target := x.State.Pick

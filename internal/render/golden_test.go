@@ -228,7 +228,7 @@ func wholeReview(surf core.Surface, a core.App, s core.State, at time.Time) core
 			opts = append(opts, i)
 		}
 	}
-	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text), Options: opts}}
+	return core.Drawn{At: at, Surfaces: []string{sub.ID}, Review: &core.ReviewDrawn{ID: sub.ID, To: len(sub.Text), Options: opts, Pick: s.Pick}}
 }
 
 func TestPermissionGolden(t *testing.T) {
