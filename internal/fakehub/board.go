@@ -6,8 +6,11 @@ package fakehub
 //
 // A config with "cards" (wire forms, as relay sends them) has a board; one
 // without answers the board's methods method-not-found. An op takes tick
-// and untick of a checklist item only. A trust takes the card's rev and
-// sha256, as relay does, and clears its outside text. Each call is logged
+// and untick of a checklist item, and archive (refused if "seen" is not
+// the card's rev). A trust takes the card's rev and
+// sha256 (for a client that declared relay/review, the digest of the
+// card's review; see review.go), as relay does, and clears its outside
+// text. Each call is logged
 // as "cards <params>", "card-op <params>" or "card-trust <params>". As
 // relay does, each refuses a parameter it does not take: the board is the
 // connection's, so a sessionId is refused. The
@@ -115,7 +118,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			return nil, err
 		}
 		b.subscribed = true
-		return copyOf(map[string]any{"rev": b.rev, "cards": b.active()}), nil
+		return copyOf(map[string]any{"rev": b.rev, "cards": withReviews(b.active())}), nil
 	case "_relay/cards/op":
 		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "seen"); err != nil {
 			return nil, err
@@ -125,15 +128,23 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			return nil, refused(fmt.Sprintf("There is no card %v on the board.", params["card"]))
 		}
 		op, _ := params["op"].(string)
+		if op == "archive" {
+			if seen, ok := params["seen"]; ok && num(seen) != num(c["rev"]) {
+				return nil, refused(fmt.Sprintf("The card %v changed since you saw it.", params["card"]))
+			}
+			c["status"] = "archived"
+			b.bump(c)
+			return copyOf(map[string]any{"card": withReview(c), "changed": true}), nil
+		}
 		if op != "tick" && op != "untick" {
-			return nil, refused("fakehub takes tick and untick only.")
+			return nil, refused("fakehub takes tick, untick and archive only.")
 		}
 		items, _ := c["items"].([]any)
 		for _, it := range items {
 			if m, _ := it.(map[string]any); m != nil && num(m["id"]) == num(params["item"]) {
 				m["done"] = op == "tick"
 				b.bump(c)
-				return copyOf(map[string]any{"card": c, "changed": true}), nil
+				return copyOf(map[string]any{"card": withReview(c), "changed": true}), nil
 			}
 		}
 		return nil, refused(fmt.Sprintf("Item %v is not on card %v.", params["item"], params["card"]))
@@ -142,7 +153,14 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			return nil, err
 		}
 		c := b.card(num(params["card"]))
-		if c == nil || num(c["rev"]) != num(params["rev"]) || c["sha256"] == nil || c["sha256"] != params["sha256"] {
+		want := any(nil)
+		if c != nil {
+			want = c["sha256"]
+			if h.reviews && want != nil {
+				want = review(cardText(c))["sha256"] // the digest of the review it sent
+			}
+		}
+		if c == nil || num(c["rev"]) != num(params["rev"]) || want == nil || want != params["sha256"] {
 			return nil, refused("Nothing was trusted; look again.")
 		}
 		delete(c, "sha256")
@@ -150,7 +168,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 		labels, _ := c["labels"].([]any)
 		c["labels"] = slices.DeleteFunc(labels, func(l any) bool { return l == "contaminated" })
 		b.bump(c)
-		return copyOf(map[string]any{"trusted": true, "card": c}), nil
+		return copyOf(map[string]any{"trusted": true, "card": withReview(c)}), nil
 	}
 }
 
@@ -188,7 +206,7 @@ func (h *Hub) archiveCard(ctx context.Context, id string) {
 	}
 	c["status"] = "archived"
 	b.bump(c)
-	body := copyOf(map[string]any{"rev": b.rev, "cards": []any{c}})
+	body := copyOf(map[string]any{"rev": b.rev, "cards": []any{withReview(c)}})
 	notify := b.subscribed
 	h.mu.Unlock()
 	if notify && conn != nil {

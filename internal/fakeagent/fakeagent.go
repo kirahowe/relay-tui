@@ -13,8 +13,10 @@
 //	{"request_permission": {"toolCallId": ..., "name": ..., "title": ...,
 //	  "rawInput": ..., "options": [...]}}
 //	                                ask the client; the answer is logged as
-//	                                "permission <outcome JSON>". The options
-//	                                default to allow_once and reject_once.
+//	                                "permission <outcome JSON>", and its
+//	                                _meta, if any, as "permission-meta
+//	                                <JSON>". The options default to
+//	                                allow_once and reject_once.
 //
 //	{"request_permission": {..., "content": [...], "_meta": {...}}}
 //	                                content and _meta go on the request's
@@ -337,6 +339,10 @@ func (a *Agent) askPermission(ctx context.Context, session acp.SessionId, spec j
 	}
 	out, _ := json.Marshal(resp.Outcome)
 	a.logf("permission %s", out)
+	if len(resp.Meta) > 0 {
+		meta, _ := json.Marshal(resp.Meta)
+		a.logf("permission-meta %s", meta)
+	}
 	return nil
 }
 

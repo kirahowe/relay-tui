@@ -25,8 +25,10 @@
 //	other-prompt <role> <text>   another device prompted: the user text
 //	                             and an echo arrive as live updates
 //	ask <role> [name]            a permission request, from a prompt run
-//	                             elsewhere
+//	                             elsewhere; "long" for one whose review
+//	                             runs to many lines
 //	settle <role>                another device answered that request
+//	refuse-digest <role>         refuse the next allow's digest (review.go)
 //	busy <role>, unbusy <role>   queue prompts, or let them through
 //	working <role> on|off        a scheduled wake runs, or ends
 //	start <role>                 a conversation opens from elsewhere
@@ -137,9 +139,14 @@ type Hub struct {
 	sessions  int
 	calls     int
 	subscribe bool
-	unbusy    chan struct{} // closed and replaced when a role stops being busy
-	now       func() time.Time
-	keeps     bool
+	// reviews says the client declared relay/review in initialize;
+	// refuseDigest is how many allows to refuse whatever digest they
+	// carry (the control file's "refuse-digest").
+	reviews      bool
+	refuseDigest int
+	unbusy       chan struct{} // closed and replaced when a role stops being busy
+	now          func() time.Time
+	keeps        bool
 	// lag is how long after a prompt's answer the roster says the turn
 	// ended, as relay's does.
 	lag time.Duration
@@ -255,7 +262,11 @@ func (h *Hub) update(session string, u acp.SessionUpdate) {
 	}
 }
 
-func (h *Hub) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
+func (h *Hub) Initialize(_ context.Context, req acp.InitializeRequest) (acp.InitializeResponse, error) {
+	h.mu.Lock()
+	h.reviews = string(req.ClientCapabilities.Meta["relay/review"]) == "1"
+	h.mu.Unlock()
+	h.logf("initialize review=%v", h.reviews)
 	title := "relay"
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersion(acp.ProtocolVersionNumber),
@@ -430,7 +441,7 @@ func (h *Hub) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResp
 
 	reply := "echo: " + text
 	if strings.HasPrefix(text, "ask") {
-		outcome, err := h.askPermission(ctx, c, "send_mail")
+		outcome, err := h.askPermission(ctx, c, "send_mail", strings.Contains(text, "long"))
 		if err != nil {
 			h.endTurn(c)
 			return acp.PromptResponse{}, err
@@ -473,25 +484,46 @@ func (h *Hub) endTurn(c *conv) {
 	time.AfterFunc(h.lag, func() { h.setTurn(c, "idle") })
 }
 
-// askPermission sends a permission request for c and waits for an answer,
-// or for the control file to settle it.
-func (h *Hub) askPermission(ctx context.Context, c *conv, name string) (string, error) {
+// askPermission sends a permission request for c, with its review, and
+// waits for an answer, or for the control file to settle it. An allow
+// whose digest is not the review's is refused and asked again (see
+// review.go).
+func (h *Hub) askPermission(ctx context.Context, c *conv, name string, long bool) (string, error) {
 	h.mu.Lock()
 	h.calls++
 	a := &ask{callID: fmt.Sprintf("call-%d", h.calls), done: make(chan struct{})}
 	c.pendingAsk = a
 	c.approvals++
 	conn := h.conn
+	rv := review(requestText(c.session, name, long))
 	h.mu.Unlock()
 	h.notifyRoster()
-	resp, err := conn.RequestPermission(context.WithoutCancel(ctx), acp.RequestPermissionRequest{
-		SessionId: acp.SessionId(c.session),
-		Options: []acp.PermissionOption{
-			{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once", OptionId: "allow"},
-			{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
-		},
-		ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(a.callID), Name: &name, RawInput: map[string]any{"to": "a@example.com"}},
-	})
+	var resp acp.RequestPermissionResponse
+	var err error
+	why := ""
+	for n := 0; ; n++ {
+		meta := map[string]json.RawMessage{"relay/review": copyOf(rv)}
+		if why != "" {
+			meta["relay/refused"] = copyOf(why)
+		}
+		resp, err = conn.RequestPermission(context.WithoutCancel(ctx), acp.RequestPermissionRequest{
+			Meta:      meta,
+			SessionId: acp.SessionId(c.session),
+			Options: []acp.PermissionOption{
+				{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once", OptionId: "allow"},
+				{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
+			},
+			ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(a.callID), Name: &name, RawInput: map[string]any{"to": "a@example.com"}},
+		})
+		if why = h.checkDigest(resp, rv); err != nil || why == "" {
+			break
+		}
+		h.logf("permission-refused %s %s", c.session, why)
+		if n+1 >= maxAsks {
+			resp = acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"}}}
+			break
+		}
+	}
 	h.mu.Lock()
 	settled := c.pendingAsk != a // another device answered first
 	if c.pendingAsk == a {
@@ -513,6 +545,27 @@ func (h *Hub) askPermission(ctx context.Context, c *conv, name string) (string, 
 		return string(resp.Outcome.Selected.OptionId), nil
 	}
 	return "cancelled", nil
+}
+
+// checkDigest is why relay refuses resp, an answer to a request whose
+// review is rv, or "" when it takes it: an allow from a client that
+// declared relay/review must carry the review's digest.
+func (h *Hub) checkDigest(resp acp.RequestPermissionResponse, rv map[string]any) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if !h.reviews || resp.Outcome.Selected == nil || resp.Outcome.Selected.OptionId != "allow" {
+		return ""
+	}
+	var got string
+	_ = json.Unmarshal(resp.Meta["relay/review"], &got)
+	switch {
+	case h.refuseDigest > 0:
+		h.refuseDigest--
+		return "the review digest does not match what relay sent"
+	case got != rv["sha256"]:
+		return "the review digest does not match what relay sent"
+	}
+	return ""
 }
 
 // HandleExtensionMethod answers the hub's extension methods.
@@ -647,7 +700,11 @@ func (h *Hub) control(ctx context.Context, line string) {
 		c := r.conv
 		h.mu.Unlock()
 		if c != nil {
-			go func() { _, _ = h.askPermission(ctx, c, name) }()
+			long := name == "long" // a request whose review runs to many pages
+			if long {
+				name = "send_mail"
+			}
+			go func() { _, _ = h.askPermission(ctx, c, name, long) }()
 		}
 	case "settle":
 		h.mu.Lock()
@@ -667,6 +724,10 @@ func (h *Hub) control(ctx context.Context, line string) {
 				"sessionId": c.session, "toolCallId": a.callID, "outcome": map[string]any{"outcome": "selected", "optionId": "allow"}})
 			h.notifyRoster()
 		}
+	case "refuse-digest":
+		h.mu.Lock()
+		h.refuseDigest++
+		h.mu.Unlock()
 	case "busy", "unbusy":
 		h.mu.Lock()
 		r.Busy = cmd == "busy"
