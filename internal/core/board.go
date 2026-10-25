@@ -690,7 +690,9 @@ func (r *reducer) startCardTrust(at time.Time, c Card) {
 	case !c.Labels.Contaminated:
 		b.Message = "Nothing to trust: this card has no outside text."
 	case c.Review == nil:
-		b.Message = "Trust needs relay chat. In a terminal, run: relay trust card " + strconv.FormatInt(c.ID, 10)
+		// No review from relay: from this agent the card cannot be shown
+		// to be trusted (a relay older than this client sends none).
+		b.Message = "relay sent no review of this card, so it cannot be trusted here. In a terminal, run: relay trust card " + strconv.FormatInt(c.ID, 10)
 	default:
 		b.SelID = c.ID
 		b.Trust = &CardTrust{Card: c.ID, Rev: c.Rev, SHA256: c.Review.SHA256}

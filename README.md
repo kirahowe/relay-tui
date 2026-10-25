@@ -295,7 +295,7 @@ to the conversation, where you review it as before. The pane only
 highlights the waiting proposal and shows its preview. It adds no
 second way to approve.
 
-Trusting needs relay chat, which lets relay-tui ask relay to do it. Press t
+Trusting needs relay's dashboard (`relay`), which lets relay-tui ask relay to do it. Press t
 on a contaminated shown item. Its review (see "The review") shows the
 text relay sent for the doc, its path and version among it. Once it is
 read, y confirms; n, esc and q cancel. relay-tui then sends relay the
@@ -368,8 +368,8 @@ Keys on the board:
   card that changed in the meantime is not trusted. If the card changes
   while you are being asked, the question
   closes, as it does when you leave it: `h`, another role, the list of
-  roles or the list of keys. relay takes trust only from `relay chat`, which runs with
-  approvals. Elsewhere the pane names the `relay trust card <id>` command
+  roles or the list of keys. relay takes trust only from its dashboard
+  (`relay`), which runs with approvals. Elsewhere the pane names the `relay trust card <id>` command
   to run in a terminal.
 - r asks relay for the board again; b goes back to the workspace items. An agent with
   no board is not asked again.
@@ -404,7 +404,7 @@ never clickable, and relay-tui fetches nothing.
 When the agent is relay's hub, relay-tui shows every role at once. It knows
 this from `_meta["relay/hub"]` in the answer to `initialize`. Against any
 other agent nothing here applies, and the client works as described
-above. `relay chat [role]` runs it as
+above. `relay [--open ROLE]` (or `relay chat`) runs it as
 `relay-tui [--open ROLE] -- relay acp --approvals`.
 
 The whole screen is drawn on the alternate screen, from state. On a

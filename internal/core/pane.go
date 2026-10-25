@@ -649,7 +649,7 @@ func (r *reducer) startTrust(at time.Time, i int) {
 		p.Message = "Trust needs a terminal. Run this there:"
 		p.Command = it.TrustCommand
 	default:
-		p.Message = "Trust is not available here. It needs relay chat."
+		p.Message = "Trust is not available here. It needs relay's dashboard: run relay."
 	}
 }
 

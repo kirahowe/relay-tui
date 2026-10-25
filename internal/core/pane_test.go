@@ -289,7 +289,7 @@ func TestTrustWithoutCanTrustShowsTheCommandOnly(t *testing.T) {
 func TestTrustUnavailableWithoutRelay(t *testing.T) {
 	s := busySingle()
 	s, _ = feed(s, ItemsLoaded{At: t0, Unavailable: true}, displayEvent("a", "x", Labels{Contaminated: true}), key(t0, PaneToggle), key(t0, PaneTrust))
-	if s.Pane.Trust != nil || s.Pane.Command != "" || !strings.Contains(s.Pane.Message, "relay chat") {
+	if s.Pane.Trust != nil || s.Pane.Command != "" || !strings.Contains(s.Pane.Message, "relay's dashboard") {
 		t.Fatalf("pane %+v", s.Pane)
 	}
 }
