@@ -211,10 +211,17 @@ func (c client) RequestPermission(ctx context.Context, req acp.RequestPermission
 	}
 	// The request's own params, as received, for its input as written.
 	input := ""
-	if params, ok := acp.InboundParamsFromContext(ctx); ok {
+	params, exact := acp.InboundParamsFromContext(ctx)
+	if exact {
 		input = wire.ExactInput(params)
 	}
-	a.emit(a.route(req.SessionId, wire.Permission(req, input, id, now)))
+	asked := wire.Permission(req, input, id, now)
+	if exact {
+		// The content as sent, so a field the SDK's decoding drops is
+		// still seen, and the review fails closed on it.
+		asked.Content, asked.Unshown = wire.CallContent(wire.ExactContent(params))
+	}
+	a.emit(a.route(req.SessionId, asked))
 	select {
 	case ans := <-reply:
 		return wire.Outcome(ans), nil

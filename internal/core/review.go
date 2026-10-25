@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -111,6 +112,10 @@ func requestSubject(p Permission, labels Labels) Subject {
 	} else {
 		t := RequestText(p, labels)
 		sub = Subject{Kind: SubjectRequest, ID: fmt.Sprintf("request/%d/%s", p.ID, Digest(t)), Text: t, Problem: reviewTextProblem(t)}
+		if len(p.Unshown) > 0 {
+			// The review cannot show all the agent sent: it fails closed.
+			sub.Problem = "relay-tui cannot show " + strings.Join(p.Unshown, ", ")
+		}
 	}
 	if p.Refused != "" {
 		sub.Note = "relay refused the last answer: " + VisibleLine(p.Refused)

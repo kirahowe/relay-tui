@@ -73,17 +73,46 @@ type Permission struct {
 	PreviewLabels Labels
 	FixedArgs     []string
 	Options       []PermOption
-	// Kind is the tool call's ACP kind, and Content the text of its
-	// content (but relay's preview), as the agent sent them: the review
-	// text built here for a plain agent shows them.
+	// Kind is the tool call's ACP kind, and Content its content (but
+	// relay's preview), each field apart, as the agent sent them: the
+	// review text built here for a plain agent shows them. Unshown names
+	// what of the content this client does not understand; a review that
+	// cannot show it does not allow the call.
 	Kind    string
-	Content []string
+	Content []CallContent
+	Unshown []string
 	// Review is relay's review text and digest for the request
 	// (_meta["relay/review"]), nil when it sent none. Refused is relay's
 	// word that it refused an earlier answer to the same tool call and
 	// asks again (_meta["relay/refused"]).
 	Review  *Review
 	Refused string
+}
+
+// Kinds of a tool call's content a review text built here shows.
+const (
+	ContentText     = "text"
+	ContentDiff     = "diff"
+	ContentTerminal = "terminal"
+	ContentResource = "resource"
+)
+
+// CallContent is one piece of a tool call's content, with its fields
+// apart: a text (Text); a diff (Path, OldText, nil for a new file, and
+// NewText); a terminal (TerminalID); or an embedded resource (URI,
+// MimeType, and its Text, or for a blob its size and sha256).
+type CallContent struct {
+	Kind       string
+	Text       string
+	Path       string
+	OldText    *string
+	NewText    string
+	TerminalID string
+	URI        string
+	MimeType   string
+	Blob       bool
+	BlobSize   int
+	BlobSHA256 string
 }
 
 // Shown is the labels of what the request shows: the session's, which

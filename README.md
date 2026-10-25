@@ -136,8 +136,13 @@ Against an agent without relay, relay-tui builds T from the request
 itself, with relay's rules. Each value the agent wrote is a quoted
 string on a labelled line (the tool, its title and kind, each fixed
 argument, each option and its kind), or a block of lines that each
-start with `  │ ` (each piece of content, relay's preview, the whole
-input, pretty-printed with its numbers as written). In them a
+start with `  │ ` (relay's preview, the whole input, pretty-printed with
+its numbers as written). Each piece of the call's content shows with
+its fields apart: a text; a diff's path, old text and new text; a
+terminal's id; an embedded resource's URI, mime type and text, or a
+blob's size and sha256. Content of any other kind, or with a field
+relay-tui does not know, cannot be allowed: the review names it, and a
+refusal still works. In them a
 backslash shows as `\\`, a quote as `\"` and any character that does
 not print as `\u{XXXX}`, so T reads back to exactly the request.
 Once the session is contaminated, links in what the agent wrote are

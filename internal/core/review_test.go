@@ -163,8 +163,50 @@ func parseRequestText(t *rapid.T, text string) (Permission, Labels) {
 		case strings.HasPrefix(l, "session labels: "):
 			labels = words(strings.TrimPrefix(l, "session labels: "))
 		case strings.HasPrefix(l, "content "):
-			var c string
-			c, i = block(i)
+			_, rest, _ := strings.Cut(l, ", ")
+			var c CallContent
+			switch {
+			case rest == "text:":
+				c.Kind = ContentText
+				c.Text, i = block(i)
+			case strings.HasPrefix(rest, "diff of: "):
+				c.Kind = ContentDiff
+				c.Path, _ = unquote(t, strings.TrimPrefix(rest, "diff of: "))
+				if lines[i] == "old text: none" {
+					i++
+				} else if lines[i] == "old text:" {
+					var old string
+					old, i = block(i + 1)
+					c.OldText = &old
+				} else {
+					t.Fatalf("no old text after a diff: %q", lines[i])
+				}
+				if lines[i] != "new text:" {
+					t.Fatalf("no new text after a diff: %q", lines[i])
+				}
+				c.NewText, i = block(i + 1)
+			case strings.HasPrefix(rest, "terminal: "):
+				c.Kind = ContentTerminal
+				c.TerminalID, _ = unquote(t, strings.TrimPrefix(rest, "terminal: "))
+			case strings.HasPrefix(rest, "resource: "):
+				c.Kind = ContentResource
+				var more string
+				c.URI, more = unquote(t, strings.TrimPrefix(rest, "resource: "))
+				c.MimeType, _ = unquote(t, strings.TrimPrefix(more, " type "))
+				if b, ok := strings.CutPrefix(lines[i], "blob: "); ok {
+					c.Blob = true
+					if _, err := fmt.Sscanf(b, "%d bytes, sha256 %s", &c.BlobSize, &c.BlobSHA256); err != nil {
+						t.Fatalf("blob line %q: %v", lines[i], err)
+					}
+					i++
+				} else if lines[i] == "text:" {
+					c.Text, i = block(i + 1)
+				} else {
+					t.Fatalf("no text or blob after a resource: %q", lines[i])
+				}
+			default:
+				t.Fatalf("content of no kind: %q", l)
+			}
 			p.Content = append(p.Content, c)
 		case strings.HasPrefix(l, "preview, labelled "):
 			p.PreviewLabels = words(l)
@@ -215,6 +257,45 @@ func genValue(t *rapid.T, label string) string {
 	return s
 }
 
+// genContent is any piece of content of a kind a review built here
+// shows, with any text in its fields.
+func genContent(t *rapid.T) CallContent {
+	switch rapid.IntRange(0, 4).Draw(t, "content kind") {
+	case 0:
+		return CallContent{Kind: ContentText, Text: genValue(t, "text")}
+	case 1:
+		c := CallContent{Kind: ContentDiff, Path: genValue(t, "path"), NewText: genValue(t, "new")}
+		if rapid.Bool().Draw(t, "old") {
+			old := genValue(t, "old text")
+			c.OldText = &old
+		}
+		return c
+	case 2:
+		return CallContent{Kind: ContentTerminal, TerminalID: genValue(t, "terminal")}
+	case 3:
+		return CallContent{Kind: ContentResource, URI: genValue(t, "uri"), MimeType: genValue(t, "mime"), Text: genValue(t, "resource text")}
+	}
+	return CallContent{Kind: ContentResource, URI: genValue(t, "uri"), MimeType: genValue(t, "mime"),
+		Blob: true, BlobSize: rapid.IntRange(0, 1<<20).Draw(t, "size"), BlobSHA256: Digest(genValue(t, "blob"))}
+}
+
+func sameContent(a, b []CallContent) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		x, y := a[i], b[i]
+		if (x.OldText == nil) != (y.OldText == nil) || (x.OldText != nil && *x.OldText != *y.OldText) {
+			return false
+		}
+		x.OldText, y.OldText = nil, nil
+		if x != y {
+			return false
+		}
+	}
+	return true
+}
+
 // The review text built for a plain agent's request always passes the
 // pager's check and reads back to exactly the request: no two requests
 // show the same. With a contaminated source no link in it is live.
@@ -222,8 +303,8 @@ func TestRequestTextReadsBackToTheRequest(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		p := Permission{ID: 1, Name: genValue(t, "name"), Title: genValue(t, "title"), Kind: genValue(t, "kind"),
 			Labels: genLabels(t), PreviewLabels: genLabels(t)}
-		for range rapid.IntRange(0, 2).Draw(t, "contents") {
-			p.Content = append(p.Content, genValue(t, "content"))
+		for range rapid.IntRange(0, 3).Draw(t, "contents") {
+			p.Content = append(p.Content, genContent(t))
 		}
 		if rapid.Bool().Draw(t, "preview") {
 			p.Preview = genValue(t, "preview")
@@ -246,7 +327,7 @@ func TestRequestTextReadsBackToTheRequest(t *testing.T) {
 		if labels != p.Labels.Union(session) {
 			t.Fatalf("labels %+v, want %+v", labels, p.Labels.Union(session))
 		}
-		if got.Name != p.Name || got.Title != p.Title || got.Kind != p.Kind || !slices.Equal(got.Content, p.Content) ||
+		if got.Name != p.Name || got.Title != p.Title || got.Kind != p.Kind || !sameContent(got.Content, p.Content) ||
 			!slices.Equal(got.FixedArgs, p.FixedArgs) || got.Preview != p.Preview || (p.Preview != "" && got.PreviewLabels != p.PreviewLabels) {
 			t.Fatalf("read back %+v\nwant %+v\nfrom\n%s", got, p, text)
 		}
@@ -522,5 +603,32 @@ func TestAChangedReviewIsReadAgain(t *testing.T) {
 	}
 	if sub := ReviewSubject(SingleSurface(x), x.App, x.State); !strings.Contains(sub.Text, `https\u{003a}//example\u{002e}com/x`) {
 		t.Fatalf("not defanged: %q", sub.Text)
+	}
+}
+
+// Codex round 1, finding 2: a diff's fields stay apart, so a diff from
+// "safe" to "danger" and a new file whose text spells that out are two
+// texts; and content the review cannot show makes it fail closed for an
+// allow, while a refusal still works.
+func TestContentFieldsStayApart(t *testing.T) {
+	safe := "safe"
+	a := RequestText(Permission{Name: "edit", Content: []CallContent{{Kind: ContentDiff, Path: "f", OldText: &safe, NewText: "danger"}}}, Labels{})
+	b := RequestText(Permission{Name: "edit", Content: []CallContent{{Kind: ContentDiff, Path: "f", NewText: "was:\nsafe\nnow:\ndanger"}}}, Labels{})
+	if a == b {
+		t.Fatalf("two diffs read the same:\n%s", a)
+	}
+	x := askedSingle(nil, `{}`)
+	x.State.Asks = append([]Permission(nil), x.State.Asks...)
+	x.State.Asks[0].Unshown = []string{`content 2 (of type "image")`}
+	x, _ = feedS(x, OpenReview{At: t0})
+	sub := ReviewSubject(SingleSurface(x), x.App, x.State)
+	if !strings.Contains(sub.Problem, `content 2 (of type "image")`) {
+		t.Fatalf("problem %q", sub.Problem)
+	}
+	if _, fx := feedS(x, PermissionQuick{At: t0.Add(time.Hour), Kind: AllowOnce}); len(allowed(fx)) != 0 {
+		t.Fatalf("allowed content it could not show: %v", fx)
+	}
+	if _, fx := feedS(x, PermissionQuick{At: t0, Kind: RejectOnce}); len(answers(fx)) != 1 {
+		t.Fatal("rejecting must still work")
 	}
 }

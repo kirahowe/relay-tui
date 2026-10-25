@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func TestPermissionReview(t *testing.T) {
 	}
 	p := Permission(req, "", 1, time.Now()).Permission
 	if p.Review == nil || p.Review.Text != "T" || p.Refused != "the digest does not match" || p.Kind != "fetch" ||
-		len(p.Content) != 1 || p.Content[0] != "does a thing" || p.Preview != "preview" {
+		len(p.Content) != 1 || p.Content[0].Text != "does a thing" || p.Preview != "preview" {
 		t.Fatalf("%+v", p)
 	}
 }
@@ -72,5 +73,31 @@ func TestCardAndItemReviews(t *testing.T) {
 	e := Items(json.RawMessage(`{"items":[{"kind":"shown","path":"p","version":3,"review":{"text":"doc","sha256":"`+digest64+`"}}]}`), nil, time.Now())
 	if len(e.Items) != 1 || e.Items[0].Review == nil || e.Items[0].Review.Text != "doc" {
 		t.Fatalf("items %+v", e)
+	}
+}
+
+// The content is read from its own fields, and whatever this client does
+// not understand is named.
+func TestCallContentFields(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"type":"content","content":{"type":"resource","resource":{"uri":"file:///a","mimeType":"text/plain","text":"secret plan"}}},
+		{"type":"content","content":{"type":"resource","resource":{"uri":"file:///b","blob":"aGk="}}},
+		{"type":"diff","path":"p","newText":"n"},
+		{"type":"content","content":{"type":"image","data":"aGk=","mimeType":"image/png"}},
+		{"type":"content","content":{"type":"text","text":"t","annotations":{"priority":1}}},
+		{"type":"hologram"},
+		{"type":"diff","path":"p","newText":"n","extra":1}]`)
+	pieces, unshown := CallContent(raw)
+	if len(pieces) != 3 || pieces[0].URI != "file:///a" || pieces[0].Text != "secret plan" || pieces[0].MimeType != "text/plain" ||
+		!pieces[1].Blob || pieces[1].BlobSize != 2 || pieces[2].OldText != nil || pieces[2].NewText != "n" {
+		t.Fatalf("pieces %+v", pieces)
+	}
+	if len(unshown) != 4 {
+		t.Fatalf("unshown %q", unshown)
+	}
+	for _, want := range []string{"content 4", "annotations", "hologram", "extra"} {
+		if !strings.Contains(strings.Join(unshown, " "), want) {
+			t.Errorf("%q not named in %q", want, unshown)
+		}
 	}
 }

@@ -73,7 +73,30 @@ func RequestText(p Permission, session Labels) string {
 	one("kind", "kind", p.Kind)
 	line("session labels: ", labelWords(p.Labels.Union(session)))
 	for i, c := range p.Content {
-		block(fmt.Sprintf("content %d", i+1), fmt.Sprintf("content %d:", i+1), c, def)
+		n := fmt.Sprintf("content %d", i+1)
+		switch c.Kind {
+		case ContentText:
+			block(n, n+", text:", c.Text, def)
+		case ContentDiff:
+			line(n, ", diff of: ", q(c.Path))
+			fields = append(fields, field{n + " path", c.Path})
+			if c.OldText == nil {
+				line("old text: none")
+			} else {
+				block(n+" old text", "old text:", *c.OldText, def)
+			}
+			block(n+" new text", "new text:", c.NewText, def)
+		case ContentTerminal:
+			line(n, ", terminal: ", q(c.TerminalID))
+		case ContentResource:
+			line(n, ", resource: ", q(c.URI), " type ", q(c.MimeType))
+			fields = append(fields, field{n + " uri", c.URI})
+			if c.Blob {
+				line(fmt.Sprintf("blob: %d bytes, sha256 %s", c.BlobSize, c.BlobSHA256))
+			} else {
+				block(n+" text", "text:", c.Text, def)
+			}
+		}
 	}
 	if p.Preview != "" {
 		// A service's words: always defanged, whatever the labels.

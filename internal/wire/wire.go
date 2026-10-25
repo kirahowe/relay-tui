@@ -224,7 +224,8 @@ func Permission(req acp.RequestPermissionRequest, input string, id uint64, at ti
 	if k := req.ToolCall.Kind; k != nil {
 		p.Kind = string(*k)
 	}
-	p.Content = callContent(req.ToolCall.Content)
+	raw, _ := json.Marshal(req.ToolCall.Content)
+	p.Content, p.Unshown = CallContent(raw)
 	p.Review = Review(req.Meta[ReviewKey])
 	var refused string
 	if strictjson.Unmarshal(req.Meta[RefusedKey], &refused) == nil {
@@ -252,30 +253,6 @@ func Outcome(a core.AnswerPermission) acp.RequestPermissionResponse {
 		r.Meta = map[string]json.RawMessage{ReviewKey: h}
 	}
 	return r
-}
-
-// callContent is what a tool call's content says, but relay's preview:
-// each text block, each diff (its path and new text), and each
-// terminal by id, for a review text built here.
-func callContent(content []acp.ToolCallContent) []string {
-	var out []string
-	for _, c := range content {
-		switch {
-		case c.Content != nil && c.Content.Content.Text != nil:
-			if t := c.Content.Content.Text; string(t.Meta[previewKey]) != "true" {
-				out = append(out, t.Text)
-			}
-		case c.Diff != nil:
-			d := "diff of " + c.Diff.Path + ":\n"
-			if c.Diff.OldText != nil {
-				d += "was:\n" + *c.Diff.OldText + "\nnow:\n"
-			}
-			out = append(out, d+c.Diff.NewText)
-		case c.Terminal != nil:
-			out = append(out, "terminal "+string(c.Terminal.TerminalId))
-		}
-	}
-	return out
 }
 
 // labelsKey is where agentloop puts the session's labels in _meta.
