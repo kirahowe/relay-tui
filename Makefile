@@ -7,8 +7,8 @@ check:
 	@test -z "$$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
 	go vet ./...
 	go test -race -count=1 ./...
-	# The surface rules are rare-sequence properties: run them deep.
-	go test -count=1 -run TestSurfaceRules -rapid.checks=1000 ./internal/ui
+	@# The surface rules are rare-sequence properties: run them deep.
+	go test -count=1 ./internal/ui -run TestSurfaceRules -rapid.checks=1000
 
 # Keep dependencies current.
 update:
