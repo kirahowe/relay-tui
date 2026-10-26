@@ -32,11 +32,8 @@ const (
 // Role is one row of the roster.
 type Role struct {
 	ID, Title string
-	Labels    Labels
 	// Working says a scheduled wake of the role runs.
 	Working bool
-	// Holds is how many of the role's calls wait for the operator.
-	Holds int
 	// Conv is the role's live conversation, or nil.
 	Conv *RosterConv
 }
@@ -49,9 +46,6 @@ type RosterConv struct {
 	Turns                  int
 	// Unread says a turn ended after the last one the operator saw.
 	Unread bool
-	// Approvals is how many permission requests are asked and not
-	// answered.
-	Approvals int
 }
 
 // Conv is a conversation this client has attached to, or is attaching
@@ -90,7 +84,6 @@ type Hub struct {
 	// come from agentInfo.
 	Connected             bool
 	Agent, Title, Version string
-	Embedded              bool
 	// KeepsKnown says relay told us whether it keeps conversations when this
 	// client goes (_meta["relay/keeps"]); Keeps is the answer. False is
 	// embedded mode: they end when this client closes.
@@ -198,26 +191,12 @@ func (h Hub) ConvBySession(session string) *Conv {
 	return nil
 }
 
-// Approvals is how many requests wait in a role's conversation: what
-// relay counts, or, if more, what this client holds.
-func (h Hub) Approvals(r Role) int {
-	n := 0
-	if r.Conv != nil {
-		n = r.Conv.Approvals
-	}
-	if c := h.ConvOf(r.ID); c != nil {
-		n = max(n, len(c.State.Asks))
-	}
-	return n
-}
-
 // Events from the hub's connection, translated by package wire.
 type (
 	// HubConnected means initialize answered with _meta["relay/hub"].
 	HubConnected struct {
 		At                    time.Time
 		Agent, Title, Version string
-		Embedded              bool
 		KeepsKnown, Keeps     bool
 	}
 	// RosterUpdate is the whole roster, from _relay/roles or
@@ -238,12 +217,6 @@ type (
 		At            time.Time
 		Role, Session string
 		Err           string
-	}
-	// PermissionSettled is _relay/permission/settled: another device
-	// answered the request for CallID.
-	PermissionSettled struct {
-		At                       time.Time
-		Session, CallID, Outcome string
 	}
 	// Replayed is _relay/replayed: the replay of a conversation is over.
 	Replayed struct {
@@ -287,7 +260,6 @@ func (e HubConnected) at() time.Time      { return e.At }
 func (e RosterUpdate) at() time.Time      { return e.At }
 func (e Routed) at() time.Time            { return e.Event.at() }
 func (e Attached) at() time.Time          { return e.At }
-func (e PermissionSettled) at() time.Time { return e.At }
 func (e Replayed) at() time.Time          { return e.At }
 func (e ConversationEnded) at() time.Time { return e.At }
 func (e FocusIndex) at() time.Time        { return e.At }
@@ -329,27 +301,22 @@ func (SendSeen) effect()        {}
 // the keys are.
 func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 	out, fx := reduceHubTop(h, e)
-	out.App = settleSurface(out.App, HubSurface(out), HubSurfaceID(out), e.at())
+	out.App = settleSurface(out.App, HubSurfaceID(out), e.at())
 	return out, fx
 }
 
 func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	surf := HubSurface(h)
 	id := HubSurfaceID(h)
-	st := h.surfaceState(surf)
 	if !surf.takes(e) {
 		return h, nil
 	}
-	if need := authorityOf(e, surf, st); !h.App.mayTake(need, e, surf, id, st, e.at()) {
-		h.Notice = h.App.refusal(need, surf, st, e.at())
+	if need := authorityOf(e, surf); !h.App.mayTake(need, id, e.at()) {
+		h.Notice = h.App.refusal(need)
 		return h, nil
 	}
-	switch e := e.(type) {
-	case Drawn:
-		h.App = h.App.shown(e, id).seeReview(e, ReviewSubject(surf, h.App, st), st.Pick)
-		return h, nil
-	case KeyPressed:
-		h.App.KeyReplayed, h.App.Pressed = e.Replayed, true
+	if k, ok := e.(KeyPressed); ok {
+		h.App.KeyReplayed, h.App.Pressed = k.Replayed, true
 	}
 	h.Roles = slices.Clone(h.Roles)
 	h.Convs = slices.Clone(h.Convs)
@@ -357,7 +324,6 @@ func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	h.Drafts = slices.Clone(h.Drafts)
 	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
-	before, offered, view := h.onScreen(), h.offered(), h.view()
 	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
 		r.h.Notice = EditorPasteNote // only a paste reaches the editor as Unbound
 	} else {
@@ -365,9 +331,7 @@ func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	}
 	r.restoreHub(e.at())
 	r.settleColumn()
-	r.settle(before, e.at())
-	r.arm(offered, e.at())
-	r.keepCardTrust(view)
+	r.settle(e.at())
 	r.markSeen(e.at())
 	if !fromOperator(e) && surf.Typing() && !HubSurface(r.h).Typing() && h.App.Pressed {
 		keepTypingHub(&r.h, h, surf)
@@ -417,73 +381,16 @@ func (h Hub) onScreen() string {
 }
 
 // settle acts on what a transition did to what is on screen, whatever
-// caused it: a request that has just come into view starts its delay
-// afresh, so a key typed for something else cannot answer it, and a trust
-// confirmation in a conversation that has left the screen is dropped.
-// Doing it here, on the change, means no way of covering and uncovering a
-// conversation can skip it.
-func (r *hubReducer) settle(before string, at time.Time) {
+// caused it: the question whether to end a conversation is dropped when
+// the conversation it was about is no longer in focus. Doing it here, on
+// the change, means no way of moving about can skip it.
+func (r *hubReducer) settle(at time.Time) {
 	h := &r.h
 	if h.EndAsk {
 		if c := h.Focused(); c == nil || c.Session != h.EndSession {
 			h.EndAsk = false
 			h.Notice = "the conversation changed, so it was not ended"
 		}
-	}
-	after := h.onScreen()
-	if after == before {
-		return
-	}
-	if i := r.sessionIndex(before); i >= 0 {
-		r.toConv(i, Blurred{At: at}, false)
-	}
-	if i := r.sessionIndex(after); i >= 0 && len(h.Convs[i].State.Asks) > 0 {
-		r.toConv(i, Focused{At: at}, false)
-	}
-}
-
-// offered is the session whose request on offer is the surface, or "".
-func (h Hub) offered() string {
-	if HubSurface(h).Kind != SurfaceRequest {
-		return ""
-	}
-	return h.onScreen()
-}
-
-// arm starts a request's delay afresh when it becomes the surface: by
-// esc out of typing, by moving to its role or its column, by what
-// covered it closing, or by its arriving while its conversation has the
-// keys. A key meant for something else cannot answer it.
-func (r *hubReducer) arm(was string, at time.Time) {
-	now := r.h.offered()
-	if now == was || now == "" {
-		return
-	}
-	if i := r.sessionIndex(now); i >= 0 {
-		r.toConv(i, Focused{At: at}, false)
-	}
-}
-
-// hubView is what decides what the screen shows, apart from the pane.
-type hubView struct {
-	focus                    string
-	list, pane, help, endAsk bool
-}
-
-func (h Hub) view() hubView {
-	return hubView{focus: h.Focus, list: h.List, pane: h.App.PaneFocus, help: h.Help, endAsk: h.EndAsk}
-}
-
-// keepCardTrust drops a trust of a card that has not been sent when the
-// screen changed under it: another role came into focus, the keys went
-// to another column, or the help or the end question covered it. The operator asks again on
-// purpose, so a y typed for something else cannot answer it. A doc's
-// trust goes the same way, with its conversation (Blurred).
-func (r *hubReducer) keepCardTrust(was hubView) {
-	b := &r.h.App.Board
-	if r.h.view() != was && b.Trust != nil && !b.Trust.Sent {
-		b.Trust = nil
-		b.Message, b.Failure = "Trust cancelled.", ""
 	}
 }
 
@@ -517,15 +424,15 @@ func newConv(session, role string) Conv {
 func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
-	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, PermissionSettled, Replayed,
-		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone, AgentExited:
+	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, Replayed,
+		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited:
 	default:
 		h.Notice = "" // a key was pressed
 	}
 	switch e := e.(type) {
 	case HubConnected:
 		h.Connected = true
-		h.Agent, h.Title, h.Version, h.Embedded = e.Agent, e.Title, e.Version, e.Embedded
+		h.Agent, h.Title, h.Version = e.Agent, e.Title, e.Version
 		h.KeepsKnown, h.Keeps = e.KeepsKnown, e.Keeps
 		// The board is the connection's: it is asked for now, before any
 		// conversation opens.
@@ -539,7 +446,7 @@ func (r *hubReducer) apply(e Event) {
 		r.roster(e)
 	case Routed:
 		r.routed(e)
-	case CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
+	case CardsLoaded, CardsChanged, CardOpDone:
 		r.toApp(e, false)
 	case PaneKey:
 		if h.List {
@@ -559,10 +466,6 @@ func (r *hubReducer) apply(e Event) {
 			if r.turnIdle(h.Convs[i]) {
 				r.toConv(i, ReplayEnd{At: e.At}, false)
 			}
-		}
-	case PermissionSettled:
-		if i := r.sessionIndex(e.Session); i >= 0 {
-			r.toConv(i, Settled{At: e.At, CallID: e.CallID, Outcome: e.Outcome}, false)
 		}
 	case ConversationEnded:
 		r.ended(e)
@@ -617,28 +520,12 @@ func (r *hubReducer) apply(e Event) {
 		}
 	case ToggleHelp:
 		h.Help = !h.Help
-	case ReviewKey:
-		if e.Action == ReviewBack {
-			r.toFocused(e)
-		} else {
-			h.App.Pager = scrolled(h.App.Pager, e) // a pane's question has no conversation to go through
-		}
 	case Pasted:
 		if h.Focus == "" || e.Text == "" || r.focusedExited() {
 			return // not at the input
 		}
-		p := r.draftOf(h.Focus).paste(&h.App, e.Text)
+		p := r.draftOf(h.Focus).paste(e.Text)
 		r.emit(InsertInput{Role: h.Focus, Text: p.Token()})
-	case TrustPaste:
-		if h.Focus == "" || r.focusedExited() {
-			return
-		}
-		old, new, note := r.draftOf(h.Focus).trust(e.Draft)
-		if note != "" {
-			h.Notice = note
-			return
-		}
-		r.emit(ReplaceInput{Role: h.Focus, Old: old, New: new})
 	case Submit:
 		if strings.TrimSpace(e.Text) == "" || h.Focus == "" || h.List {
 			return
@@ -825,9 +712,7 @@ func (r *hubReducer) withApp(f func(*reducer)) {
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
-	case AnswerPermission:
-		r.emit(f)
-	case RequestCards, SendCardOp, SendCardTrust:
+	case RequestCards, SendCardOp:
 		// The board's calls are the connection's, about no conversation.
 		r.emit(f)
 	case RestoreInput:
@@ -844,17 +729,6 @@ func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 // oneLineText is s on one line, for a note.
 func oneLineText(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-func (r *hubReducer) cancelAsks(i int) {
-	c := &r.h.Convs[i]
-	var fx []Effect
-	rd := &reducer{s: c.State, a: r.h.App}
-	rd.cancelAsks()
-	c.State, fx = rd.s, rd.fx
-	for _, f := range fx {
-		r.mapEffect(*c, f, false)
-	}
-}
-
 // interrupt is Ctrl-C: it stops what is running in the conversation in
 // focus, here or on another device, and otherwise quits.
 func (r *hubReducer) interrupt(e Interrupt) {
@@ -864,7 +738,7 @@ func (r *hubReducer) interrupt(e Interrupt) {
 		return // Ctrl-C clears the line; there is nothing else to stop
 	}
 	if c == nil || h.List {
-		r.emit(Quit{}) // detach: a request left unanswered is relay's to hold
+		r.emit(Quit{}) // detach
 		return
 	}
 	if role := h.RoleByID(h.Focus); c.State.Phase == Idle && e.InputEmpty && role != nil && role.Conv != nil &&
@@ -919,14 +793,11 @@ func (r *hubReducer) focus(role string, force bool, at time.Time) {
 	// place; what was unsent in the pane goes, as leaving it with h does.
 	if h.App.PaneFocus {
 		r.toApp(PaneKey{At: at, Action: PaneToggle}, true)
-		h.App.PaneFocus = false // even past a trust in flight, whose answer still lands
+		h.App.PaneFocus = false
 	}
 	h.Focus, h.Cursor, h.List = role, role, false
 	h.EndAsk, h.Ending = false, false
 	r.ensureAttached(role, force)
-	if i := r.convIndex(role); i >= 0 {
-		r.toConv(i, Focused{At: at}, false)
-	}
 }
 
 // ensureAttached makes sure a conversation is attached or attaching for
@@ -1012,10 +883,7 @@ func (r *hubReducer) attached(e Attached) {
 	if rl := h.RoleByID(e.Role); rl != nil && rl.Conv != nil && rl.Conv.Session == e.Session {
 		c.InRoster = true // the roster already lists it
 	}
-	r.toConv(bySession, ConvAttached{At: e.At, Embedded: h.Embedded}, false)
-	if e.Role == h.Focus {
-		r.toConv(bySession, Focused{At: e.At}, false)
-	}
+	r.toConv(bySession, ConvAttached{At: e.At}, false)
 }
 
 // giveBack puts a message that was not sent back where the operator

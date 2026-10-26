@@ -1,18 +1,16 @@
 package core
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
-// This file is how text the agent wrote is shown where the person is
-// deciding something. Nothing is dropped: a character that cannot be seen
-// as itself shows as a \u escape, so what is approved is what runs. The
-// escapes are JSON's, so the text reads back to the original.
+// This file is how text the agent wrote is shown. Nothing is dropped: a
+// character that cannot be seen as itself shows as a \u escape, so what
+// is on screen is what was sent. The escapes are JSON's, so the text
+// reads back to the original.
 
 // escapeRune appends r to b, as itself when it prints, else as \uXXXX
 // (a surrogate pair above U+FFFF, as JSON does).
@@ -78,33 +76,6 @@ func EscapeNonPrinting(s string) string {
 		i += n
 	}
 	return b.String()
-}
-
-// QuoteJSON is s as a JSON string literal with every non-printing
-// character escaped. It is what text that is not JSON shows as.
-func QuoteJSON(s string) string {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s) // a string always encodes
-	return EscapeNonPrinting(strings.TrimRight(b.String(), "\n"))
-}
-
-// FaithfulLines is a call's input, as JSON arguments, for the person to
-// read: indented, one member per line, with non-printing characters
-// escaped, so joined with newlines it parses back to the same value. Text
-// that is not JSON shows as one quoted string. Nothing is cut.
-func FaithfulLines(input string) []string {
-	if strings.TrimSpace(input) == "" {
-		return nil
-	}
-	if json.Valid([]byte(input)) {
-		var b bytes.Buffer
-		if json.Indent(&b, []byte(input), "", "  ") == nil {
-			return strings.Split(EscapeNonPrinting(b.String()), "\n")
-		}
-	}
-	return []string{QuoteJSON(input)}
 }
 
 // EscapeLabel is a name or title on one line: backslash and the

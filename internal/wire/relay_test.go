@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	acp "github.com/caelis-labs/acp-go-sdk"
@@ -48,8 +47,8 @@ func TestUnreadableDisplayFailsClosed(t *testing.T) {
 	}
 }
 
-// However the blocks are mixed, none that carries a display or preview
-// marker reaches a tool's output.
+// However the blocks are mixed, none that carries a display marker
+// reaches a tool's output.
 func TestMarkedBlocksNeverReachOutput(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		var content []acp.ToolCallContent
@@ -57,13 +56,11 @@ func TestMarkedBlocksNeverReachOutput(t *testing.T) {
 		for range rapid.IntRange(0, 6).Draw(t, "blocks") {
 			text := rapid.StringMatching(`[a-z ]{1,12}`).Draw(t, "text")
 			block := &acp.ContentBlockText{Type: "text", Text: text}
-			switch rapid.IntRange(0, 2).Draw(t, "marker") {
+			switch rapid.IntRange(0, 1).Draw(t, "marker") {
 			case 0:
 				plain = append(plain, text)
 			case 1:
 				block.Meta = map[string]json.RawMessage{"relay/display": json.RawMessage(rapid.SampledFrom([]string{`{}`, `7`, `null`, `"x"`}).Draw(t, "v"))}
-			case 2:
-				block.Meta = map[string]json.RawMessage{"relay/preview": json.RawMessage(`true`)}
 			}
 			content = append(content, acp.ToolCallContent{Content: &acp.ToolCallContentContent{Content: acp.ContentBlock{Text: block}}})
 		}
@@ -79,64 +76,6 @@ func TestMarkedBlocksNeverReachOutput(t *testing.T) {
 			t.Fatalf("output %q, want %q", got, want)
 		}
 	})
-}
-
-func TestPermissionPreviewAndLabels(t *testing.T) {
-	var req acp.RequestPermissionRequest
-	if err := json.Unmarshal([]byte(`{"sessionId":"s","toolCall":{"toolCallId":"c1","name":"send","rawInput":{"g":1},
-		"content":[{"type":"content","content":{"type":"text","text":"Sends X","_meta":{"relay/preview":true}}},
-		{"type":"content","content":{"type":"text","text":"model words"}},
-		{"type":"content","content":{"type":"text","text":"not a preview","_meta":{"relay/preview":false}}}],
-		"_meta":{"agentloop/labels":["private"]}},
-		"options":[{"optionId":"a","name":"Allow","kind":"allow_once"}]}`), &req); err != nil {
-		t.Fatal(err)
-	}
-	// The preview mark is read as a claim, on its block; the core decides.
-	p := Permission(req, "", 3, t0).Permission
-	if len(p.Content) != 3 || !p.Content[0].Preview || p.Content[0].Text != "Sends X" || p.Content[1].Preview || p.Content[2].Preview ||
-		p.CallID != "c1" || p.Labels != (core.Labels{Private: true}) {
-		t.Errorf("permission %#v", p)
-	}
-	if l, ok := PermissionLabels(req, t0); !ok || !l.Labels.Private {
-		t.Errorf("labels %#v %v", l, ok)
-	}
-}
-
-func TestItems(t *testing.T) {
-	raw := json.RawMessage(`{"items":[
-	 {"kind":"proposal","callId":"c","tool":"send","input":{"g":"Kira only"},"preview":null,"labels":["private"],"status":"waiting","at":"2026-10-18T20:02:00Z"},
-	 {"kind":"shown","ref":"shown:d/x","path":"shown/d/x.md","callId":"x","title":"T","text":"body","sources":[{"title":"S","ref":"web:https://a.test"}],
-	  "labels":["contaminated"],"version":412,"sha256":"ab","canTrust":true,"trustCommand":"relay trust doc shown/d/x.md"},
-	 {"kind":"future","title":"unknown kind"}]}`)
-	got := Items(raw, nil, t0)
-	if got.Failed || got.Unavailable || len(got.Items) != 2 {
-		t.Fatalf("got %#v", got)
-	}
-	p, sh := got.Items[0], got.Items[1]
-	if p.Kind != core.ProposalItem || p.Tool != "send" || p.Input != `{"g":"Kira only"}` || p.Preview != "" || p.Status != "waiting" || !p.Labels.Private {
-		t.Errorf("proposal %#v", p)
-	}
-	if sh.Kind != core.ShownItem || sh.Version != "412" || sh.SHA256 != "ab" || !sh.CanTrust || sh.Path != "shown/d/x.md" ||
-		!sh.Labels.Contaminated || sh.Sources[0].Ref != "web:https://a.test" || sh.TrustCommand == "" {
-		t.Errorf("shown %#v", sh)
-	}
-}
-
-func TestItemsErrors(t *testing.T) {
-	if got := Items(nil, acp.NewMethodNotFound("_relay/items"), t0); !got.Unavailable || got.Failed {
-		t.Errorf("method not found: %#v", got)
-	}
-	if got := Items(nil, errors.New("boom"), t0); got.Unavailable || !got.Failed {
-		t.Errorf("other error: %#v", got)
-	}
-	if got := Items(json.RawMessage(`[1]`), nil, t0); !got.Failed {
-		t.Errorf("malformed: %#v", got)
-	}
-	// A version that is not a number is not echoed back to relay.
-	got := Items(json.RawMessage(`{"items":[{"kind":"shown","version":"7; drop"}]}`), nil, t0)
-	if got.Items[0].Version != "" {
-		t.Errorf("version %q", got.Items[0].Version)
-	}
 }
 
 func TestResolution(t *testing.T) {
@@ -160,48 +99,32 @@ func TestResolution(t *testing.T) {
 	}
 }
 
-func TestTrustOutcome(t *testing.T) {
-	if d := TrustOutcome("p", json.RawMessage(`{"trusted":true,"labels":["private"]}`), nil, t0); d.Err != "" || !d.Labels.Private {
-		t.Errorf("ok %#v", d)
+func TestItems(t *testing.T) {
+	// An older relay also lists held calls (proposals), and trust fields on
+	// a shown item; only what was shown is read.
+	raw := json.RawMessage(`{"items":[
+	 {"kind":"proposal","callId":"c","tool":"send","input":{"g":"Kira only"},"preview":null,"labels":["private"],"status":"waiting","at":"2026-10-18T20:02:00Z"},
+	 {"kind":"shown","ref":"shown:d/x","path":"shown/d/x.md","callId":"x","title":"T","text":"body","sources":[{"title":"S","ref":"web:https://a.test"}],
+	  "labels":["contaminated"],"version":412,"sha256":"ab","canTrust":true,"trustCommand":"relay trust doc shown/d/x.md"},
+	 {"kind":"future","title":"unknown kind"}]}`)
+	got := Items(raw, nil, t0)
+	if got.Failed || got.Unavailable || len(got.Items) != 1 {
+		t.Fatalf("got %#v", got)
 	}
-	if d := TrustOutcome("p", json.RawMessage(`{"trusted":false}`), nil, t0); d.Err == "" {
-		t.Errorf("a refusal reads as success: %#v", d)
-	}
-	err := &acp.RequestError{Code: -32000, Message: "the doc changed", Data: map[string]any{"message": "version 413 now"}}
-	if d := TrustOutcome("p", nil, err, t0); d.Err != "the doc changed: version 413 now" || d.Path != "p" {
-		t.Errorf("error %#v", d)
-	}
-}
-
-func TestTrustParams(t *testing.T) {
-	b, err := json.Marshal(TrustParams("s", "shown/x.md", "412", "ab"))
-	if err != nil || string(b) != `{"path":"shown/x.md","sessionId":"s","sha256":"ab","version":412}` {
-		t.Errorf("%s %v", b, err)
+	sh := got.Items[0]
+	if sh.Path != "shown/d/x.md" || sh.Title != "T" || sh.Text != "body" || !sh.Labels.Contaminated || sh.Sources[0].Ref != "web:https://a.test" {
+		t.Errorf("shown %#v", sh)
 	}
 }
 
-// The preview's labels and the fixed arguments are read apart from the
-// session's labels, which they do not change.
-func TestPermissionPreviewLabelsAndFixedArgs(t *testing.T) {
-	var req acp.RequestPermissionRequest
-	if err := json.Unmarshal([]byte(`{"sessionId":"s","toolCall":{"toolCallId":"c1","name":"send","rawInput":{"group":"Kira only"},
-		"content":[{"type":"content","content":{"type":"text","text":"Sends X","_meta":{"relay/preview":true,"relay/labels":["contaminated","private"]}}}],
-		"_meta":{"agentloop/labels":["private"],"agentloop/fixed_args":{"send_now":false,"group":"Kira only"}}},
-		"options":[{"optionId":"a","name":"Allow","kind":"allow_once"}]}`), &req); err != nil {
-		t.Fatal(err)
+func TestItemsErrors(t *testing.T) {
+	if got := Items(nil, acp.NewMethodNotFound("_relay/items"), t0); !got.Unavailable || got.Failed {
+		t.Errorf("method not found: %#v", got)
 	}
-	p := Permission(req, "", 3, t0).Permission
-	if len(p.Content) != 1 || p.Content[0].PreviewLabels != (core.Labels{Private: true, Contaminated: true}) || p.Labels != (core.Labels{Private: true}) {
-		t.Errorf("labels %#v / %#v", p.Labels, p.Content)
+	if got := Items(nil, errors.New("boom"), t0); got.Unavailable || !got.Failed {
+		t.Errorf("other error: %#v", got)
 	}
-	if strings.Join(p.FixedArgs, ",") != "group,send_now" {
-		t.Errorf("fixed %v", p.FixedArgs)
-	}
-	if l, _ := PermissionLabels(req, t0); l.Labels.Contaminated {
-		t.Error("the preview's labels reached the session's")
-	}
-	got := Items(json.RawMessage(`{"items":[{"kind":"proposal","callId":"c","tool":"send","input":{},"labels":["contaminated"],"fixedArgs":["group"],"status":"waiting"}]}`), nil, t0)
-	if len(got.Items) != 1 || strings.Join(got.Items[0].FixedArgs, ",") != "group" {
-		t.Errorf("items %#v", got)
+	if got := Items(json.RawMessage(`[1]`), nil, t0); !got.Failed {
+		t.Errorf("malformed: %#v", got)
 	}
 }

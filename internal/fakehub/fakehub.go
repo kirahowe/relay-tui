@@ -1,14 +1,16 @@
 // Package fakehub is a stand-in for relay's hub, for tests: it speaks the
 // protocol of the design brief's section 4 (the roster, attach with
-// replay, several sessions on one connection, permission requests that
-// another device can settle, queued turns) over one connection, without
-// relay. It plays one client; a second device is played from a control
+// replay, several sessions on one connection, queued turns) over one
+// connection, without relay. It also plays a relay from before it dropped
+// its holds, which still asks permission for a call and tells the client
+// when another device settled it: relay-tui answers every such request
+// with a plain cancel and ignores the notice. It plays one client; a second device is played from a control
 // file that the test appends lines to.
 //
 // The config is JSON:
 //
 //	{"roles": [{"id": "dev", "title": "Dev", "labels": ["private"],
-//	  "working": false, "holds": 0, "busy": false,
+//	  "working": false, "busy": false,
 //	  "live": {"unread": true, "history": [{"user": "hi"}, {"agent": "hello"}]}}]}
 //
 // A role with "live" starts with a conversation holding that history. A
@@ -17,7 +19,7 @@
 // A prompt is answered with "echo: " and its text, in two chunks. A
 // prompt starting with "ask" first sends a permission request for a tool
 // "send_mail"; its answer is logged as "permission <session> <outcome>"
-// and said in the reply. A prompt "slow" runs until it is cancelled or
+// and said in the reply (relay-tui's is always cancelled). A prompt "slow" runs until it is cancelled or
 // the control file says "finish <role>".
 //
 // The control file takes one command per line:
@@ -25,10 +27,8 @@
 //	other-prompt <role> <text>   another device prompted: the user text
 //	                             and an echo arrive as live updates
 //	ask <role> [name]            a permission request, from a prompt run
-//	                             elsewhere; "long" for one whose review
-//	                             runs to many lines
+//	                             elsewhere
 //	settle <role>                another device answered that request
-//	refuse-digest <role>         refuse the next allow's digest (review.go)
 //	busy <role>, unbusy <role>   queue prompts, or let them through
 //	working <role> on|off        a scheduled wake runs, or ends
 //	start <role>                 a conversation opens from elsewhere
@@ -75,7 +75,6 @@ type RoleConfig struct {
 	Title   string   `json:"title"`
 	Labels  []string `json:"labels"`
 	Working bool     `json:"working"`
-	Holds   int      `json:"holds"`
 	Busy    bool     `json:"busy"`
 	Live    *Live    `json:"live"`
 }
@@ -102,7 +101,6 @@ type conv struct {
 	turn       string
 	openedAt   time.Time
 	activity   time.Time
-	approvals  int
 	attached   bool
 	truncated  bool
 	busy       bool // a turn is running or queued: the next prompt is refused
@@ -139,14 +137,9 @@ type Hub struct {
 	sessions  int
 	calls     int
 	subscribe bool
-	// reviews says the client declared relay/review in initialize;
-	// refuseDigest is how many allows to refuse whatever digest they
-	// carry (the control file's "refuse-digest").
-	reviews      bool
-	refuseDigest int
-	unbusy       chan struct{} // closed and replaced when a role stops being busy
-	now          func() time.Time
-	keeps        bool
+	unbusy    chan struct{} // closed and replaced when a role stops being busy
+	now       func() time.Time
+	keeps     bool
 	// lag is how long after a prompt's answer the roster says the turn
 	// ended, as relay's does.
 	lag time.Duration
@@ -232,10 +225,10 @@ func (h *Hub) rosterJSON() map[string]any {
 		if labels == nil {
 			labels = []string{}
 		}
-		m := map[string]any{"id": r.ID, "title": r.Title, "labels": labels, "working": r.Working, "holds": r.Holds, "conversation": nil}
+		m := map[string]any{"id": r.ID, "title": r.Title, "labels": labels, "working": r.Working, "conversation": nil}
 		if c := r.conv; c != nil {
 			m["conversation"] = map[string]any{"sessionId": c.session, "openedAt": iso(c.openedAt), "lastActivity": iso(c.activity),
-				"turn": c.turn, "turns": c.turns, "unread": c.turns > c.seen, "approvals": c.approvals}
+				"turn": c.turn, "turns": c.turns, "unread": c.turns > c.seen}
 		}
 		roles = append(roles, m)
 	}
@@ -263,17 +256,15 @@ func (h *Hub) update(session string, u acp.SessionUpdate) {
 }
 
 func (h *Hub) Initialize(_ context.Context, req acp.InitializeRequest) (acp.InitializeResponse, error) {
-	h.mu.Lock()
-	h.reviews = string(req.ClientCapabilities.Meta["relay/review"]) == "1"
-	h.mu.Unlock()
-	h.logf("initialize review=%v", h.reviews)
+	_, review := req.ClientCapabilities.Meta["relay/review"]
+	h.logf("initialize review=%v", review)
 	title := "relay"
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersion(acp.ProtocolVersionNumber),
 		AgentInfo:       &acp.Implementation{Name: "relay", Version: "fake", Title: &title},
 		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession:         true,
-			PromptCapabilities:  acp.PromptCapabilities{EmbeddedContext: true},
+			LoadSession: true,
+
 			SessionCapabilities: acp.SessionCapabilities{List: &acp.SessionListCapabilities{}},
 		},
 		Meta: map[string]json.RawMessage{"relay/hub": json.RawMessage("1"), "relay/keeps": json.RawMessage(fmt.Sprint(h.keeps))},
@@ -441,7 +432,7 @@ func (h *Hub) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResp
 
 	reply := "echo: " + text
 	if strings.HasPrefix(text, "ask") {
-		outcome, err := h.askPermission(ctx, c, "send_mail", strings.Contains(text, "long"))
+		outcome, err := h.askPermission(ctx, c, "send_mail")
 		if err != nil {
 			h.endTurn(c)
 			return acp.PromptResponse{}, err
@@ -484,51 +475,27 @@ func (h *Hub) endTurn(c *conv) {
 	time.AfterFunc(h.lag, func() { h.setTurn(c, "idle") })
 }
 
-// askPermission sends a permission request for c, with its review, and
-// waits for an answer, or for the control file to settle it. An allow
-// whose digest is not the review's is refused and asked again (see
-// review.go).
-func (h *Hub) askPermission(ctx context.Context, c *conv, name string, long bool) (string, error) {
+// askPermission sends a permission request for c and waits for an answer,
+// or for the control file to settle it.
+func (h *Hub) askPermission(ctx context.Context, c *conv, name string) (string, error) {
 	h.mu.Lock()
 	h.calls++
 	a := &ask{callID: fmt.Sprintf("call-%d", h.calls), done: make(chan struct{})}
 	c.pendingAsk = a
-	c.approvals++
 	conn := h.conn
-	rv := review(requestText(c.session, name, long))
 	h.mu.Unlock()
-	h.notifyRoster()
-	var resp acp.RequestPermissionResponse
-	var err error
-	why := ""
-	for n := 0; ; n++ {
-		meta := map[string]json.RawMessage{"relay/review": copyOf(rv)}
-		if why != "" {
-			meta["relay/refused"] = copyOf(why)
-		}
-		resp, err = conn.RequestPermission(context.WithoutCancel(ctx), acp.RequestPermissionRequest{
-			Meta:      meta,
-			SessionId: acp.SessionId(c.session),
-			Options: []acp.PermissionOption{
-				{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once", OptionId: "allow"},
-				{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
-			},
-			ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(a.callID), Name: &name, RawInput: map[string]any{"to": "a@example.com"}},
-		})
-		if why = h.checkDigest(resp, rv); err != nil || why == "" {
-			break
-		}
-		h.logf("permission-refused %s %s", c.session, why)
-		if n+1 >= maxAsks {
-			resp = acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"}}}
-			break
-		}
-	}
+	resp, err := conn.RequestPermission(context.WithoutCancel(ctx), acp.RequestPermissionRequest{
+		SessionId: acp.SessionId(c.session),
+		Options: []acp.PermissionOption{
+			{Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once", OptionId: "allow"},
+			{Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject", OptionId: "reject"},
+		},
+		ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(a.callID), Name: &name, RawInput: map[string]any{"to": "a@example.com"}},
+	})
 	h.mu.Lock()
 	settled := c.pendingAsk != a // another device answered first
 	if c.pendingAsk == a {
 		c.pendingAsk = nil
-		c.approvals--
 	}
 	h.mu.Unlock()
 	if err != nil {
@@ -540,32 +507,10 @@ func (h *Hub) askPermission(ctx context.Context, c *conv, name string, long bool
 		return "settled elsewhere", nil
 	}
 	h.logf("permission %s %s", c.session, out)
-	h.notifyRoster()
 	if resp.Outcome.Selected != nil {
 		return string(resp.Outcome.Selected.OptionId), nil
 	}
 	return "cancelled", nil
-}
-
-// checkDigest is why relay refuses resp, an answer to a request whose
-// review is rv, or "" when it takes it: an allow from a client that
-// declared relay/review must carry the review's digest.
-func (h *Hub) checkDigest(resp acp.RequestPermissionResponse, rv map[string]any) string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if !h.reviews || resp.Outcome.Selected == nil || resp.Outcome.Selected.OptionId != "allow" {
-		return ""
-	}
-	var got string
-	_ = json.Unmarshal(resp.Meta["relay/review"], &got)
-	switch {
-	case h.refuseDigest > 0:
-		h.refuseDigest--
-		return "the review digest does not match what relay sent"
-	case got != rv["sha256"]:
-		return "the review digest does not match what relay sent"
-	}
-	return ""
 }
 
 // HandleExtensionMethod answers the hub's extension methods.
@@ -700,11 +645,7 @@ func (h *Hub) control(ctx context.Context, line string) {
 		c := r.conv
 		h.mu.Unlock()
 		if c != nil {
-			long := name == "long" // a request whose review runs to many pages
-			if long {
-				name = "send_mail"
-			}
-			go func() { _, _ = h.askPermission(ctx, c, name, long) }()
+			go func() { _, _ = h.askPermission(ctx, c, name) }()
 		}
 	case "settle":
 		h.mu.Lock()
@@ -714,7 +655,6 @@ func (h *Hub) control(ctx context.Context, line string) {
 			a = c.pendingAsk
 			if a != nil {
 				c.pendingAsk = nil
-				c.approvals--
 			}
 		}
 		conn := h.conn
@@ -724,10 +664,6 @@ func (h *Hub) control(ctx context.Context, line string) {
 				"sessionId": c.session, "toolCallId": a.callID, "outcome": map[string]any{"outcome": "selected", "optionId": "allow"}})
 			h.notifyRoster()
 		}
-	case "refuse-digest":
-		h.mu.Lock()
-		h.refuseDigest++
-		h.mu.Unlock()
 	case "busy", "unbusy":
 		h.mu.Lock()
 		r.Busy = cmd == "busy"

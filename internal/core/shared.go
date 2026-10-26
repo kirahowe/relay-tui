@@ -20,41 +20,20 @@ type (
 		MessageID, Text string
 	}
 	// ConvAttached means the attach to the conversation has been
-	// answered, so it can take prompts. Embedded is the agent's
-	// promptCapabilities.embeddedContext.
-	ConvAttached struct {
-		At       time.Time
-		Embedded bool
-	}
-	// Settled says another device answered the request for CallID, so
-	// the dialog closes (_relay/permission/settled).
-	Settled struct {
-		At      time.Time
-		CallID  string
-		Outcome string // what the other device chose, for the note
-	}
+	// answered, so it can take prompts.
+	ConvAttached struct{ At time.Time }
 	// RemoteIdle says relay reports no turn running in the conversation,
 	// so whatever is still open in it will not change.
 	RemoteIdle struct{ At time.Time }
 	// ReplayEnd says relay has sent all of the replay (_relay/replayed).
 	// Calls the replay left open will not finish, so they stop.
 	ReplayEnd struct{ At time.Time }
-	// Blurred says the conversation has left the screen, or been covered.
-	// A trust confirmation waiting in its pane is dropped, and an open
-	// review closes: the operator opens it again on purpose.
-	Blurred struct{ At time.Time }
-	// Focused says the conversation has just come on screen. A request
-	// on offer starts with its safest option highlighted.
-	Focused struct{ At time.Time }
 )
 
 func (e UserChunk) at() time.Time    { return e.At }
 func (e ConvAttached) at() time.Time { return e.At }
-func (e Settled) at() time.Time      { return e.At }
 func (e RemoteIdle) at() time.Time   { return e.At }
 func (e ReplayEnd) at() time.Time    { return e.At }
-func (e Blurred) at() time.Time      { return e.At }
-func (e Focused) at() time.Time      { return e.At }
 
 func (r *reducer) shared(e Event) {
 	s := &r.s
@@ -75,26 +54,8 @@ func (r *reducer) shared(e Event) {
 	case ConvAttached:
 		if s.Phase == Starting {
 			s.Phase = Idle
-			s.Embedded = e.Embedded
 			r.refresh()
 			r.sendQueue(e.At)
-		}
-	case Settled:
-		for i, p := range s.Asks {
-			if p.CallID != e.CallID {
-				continue
-			}
-			s.Asks = append(s.Asks[:i:i], s.Asks[i+1:]...)
-			// Our own answer to relay is dropped, but the handler
-			// waiting on it has to return.
-			r.emit(AnswerPermission{ID: p.ID, Cancelled: true})
-			r.proposalAnswered(p.ID, StatusCancelledAsk)
-			r.refresh()
-			r.add(Entry{Kind: Note, Text: "answered elsewhere: " + EscapeLabel(p.Label()), Final: true})
-			if i == 0 {
-				r.next(e.At)
-			}
-			return
 		}
 	case RemoteIdle:
 		if s.Phase != Busy && s.Phase != Exited {
@@ -119,14 +80,5 @@ func (r *reducer) shared(e Event) {
 				}
 			}
 		}
-	case Blurred:
-		if t := s.Pane.Trust; t != nil && !t.Sent {
-			s.Pane.Trust = nil
-		}
-		if s.reviewing() {
-			s.Reviewing = nil
-		}
-	case Focused:
-		r.next(e.At)
 	}
 }

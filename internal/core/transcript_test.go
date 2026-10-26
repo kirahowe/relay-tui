@@ -44,18 +44,6 @@ func TestShowTogglesEachKind(t *testing.T) {
 	}
 }
 
-// A permission request must not wait behind the view: it closes it, and
-// the list of keys with it.
-func TestPermissionClosesTranscript(t *testing.T) {
-	s := busyState()
-	s, _ = Reduce(s, ShowTools{At: t0})
-	s, _ = Reduce(s, ToggleHelp{At: t0})
-	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "web_fetch", Options: []PermOption{{ID: "allow", Kind: AllowOnce}}}})
-	if s.Transcript.Open || s.Help || len(s.Asks) != 1 {
-		t.Fatalf("transcript %+v, help %v, asks %d", s.Transcript, s.Help, len(s.Asks))
-	}
-}
-
 // The view never scrolls past either end, whatever the keys and however
 // the content's height changes between them.
 func TestTranscriptScrollStaysInRange(t *testing.T) {
@@ -71,35 +59,30 @@ func TestTranscriptScrollStaysInRange(t *testing.T) {
 	})
 }
 
-// A paste that goes nowhere is dropped whole, and nothing is left behind
-// for a later one to inherit.
-func TestDroppedPasteLeavesNothing(t *testing.T) {
-	cases := map[string]func(Single) Single{
-		"transcript": func(s Single) Single { s, _ = ReduceSingle(s, ShowTools{At: t0}); return s },
-		"pane":       func(s Single) Single { s.PaneFocus = true; return s },
-		"request": func(s Single) Single { // moving: the request has the keys
-			s, _ = ReduceSingle(s, StopTyping{At: t0})
-			s, _ = ReduceSingle(s, Submit{At: t0, Text: "a"})
-			s, _ = ReduceSingle(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Options: []PermOption{{ID: "allow", Kind: AllowOnce}}}})
-			return s
-		},
-	}
-	for name, away := range cases {
-		s, _ := feedS(Single{}, Connected{At: t0, Embedded: true})
-		s = away(s)
-		s, fx := ReduceSingle(s, Pasted{At: t0, Text: "dropped"})
-		if len(s.Draft.Pastes) != 0 || len(fx) != 0 {
-			t.Errorf("%s: pastes %v, effects %+v", name, s.Draft.Pastes, fx)
-		}
-	}
-}
-
 // Quitting leaves the view, so what it held back can still print.
 func TestQuitClosesTranscript(t *testing.T) {
 	for _, quit := range []Event{EOF{At: t0}, Interrupt{At: t0, InputEmpty: true}} {
 		s, _ := run(Connected{At: t0}, ShowThinking{At: t0}, quit)
 		if s.Transcript.Open {
 			t.Errorf("%T left the transcript open", quit)
+		}
+	}
+}
+
+// A paste that goes nowhere is dropped whole, and nothing is left behind
+// for a later one to inherit.
+func TestDroppedPasteLeavesNothing(t *testing.T) {
+	cases := map[string]func(Single) Single{
+		"transcript": func(s Single) Single { s, _ = ReduceSingle(s, ShowTools{At: t0}); return s },
+		"pane":       func(s Single) Single { s.PaneFocus = true; return s },
+		"moving":     func(s Single) Single { s, _ = ReduceSingle(s, StopTyping{At: t0}); return s },
+	}
+	for name, away := range cases {
+		s, _ := feedS(Single{}, Connected{At: t0})
+		s = away(s)
+		s, fx := ReduceSingle(s, Pasted{At: t0, Text: "dropped"})
+		if len(s.Draft.Pastes) != 0 || len(fx) != 0 {
+			t.Errorf("%s: pastes %v, effects %+v", name, s.Draft.Pastes, fx)
 		}
 	}
 }

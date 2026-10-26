@@ -28,12 +28,9 @@ func Load(dir string, argv []string) (core.View, string) {
 	if err != nil {
 		return core.View{}, "the saved view could not be read, so the view starts afresh"
 	}
-	v, untrusted, err := Decode(argv, b)
+	v, err := Decode(argv, b)
 	if err != nil {
 		return core.View{}, err.Error() + ", so the view starts afresh"
-	}
-	if untrusted {
-		return v, "a saved paste's trust did not check out, so it is back as untrusted"
 	}
 	return v, ""
 }

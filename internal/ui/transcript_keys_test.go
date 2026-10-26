@@ -63,19 +63,6 @@ func TestTranscriptKeys(t *testing.T) {
 	}
 }
 
-// ? opens the list only from an empty input, so a message can still
-// have one; ctrl+t no longer arms a trusted paste, ctrl+y does.
-func TestInlineKeys(t *testing.T) {
-	if a := cls(press(t, "?"), false); a != PassThrough {
-		t.Errorf("? with text: %v", a)
-	}
-	for name, want := range map[string]Action{"ctrl+t": ShowTools, "ctrl+o": ShowThinking, "ctrl+y": TrustPaste, "esc": StopTyping} {
-		if a := cls(press(t, name), false); a != want {
-			t.Errorf("%q: %v, want %v", name, a, want)
-		}
-	}
-}
-
 // The agent exiting while the view is open leaves the view, then stops
 // the program once nothing is left to print, so it neither loses lines
 // nor hangs.

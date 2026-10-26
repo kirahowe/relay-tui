@@ -14,38 +14,26 @@ import (
 // Typing and moving, through the real model: which keys reach the input,
 // the board and a request.
 
-// recConn records the calls that act: a card op, a card trust, an
-// answer to a request, a prompt.
+// recConn records the calls that act: a card op, a prompt.
 type recConn struct {
 	nopConn
 	calls *[]string
 }
 
-func (c recConn) CardOp(int64, core.CardOp)      { *c.calls = append(*c.calls, "card-op") }
-func (c recConn) CardTrust(int64, int64, string) { *c.calls = append(*c.calls, "card-trust") }
-func (c recConn) Answer(a core.AnswerPermission) {
-	if a.Cancelled {
-		*c.calls = append(*c.calls, "cancel-answer") // esc on a request, at any time
-		return
-	}
-	*c.calls = append(*c.calls, "answer")
-}
-func (c recConn) Prompt(string, string, []core.Attachment) { *c.calls = append(*c.calls, "prompt") }
+func (c recConn) CardOp(int64, core.CardOp) { *c.calls = append(*c.calls, "card-op") }
+func (c recConn) Prompt(string, string)     { *c.calls = append(*c.calls, "prompt") }
 
 func navCards() []core.Card {
 	text := func(s string) core.CardText { return core.CardText{Text: s, Rev: 1} }
-	review := func(t string) *core.Review { return &core.Review{Text: t, SHA256: core.Digest(t)} }
 	return []core.Card{
 		{ID: 1, Rev: 1, Kind: core.CardChecklist, Status: "active", Title: text("Trip"), Total: 2,
-			Items:  []core.CardElem{{ID: 1, CardText: text("pack")}, {ID: 2, CardText: text("go")}},
-			Review: review("card 1\ntitle: Trip\n- pack\n- go")},
-		{ID: 2, Rev: 2, Kind: core.CardNote, Status: "active", Title: text("Note"), Note: &core.CardText{Text: "hello", Rev: 2},
-			Review: review("card 2\ntitle: Note\nhello")},
+			Items: []core.CardElem{{ID: 1, CardText: text("pack")}, {ID: 2, CardText: text("go")}}},
+		{ID: 2, Rev: 2, Kind: core.CardNote, Status: "active", Title: text("Note"), Note: &core.CardText{Text: "hello", Rev: 2}},
 	}
 }
 
-// navHub is a hub model on Dev, typing, with the board loaded and a
-// request waiting in Mail's conversation, off screen.
+// navHub is a hub model on Dev, typing, with the board loaded and Mail's
+// conversation off screen.
 func navHub(t *testing.T, calls *[]string) Model {
 	t.Helper()
 	now := time.Now()
@@ -54,23 +42,20 @@ func navHub(t *testing.T, calls *[]string) Model {
 		{ID: "mail", Title: "Mail", Conv: &core.RosterConv{Session: "s2", Turn: core.TurnIdle}},
 		{ID: "news", Title: "News"},
 	}
-	ask := core.PermissionAsked{At: now, Permission: core.Permission{ID: 1, CallID: "c", Name: "send",
-		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
 	m := update(New(recConn{calls: calls}, "").Open("dev"), tea.WindowSizeMsg{Width: 170, Height: 40},
 		ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: roles}),
 		ev(core.Attached{At: now, Role: "dev", Session: "s1"}), ev(core.Attached{At: now, Role: "mail", Session: "s2"}),
-		ev(core.Routed{Session: "s2", Event: ask}), ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}))
+		ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}))
 	if m.hub.App.Moving || m.hub.Focus != "dev" {
 		t.Fatalf("not typing on dev: moving %v focus %q", m.hub.App.Moving, m.hub.Focus)
 	}
 	return m
 }
 
-// Typing, no key reaches the board or answers a request: not one on the
-// board, not one in a conversation off screen. The keys that leave
-// typing (esc) or move to another role are left out; everything else is
-// fair game.
-func TestTypingNeverReachesTheBoardOrARequest(t *testing.T) {
+// Typing, no key reaches the board: not one. The keys that leave typing
+// (esc) or move to another role are left out; everything else is fair
+// game.
+func TestTypingNeverReachesTheBoard(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		var calls []string
 		m := navHub(t, &calls)
@@ -186,121 +171,37 @@ func TestDigitsAndAltDigits(t *testing.T) {
 	}
 }
 
-// A request is answered only from its review. While typing it takes no
-// key: y and enter go to the input. Esc gives its summary the keys,
-// which answers nothing; enter opens the review, so a y right behind it
-// answers nothing; once read, y allows. Past its own keys, h and the digits still move, and
-// l cannot take the keys to the pane.
-func TestARequestIsAnsweredOnlyWhileMoving(t *testing.T) {
-	var all []string
-	answers := func() []string {
-		var out []string
-		for _, c := range all {
-			if c == "answer" {
-				out = append(out, c)
-			}
-		}
-		return out
+// Archiving asks first, in the pane: X shows the question, and a y right
+// behind it answers nothing (the key may have been meant for what was
+// there before). Once the question has been up a moment, y archives; any
+// other key keeps the card and says so.
+func TestArchiveAsksFirst(t *testing.T) {
+	var calls []string
+	m := update(navHub(t, &calls), tea.KeyPressMsg{Code: tea.KeyEscape}, letter('l'), letter('X'))
+	if !m.hub.App.PaneFocus || m.hub.App.Board.Confirm == 0 {
+		t.Fatalf("no question: pane %v board %+v", m.hub.App.PaneFocus, m.hub.App.Board)
 	}
-	m := update(navHub(t, &all), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt}) // Mail, whose request waits
-	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	m = update(m, letter('y'), letter('n'), tea.KeyPressMsg{Code: tea.KeyEnter})
-	if len(answers()) != 0 || m.hub.App.Moving {
-		t.Fatalf("typing answered: %v (moving %v)", answers(), m.hub.App.Moving)
+	if got := core.HubSurface(m.hub).Kind; got != core.SurfaceArchive {
+		t.Fatalf("surface %v", got)
 	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('y'))
-	if len(answers()) != 0 || !m.hub.App.Moving {
-		t.Fatalf("a y right behind esc answered: %v", answers())
+	if m = update(m, letter('y')); len(calls) != 0 {
+		t.Fatalf("a y right behind X archived: %v", calls)
 	}
-	m = update(m, letter('l'), letter('x'), letter('i'))
-	if m.hub.App.PaneFocus || !m.hub.App.Moving || len(answers()) != 0 {
-		t.Fatalf("l x i: pane %v moving %v calls %v", m.hub.App.PaneFocus, m.hub.App.Moving, answers())
+	// The question stays up, and says why.
+	if m.hub.App.Board.Confirm == 0 || m.hub.Notice != core.TooSoonNote {
+		t.Fatalf("the question went, or did not say why: %+v %q", m.hub.App.Board, m.hub.Notice)
 	}
 	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	if m = update(m, letter('y')); len(answers()) != 0 {
-		t.Fatalf("a y on the summary answered: %v", answers())
+	if m = update(m, letter('y')); len(calls) != 1 || calls[0] != "card-op" {
+		t.Fatalf("an armed y: %v", calls)
 	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter}, letter('y')) // the review, and a y right behind
-	if len(answers()) != 0 {
-		t.Fatalf("a y right behind enter answered: %v", answers())
-	}
+	// Any other key keeps the card.
+	calls = nil
+	m = update(m, letter('X'))
 	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	if m = update(m, letter('y')); len(answers()) != 1 || answers()[0] != "answer" {
-		t.Fatalf("armed y: %v", answers())
+	if m = update(m, letter('n')); len(calls) != 0 || m.hub.App.Board.Confirm != 0 || m.hub.App.Board.Message != "Archive cancelled." {
+		t.Fatalf("n: calls %v board %+v", calls, m.hub.App.Board)
 	}
-	// h past a request reaches the list.
-	all = nil
-	m = update(navHub(t, &all), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt}, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('h'))
-	if !m.hub.List || len(answers()) != 0 {
-		t.Fatalf("h: list %v calls %v", m.hub.List, answers())
-	}
-}
-
-// Against a single agent the same: typing, the request takes no key.
-func TestSingleRequestWaitsWhileTyping(t *testing.T) {
-	now := time.Now()
-	var all []string
-	answers := func() []string {
-		var out []string
-		for _, c := range all {
-			if c == "answer" {
-				out = append(out, c)
-			}
-		}
-		return out
-	}
-	ask := core.PermissionAsked{At: now, Permission: core.Permission{ID: 1, Options: []core.PermOption{{ID: "a", Kind: core.AllowOnce}}}}
-	m := update(New(recConn{calls: &all}, ""), tea.WindowSizeMsg{Width: 80, Height: 24}, ev(core.Connected{At: now}),
-		ev(core.Submit{At: now, Text: "go"}), ev(ask))
-	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	m = update(m, letter('y'))
-	if len(answers()) != 0 || m.input.Value() != "y" {
-		t.Fatalf("typing: calls %v input %q", answers(), m.input.Value())
-	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEscape}, letter('y'))
-	if len(answers()) != 0 {
-		t.Fatalf("a y right behind esc answered: %v", answers())
-	}
-	// The summary answers nothing however long it waits: enter opens the
-	// review, and y there waits for it to be read.
-	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	if m = update(m, letter('y')); len(answers()) != 0 {
-		t.Fatalf("a y on the summary answered: %v", answers())
-	}
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter}, letter('y'))
-	if len(answers()) != 0 {
-		t.Fatalf("a y right behind enter answered: %v", answers())
-	}
-	time.Sleep(core.ArmDelay + 50*time.Millisecond)
-	if m = update(m, letter('y')); len(answers()) != 1 || m.input.Value() != "y" {
-		t.Fatalf("armed y: %v input %q", answers(), m.input.Value())
-	}
-}
-
-// Typing, no key sequence answers a request, on screen or off, however
-// long after it came; nothing but its review answers it. The keys that
-// stop the turn or quit are left out: stopping a turn cancels its
-// requests on purpose.
-func TestNoKeyAnswersARequestWhileTypingOrUnreviewed(t *testing.T) {
-	rapid.Check(t, func(rt *rapid.T) {
-		var calls []string
-		m := update(navHub(t, &calls), tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt})
-		for range rapid.IntRange(1, 40).Draw(rt, "keys") {
-			k := genKey(rt)
-			if s := k.String(); s == "ctrl+c" || s == "ctrl+d" {
-				continue
-			}
-			was := core.HubSurface(m.hub)
-			before := answered(calls)
-			m = update(m, k)
-			if was.Typing() && answered(calls) > before {
-				rt.Fatalf("key %q while typing answered: %v", k.String(), calls)
-			}
-			if answered(calls) > before && was.Kind != core.SurfaceReview {
-				rt.Fatalf("key %q answered from %v, not the review: %v", k.String(), was.Kind, calls)
-			}
-		}
-	})
 }
 
 // The key that closes the list of keys only closes it: an x there does
@@ -330,15 +231,4 @@ func TestClosingHelpDoesNothingElse(t *testing.T) {
 	if m.one.State.Help || len(calls) != 0 {
 		t.Fatalf("single: help %v calls %v", m.one.State.Help, calls)
 	}
-}
-
-// answered is how many answers to requests calls holds.
-func answered(calls []string) int {
-	n := 0
-	for _, c := range calls {
-		if c == "answer" {
-			n++
-		}
-	}
-	return n
 }

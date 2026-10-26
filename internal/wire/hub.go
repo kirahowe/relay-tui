@@ -23,7 +23,6 @@ const (
 
 	MethodRoles        = "_relay/roles"
 	MethodRolesChanged = "_relay/roles/changed"
-	MethodSettled      = "_relay/permission/settled"
 	MethodEnd          = "_relay/conversations/end"
 	MethodReplayed     = "_relay/replayed"
 	MethodSeen         = "_relay/seen"
@@ -43,7 +42,7 @@ func IsHub(init acp.InitializeResponse) bool {
 
 // HubConnected describes the hub once initialize has answered.
 func HubConnected(init acp.InitializeResponse, at time.Time) core.HubConnected {
-	c := core.HubConnected{At: at, Embedded: init.AgentCapabilities.PromptCapabilities.EmbeddedContext}
+	c := core.HubConnected{At: at}
 	var keeps bool
 	if strictjson.Unmarshal(init.Meta[keepsKey], &keeps) == nil && len(init.Meta[keepsKey]) > 0 {
 		c.KeepsKnown, c.Keeps = true, keeps
@@ -64,11 +63,9 @@ func RoleMeta(role string) map[string]json.RawMessage {
 }
 
 type rawRole struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Labels       []string `json:"labels"`
-	Working      bool     `json:"working"`
-	Holds        int      `json:"holds"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Working      bool   `json:"working"`
 	Conversation *struct {
 		SessionID    string `json:"sessionId"`
 		OpenedAt     string `json:"openedAt"`
@@ -76,7 +73,6 @@ type rawRole struct {
 		Turn         string `json:"turn"`
 		Turns        int    `json:"turns"`
 		Unread       bool   `json:"unread"`
-		Approvals    int    `json:"approvals"`
 	} `json:"conversation"`
 }
 
@@ -110,13 +106,13 @@ func roster(raw json.RawMessage, at time.Time) core.RosterUpdate {
 			continue // a role is named once
 		}
 		seen[x.ID] = true
-		role := core.Role{ID: x.ID, Title: x.Title, Labels: labelNames(x.Labels), Working: x.Working, Holds: max(x.Holds, 0)}
+		role := core.Role{ID: x.ID, Title: x.Title, Working: x.Working}
 		if role.Title == "" {
 			role.Title = x.ID
 		}
 		if c := x.Conversation; c != nil && c.SessionID != "" {
 			rc := &core.RosterConv{Session: c.SessionID, Turn: core.TurnState(c.Turn), Turns: max(c.Turns, 0),
-				Unread: c.Unread, Approvals: max(c.Approvals, 0)}
+				Unread: c.Unread}
 			rc.OpenedAt, _ = time.Parse(time.RFC3339Nano, c.OpenedAt)
 			rc.LastActivity, _ = time.Parse(time.RFC3339Nano, c.LastActivity)
 			role.Conv = rc
@@ -124,20 +120,6 @@ func roster(raw json.RawMessage, at time.Time) core.RosterUpdate {
 		u.Roles = append(u.Roles, role)
 	}
 	return u
-}
-
-// Settled translates _relay/permission/settled. ok is false when it
-// cannot be read.
-func Settled(params json.RawMessage, at time.Time) (core.PermissionSettled, bool) {
-	var r struct {
-		SessionID  string          `json:"sessionId"`
-		ToolCallID string          `json:"toolCallId"`
-		Outcome    json.RawMessage `json:"outcome"`
-	}
-	if strictjson.Unmarshal(params, &r) != nil || r.SessionID == "" || r.ToolCallID == "" {
-		return core.PermissionSettled{}, false
-	}
-	return core.PermissionSettled{At: at, Session: r.SessionID, CallID: r.ToolCallID, Outcome: string(r.Outcome)}, true
 }
 
 // Attached translates the answer to an attach.

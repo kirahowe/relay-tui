@@ -1,23 +1,23 @@
 ␛[0;1;36mWorkspace␛[m␛[0;2m 3␛[m
-  ␛[0;1;7m untrusted ␛[m send_campaign␛[0;2m · ␛[mwaiting
-␛[0;2m  proposal · private · contaminated␛[m
-␛[0;2m    Sends **Venue list** to Kira only.␛[m
-␛[0;2m    See hxxps://send[.]example[.]net/campaign␛[m
+  A note from a stranger
+  ␛[0;33mfrom outside␛[m
+␛[0;2m  Please wire the deposit. See hxxps://send[.]example[.]net…␛[m
+  ↳ Mail␛[0;2m · ␛[mmail:stranger@example.com
 
-▸ ␛[0;1;7m untrusted ␛[m ␛[0;1mConcert venues near the hall␛[m
-␛[0;2m  shown · private · contaminated␛[m
+▸ ␛[0;1mConcert venues near the hall␛[m
+  ␛[0;33mfrom the web␛[m
 ␛[0;2m  Three venues are open late.␛[m
   ↳ Venue list␛[0;2m · ␛[mweb:hxxps://example[.]org/venues
-  ↳ ␛[0;1m[new domain]␛[m Hall site␛[0;2m ·␛[m
-    ␛[0;2m␛[mweb:hxxps://hall[.]example[.]com/about
+  ↳ Hall site␛[0;2m · ␛[mweb:hxxps://hall[.]example[.]com/about
 
   Hall address
-␛[0;2m  shown · private · trusted␛[m
 ␛[0;2m  1 Main Street␛[m
-␛[0;2m↓ 7 below␛[m
-␛[0;36m↑↓␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36mt␛[m␛[0;2m trust␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m board␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
+
+␛[0;2mcited in the latest reply (4)␛[m
+␛[0;2m↓ 4 below␛[m
+␛[0;36m↑↓␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m board␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
 
 ␛[0;2m╭──────────────────────────────────────────────────────────╮␛[m
 ␛[0;2m│␛[m › ␛[0;2m                                                      ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰──────────────────────────────────────────────────────────╯␛[m
-␛[0;2m  ␛[0;1m[private]␛[0;2m ␛[0;1;7m contaminated ␛[0;2m ready · i to type · ␛[0;1mMOVING␛[0;2m␛[m
+␛[0;2m  ready · i to type · ␛[0;1mMOVING␛[0;2m · ? keys␛[m

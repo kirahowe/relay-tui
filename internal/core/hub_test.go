@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"pgregory.net/rapid"
 )
@@ -26,9 +25,6 @@ func apply(t interface{ Helper() }, h Hub, es ...Event) (Hub, []Effect) {
 		var fx []Effect
 		h, fx = ReduceHub(h, e)
 		all = append(all, fx...)
-		// Drawn at once, as a renderer would draw it.
-		surf := HubSurface(h)
-		h, _ = ReduceHub(h, wholeReview(surf, h.App, h.surfaceState(surf), e.at()))
 	}
 	return h, all
 }
@@ -156,49 +152,6 @@ func TestHubAttachFailureRestoresTheText(t *testing.T) {
 	}
 	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Role != "dev" || ri[0].Text != "typed" {
 		t.Fatalf("effects %v", fx)
-	}
-}
-
-func TestHubPermissionInTheBackgroundWaitsAndSettles(t *testing.T) {
-	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0})
-	h, _ = apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"},
-		RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}})
-	h, _ = apply(t, h, FocusIndex{At: t0, Index: 1}, Attached{At: t0, Role: "mail", Session: "s2"}, FocusIndex{At: t0, Index: 0})
-	ask := PermissionAsked{At: t0, Permission: Permission{ID: 7, CallID: "c1", Name: "send",
-		Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h, _ = apply(t, h, routed("s2", ask))
-	if got := h.Approvals(*h.RoleByID("mail")); got != 1 {
-		t.Fatalf("approvals %d", got)
-	}
-	if len(h.ConvBySession("s1").State.Asks) != 0 {
-		t.Fatal("the request landed in the wrong conversation")
-	}
-	// Switching to it arms the request afresh: a quick y does nothing.
-	h, fx := apply(t, h, FocusIndex{At: t0.Add(time.Hour), Index: 1}, PermissionQuick{At: t0.Add(time.Hour + time.Millisecond), Kind: AllowOnce})
-	for _, f := range fx {
-		if _, ok := f.(AnswerPermission); ok {
-			t.Fatalf("answered too soon: %v", fx)
-		}
-	}
-	// Another device answers it: the dialog closes and our handler is released.
-	h, fx = apply(t, h, PermissionSettled{At: t0.Add(2 * time.Hour), Session: "s2", CallID: "c1", Outcome: "allow"})
-	if len(h.Focused().State.Asks) != 0 {
-		t.Fatal("dialog still open")
-	}
-	if !slices.Contains(fx, Effect(AnswerPermission{ID: 7, Cancelled: true})) {
-		t.Fatalf("effects %v", fx)
-	}
-}
-
-func TestHubAnswerGoesWithTheRequestsID(t *testing.T) {
-	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, Attached{At: t0, Role: "dev", Session: "s1"})
-	ask := PermissionAsked{At: t0, Permission: Permission{ID: 3, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h, fx := apply(t, h, StopTyping{At: t0}, routed("s1", ask), OpenReview{At: t0}, PermissionQuick{At: t0.Add(time.Second), Kind: AllowOnce})
-	if !slices.Contains(fx, Effect(AnswerPermission{ID: 3, OptionID: "a"})) {
-		t.Fatalf("%v", fx)
-	}
-	if len(h.Focused().State.Asks) != 0 {
-		t.Fatal("still asking")
 	}
 }
 
@@ -370,13 +323,11 @@ func genRoster(t *rapid.T) []Role {
 	for i := range n {
 		r := role(fmt.Sprintf("r%d", i), "")
 		r.Working = rapid.Bool().Draw(t, "working")
-		r.Holds = rapid.IntRange(0, 3).Draw(t, "holds")
 		if rapid.Bool().Draw(t, "live") {
 			r.Conv = &RosterConv{Session: fmt.Sprintf("s%d", i),
-				Turn:      rapid.SampledFrom([]TurnState{TurnIdle, TurnRunning, TurnQueued}).Draw(t, "turn"),
-				Turns:     rapid.IntRange(0, 5).Draw(t, "turns"),
-				Unread:    rapid.Bool().Draw(t, "unread"),
-				Approvals: rapid.IntRange(0, 2).Draw(t, "approvals")}
+				Turn:   rapid.SampledFrom([]TurnState{TurnIdle, TurnRunning, TurnQueued}).Draw(t, "turn"),
+				Turns:  rapid.IntRange(0, 5).Draw(t, "turns"),
+				Unread: rapid.Bool().Draw(t, "unread")}
 		}
 		roles = append(roles, r)
 	}
@@ -691,92 +642,6 @@ func loadedHub(t testing.TB, roles ...Role) Hub {
 	return h
 }
 
-func answerCount(fx []Effect) int {
-	n := 0
-	for _, f := range fx {
-		if _, ok := f.(AnswerPermission); ok {
-			n++
-		}
-	}
-	return n
-}
-
-// However a conversation is covered and uncovered, a request that comes
-// into view starts its delay afresh: a y typed right behind the key that
-// uncovered it answers nothing.
-func TestHubEveryUncoveringArmsRequestsAgain(t *testing.T) {
-	ask := PermissionAsked{At: t0, Permission: Permission{ID: 4, CallID: "c", Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	// The request has the keys, so only its own keys and the moves past
-	// it reach the core: the end question and the help cannot cover it.
-	paths := map[string][2][]Event{
-		"list": {{Move{Delta: -1}}, {Move{Delta: 1}}},
-		"pane": {{Move{Delta: 1}}, {Move{Delta: -1}}},
-		"role": {{FocusIndex{Index: 1}}, {FocusIndex{Index: 0}}},
-	}
-	for name, p := range paths {
-		t.Run(name, func(t *testing.T) {
-			at := func(d time.Duration, es []Event) []Event {
-				var out []Event
-				for _, e := range es {
-					switch e := e.(type) {
-					case Move:
-						e.At = t0.Add(d)
-						out = append(out, e)
-					case FocusIndex:
-						e.At = t0.Add(d)
-						out = append(out, e)
-					case AskEnd:
-						e.At = t0.Add(d)
-						out = append(out, e)
-					case ConfirmEnd:
-						e.At = t0.Add(d)
-						out = append(out, e)
-					case ToggleHelp:
-						e.At = t0.Add(d)
-						out = append(out, e)
-					}
-				}
-				return out
-			}
-			h := loadedHub(t)
-			h, _ = apply(t, h, StopTyping{At: t0}, routed("s1", ask))
-			h, _ = apply(t, h, at(time.Second, p[0])...)
-			h, _ = apply(t, h, at(time.Hour, p[1])...)
-			h, _ = apply(t, h, OpenReview{At: t0.Add(time.Hour)})
-			_, fx := apply(t, h, PermissionQuick{At: t0.Add(time.Hour + time.Millisecond), Kind: AllowOnce})
-			if answerCount(fx) != 0 {
-				t.Fatalf("answered %v", fx)
-			}
-			_, fx = apply(t, h, PermissionQuick{At: t0.Add(time.Hour + 700*time.Millisecond), Kind: AllowOnce})
-			if answerCount(fx) != 1 {
-				t.Fatalf("not answerable once armed: %v", fx)
-			}
-		})
-	}
-}
-
-func TestHubTrustConfirmationDoesNotSurviveLeavingTheScreen(t *testing.T) {
-	for name, leave := range map[string]Event{"switch": FocusIndex{At: t0, Index: 1}, "list": Move{At: t0, Delta: -1}, "pane": Move{At: t0, Delta: 1}, "help": ToggleHelp{At: t0}, "end": AskEnd{At: t0}} {
-		t.Run(name, func(t *testing.T) {
-			h, _ := apply(t, loadedHub(t), StopTyping{At: t0})
-			h.Convs = slices.Clone(h.Convs)
-			h.Convs[0].State.Pane.Trust = &TrustPrompt{}
-			h, _ = apply(t, h, leave)
-			if h.Convs[0].State.Pane.Trust != nil {
-				t.Fatal("the confirmation is still there")
-			}
-		})
-	}
-	// One already sent stays: its answer is still due.
-	h := loadedHub(t)
-	h.Convs = slices.Clone(h.Convs)
-	h.Convs[0].State.Pane.Trust = &TrustPrompt{Sent: true}
-	h, _ = apply(t, h, Move{At: t0, Delta: -1})
-	if h.Convs[0].State.Pane.Trust == nil {
-		t.Fatal("a sent trust was dropped")
-	}
-}
-
 func TestHubLoadedFromTheRosterCountsAsListed(t *testing.T) {
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}}, ListOpen{At: t0})
 	h, _ = apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
@@ -813,48 +678,6 @@ func TestHubEndQuestionIsAboutOneSession(t *testing.T) {
 	for _, f := range fx {
 		if e, ok := f.(EndConversation); ok {
 			t.Fatalf("ended %s", e.Session)
-		}
-	}
-}
-
-func TestHubPastesWorkInAConversation(t *testing.T) {
-	h := loadedHub(t)
-	h, fx := apply(t, h, Pasted{At: t0, Text: "an email\nwith lines"})
-	var ins []InsertInput
-	for _, f := range fx {
-		if i, ok := f.(InsertInput); ok {
-			ins = append(ins, i)
-		}
-	}
-	if len(ins) != 1 || !strings.Contains(ins[0].Text, "untrusted") || len(h.DraftOf("dev").Pastes) != 1 {
-		t.Fatalf("%v %+v", fx, h.DraftOf("dev").Pastes)
-	}
-	// It goes out as an attachment.
-	h, fx = apply(t, h, Submit{At: t0, Text: ins[0].Text})
-	var sent *SendPrompt
-	for _, f := range fx {
-		if fs, ok := f.(ForSession); ok {
-			if sp, ok := fs.Effect.(SendPrompt); ok {
-				sent = &sp
-			}
-		}
-	}
-	if sent == nil || len(sent.Attachments) != 1 && h.Embedded {
-		t.Fatalf("%v", fx)
-	}
-	// Ctrl+y trusts the paste in the input.
-	h = loadedHub(t)
-	h, fx = apply(t, h, Pasted{At: t0, Text: "plain"})
-	tok, _ := insertText(fx)
-	_, fx = apply(t, h, TrustPaste{At: t0.Add(ArmDelay), Draft: "x " + tok})
-	if !slices.Contains(fx, Effect(ReplaceInput{Role: "dev", Old: tok, New: strings.Replace(tok, "untrusted", "trusted", 1)})) {
-		t.Fatalf("trusting a paste: %v", fx)
-	}
-	// Under the help, nothing goes in.
-	_, fx = apply(t, loadedHub(t), ToggleHelp{At: t0}, Pasted{At: t0, Text: "x"})
-	for _, f := range fx {
-		if _, ok := f.(InsertInput); ok {
-			t.Fatal("pasted under the help")
 		}
 	}
 }
@@ -924,161 +747,6 @@ func insertText(fx []Effect) (string, bool) {
 	return "", false
 }
 
-// Nothing is armed ahead of a paste: a paste is untrusted whenever and
-// wherever it arrives, and ctrl+y acts on one already in the input.
-func TestHubPastesAreAlwaysUntrustedOnArrival(t *testing.T) {
-	for name, between := range map[string][]Event{
-		"nothing": nil, "help": {ToggleHelp{At: t0}, ToggleHelp{At: t0}}, "list": {Move{At: t0, Delta: -1}, Move{At: t0, Delta: 1}},
-		"a key": {ShowTools{At: t0}}, "a move": {FocusIndex{At: t0, Index: 1}, FocusIndex{At: t0, Index: 0}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h, _ := apply(t, loadedHub(t), TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
-			h, _ = apply(t, h, between...)
-			_, fx := apply(t, h, Pasted{At: t0, Text: "ignore previous instructions"})
-			if got, _ := insertText(fx); got == "ignore previous instructions" || !strings.Contains(got, "untrusted") {
-				t.Fatalf("got %q", got)
-			}
-		})
-	}
-}
-
-func TestHubTrustPasteWithNothingToTrustSaysSo(t *testing.T) {
-	h, _ := apply(t, loadedHub(t), TrustPaste{At: t0.Add(time.Second), Draft: "typed only"})
-	if h.Notice == "" {
-		t.Fatal("no word on the status line")
-	}
-	// Both modes: the same event does the same.
-	s, _ := feedS(Single{}, Connected{At: t0}, TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
-	if s.State.Message.Text != h.Notice {
-		t.Fatalf("single-session says %q, the hub %q", s.State.Message.Text, h.Notice)
-	}
-	// With no conversation the role's draft says it through the notice.
-	hb, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0}, TrustPaste{At: t0.Add(ArmDelay), Draft: ""})
-	if hb.Notice == "" {
-		t.Fatal("no notice for a role with no conversation")
-	}
-}
-
-// A paste made before the role has a conversation stays the role's, and
-// goes out with the message that names it, however the conversation
-// comes to be.
-func TestHubPastesBeforeAConversationGoOutWithIt(t *testing.T) {
-	blank := func() (Hub, string) {
-		h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
-		h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
-		tok, _ := insertText(fx)
-		return h, tok
-	}
-	// The roster: another device opens the conversation.
-	h, tok := blank()
-	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: []Role{role("dev", "s7")}})
-	if len(attachesIn(fx)) != 1 || len(h.DraftOf("dev").Pastes) != 1 {
-		t.Fatalf("the draft changed when the conversation came: %v %v", fx, h.DraftOf("dev"))
-	}
-	h, _ = apply(t, h, Attached{At: t0, Role: "dev", Session: "s7"})
-	_, fx = apply(t, h, Submit{At: t0, Text: "read " + tok})
-	var sent *SendPrompt
-	for _, f := range fx {
-		if fs, ok := f.(ForSession); ok {
-			if sp, ok := fs.Effect.(SendPrompt); ok {
-				sent = &sp
-			}
-		}
-	}
-	if sent == nil || len(sent.Attachments) != 1 || sent.Attachments[0].Text != "an email" {
-		t.Fatalf("the paste was lost: %+v", sent)
-	}
-}
-
-func TestHubPasteToARoleWithNoConversationIsKept(t *testing.T) {
-	h, _ := apply(t, NewHub(""), HubConnected{At: t0, Embedded: true},
-		RosterUpdate{At: t0, Roles: []Role{role("dev", ""), role("mail", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
-	if h.Focused() != nil {
-		t.Fatal("moving opened a conversation")
-	}
-	h, fx := apply(t, h, Pasted{At: t0, Text: "an email body"})
-	tok, ok := insertText(fx)
-	if !ok || !strings.Contains(tok, "untrusted") {
-		t.Fatalf("the paste is lost: %v", fx)
-	}
-	if len(attachesIn(fx)) != 0 || h.Focused() != nil {
-		t.Fatal("a paste started a conversation")
-	}
-	// The first message starts the conversation and takes the paste along.
-	h, fx = apply(t, h, Submit{At: t0, Text: "summarise " + tok})
-	if len(attachesIn(fx)) != 1 {
-		t.Fatalf("%v", fx)
-	}
-	_, fx = apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
-	var sent *SendPrompt
-	for _, f := range fx {
-		if fs, ok := f.(ForSession); ok {
-			if sp, ok := fs.Effect.(SendPrompt); ok {
-				sent = &sp
-			}
-		}
-	}
-	if sent == nil || len(sent.Attachments) != 1 || sent.Attachments[0].Text != "an email body" || strings.Contains(sent.Text, "an email body") {
-		t.Fatalf("the paste did not go as an untrusted attachment: %+v", sent)
-	}
-}
-
-// --- Independent review
-
-func twoWithRequests(t testing.TB) Hub {
-	t.Helper()
-	ask := func(id uint64, call string) PermissionAsked {
-		return PermissionAsked{At: t0, Permission: Permission{ID: id, CallID: call, Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	}
-	h := loadedHub(t)
-	h, _ = apply(t, h, FocusIndex{At: t0, Index: 1}, Attached{At: t0, Role: "mail", Session: "s2"}, Replayed{At: t0, Session: "s2"},
-		routed("s2", ask(2, "c2")), FocusIndex{At: t0, Index: 0}, routed("s1", ask(1, "c1")))
-	return h
-}
-
-// Quitting only detaches: relay holds a request nobody answered, and
-// agentloop takes "cancelled" as a denial.
-func TestHubQuitNeverAnswersARequest(t *testing.T) {
-	for name, quit := range map[string][]Event{
-		"eof":         {EOF{At: t0}},
-		"ctrl-c":      {Interrupt{At: t0, InputEmpty: true}},
-		"from list":   {Move{At: t0, Delta: -1}, Interrupt{At: t0, InputEmpty: true}},
-		"ctrl-d list": {Move{At: t0, Delta: -1}, EOF{At: t0}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h, fx := apply(t, twoWithRequests(t), quit...)
-			if answerCount(fx) != 0 {
-				t.Fatalf("answered a request on the way out: %v", fx)
-			}
-			if !slices.Contains(fx, Effect(Quit{})) {
-				t.Fatalf("did not quit: %v", fx)
-			}
-			for _, c := range h.Convs {
-				if len(c.State.Asks) != 1 {
-					t.Fatalf("%s lost its request", c.Session)
-				}
-			}
-		})
-	}
-}
-
-// Ctrl-C with a running turn of ours cancels that turn, in view, and its
-// own requests with it, but never another conversation's.
-func TestHubCtrlCStopsOnlyTheFocusedTurn(t *testing.T) {
-	h := twoWithRequests(t)
-	h, _ = apply(t, h, Submit{At: t0, Text: "go"}) // s1 is now Busy
-	h, fx := apply(t, h, Interrupt{At: t0, InputEmpty: true})
-	if !slices.Contains(fx, Effect(ForSession{Session: "s1", Effect: SendCancel{}})) || slices.Contains(fx, Effect(Quit{})) {
-		t.Fatalf("%v", fx)
-	}
-	if answerCount(fx) != 1 || !slices.Contains(fx, Effect(AnswerPermission{ID: 1, Cancelled: true})) {
-		t.Fatalf("only the focused conversation's request is cancelled: %v", fx)
-	}
-	if len(h.ConvBySession("s2").State.Asks) != 1 {
-		t.Fatal("the other conversation's request was answered")
-	}
-}
-
 func TestHubEndedSessionsAreBounded(t *testing.T) {
 	h := loadedHub(t)
 	for i := 0; i < 500; i++ {
@@ -1130,24 +798,83 @@ func TestHubMergedReplayChunkEqualsManySmallOnes(t *testing.T) {
 	})
 }
 
+// sentTexts is the texts of the prompts the hub sent, whichever session.
+func sentTexts(fx []Effect) []string {
+	var out []string
+	for _, f := range fx {
+		if fs, ok := f.(ForSession); ok {
+			if sp, ok := fs.Effect.(SendPrompt); ok {
+				out = append(out, sp.Text)
+			}
+		}
+	}
+	return out
+}
+
+// An attach that fails leaves the role with no conversation; the queued
+// text comes back to the input and the pastes it names to the role's
+// draft, so it sends as typed once a conversation opens.
+func TestHubAttachFailureKeepsThePastes(t *testing.T) {
+	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0})
+	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
+	tok, _ := insertText(fx)
+	h, _ = apply(t, h, Submit{At: t0, Text: "read " + tok})
+	h, fx = apply(t, h, Attached{At: t0, Role: "dev", Err: "busy"})
+	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Text != "read "+tok {
+		t.Fatalf("restore %v", fx)
+	}
+	_, fx = apply(t, h, StartConversation{At: t0}, Attached{At: t0, Role: "dev", Session: "s2"}, Submit{At: t0, Text: "read " + tok})
+	if got := sentTexts(fx); len(got) != 1 || got[0] != "read an email" {
+		t.Fatalf("sent %q", got)
+	}
+}
+
+// Ctrl-C with a running turn of ours cancels that turn, and only that
+// one.
+func TestHubCtrlCStopsOnlyTheFocusedTurn(t *testing.T) {
+	h := loadedHub(t)
+	h, _ = apply(t, h, FocusIndex{At: t0, Index: 1}, Attached{At: t0, Role: "mail", Session: "s2"}, Replayed{At: t0, Session: "s2"},
+		FocusIndex{At: t0, Index: 0})
+	h, _ = apply(t, h, Submit{At: t0, Text: "go"}) // s1 is now Busy
+	_, fx := apply(t, h, Interrupt{At: t0, InputEmpty: true})
+	if !slices.Contains(fx, Effect(ForSession{Session: "s1", Effect: SendCancel{}})) || slices.Contains(fx, Effect(Quit{})) {
+		t.Fatalf("%v", fx)
+	}
+	for _, f := range fx {
+		if fs, ok := f.(ForSession); ok && fs.Session == "s2" {
+			t.Fatalf("the other conversation got %v", f)
+		}
+	}
+}
+
+// A paste made before the role has a conversation stays the role's, and
+// goes out with the message that names it, however the conversation
+// comes to be.
+func TestHubPastesBeforeAConversationGoOutWithIt(t *testing.T) {
+	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
+	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
+	tok, _ := insertText(fx)
+	// The roster: another device opens the conversation.
+	h, fx = apply(t, h, RosterUpdate{At: t0, Roles: []Role{role("dev", "s7")}})
+	if len(attachesIn(fx)) != 1 || len(h.DraftOf("dev").Pastes) != 1 {
+		t.Fatalf("the draft changed when the conversation came: %v %v", fx, h.DraftOf("dev"))
+	}
+	h, _ = apply(t, h, Attached{At: t0, Role: "dev", Session: "s7"})
+	_, fx = apply(t, h, Submit{At: t0, Text: "read " + tok})
+	if got := sentTexts(fx); len(got) != 1 || got[0] != "read an email" {
+		t.Fatalf("the paste was lost: %q", got)
+	}
+}
+
 // Whatever order relay's replay, the attach's answer and the operator's
 // pastes and messages come in, every paste made goes out with the
 // message that names it, and no paste number is used twice.
 func TestHubPastesSurviveAnyAttachOrder(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0, Embedded: true})
+		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0})
 		var tokens []string
 		attached, replayed := false, false
-		var sent []Attachment
-		collect := func(fx []Effect) {
-			for _, f := range fx {
-				if fs, ok := f.(ForSession); ok {
-					if sp, ok := fs.Effect.(SendPrompt); ok {
-						sent = append(sent, sp.Attachments...)
-					}
-				}
-			}
-		}
+		var sent []string
 		pasted := 0
 		for range rapid.IntRange(1, 12).Draw(t, "steps") {
 			var fx []Effect
@@ -1179,47 +906,90 @@ func TestHubPastesSurviveAnyAttachOrder(t *testing.T) {
 					tokens = nil
 				}
 			}
-			collect(fx)
+			sent = append(sent, sentTexts(fx)...)
 		}
 		h, fx := apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
-		collect(fx)
+		sent = append(sent, sentTexts(fx)...)
 		if len(tokens) > 0 {
 			h, fx = apply(t, h, Submit{At: t0, Text: "read " + strings.Join(tokens, " ")})
-			collect(fx)
+			sent = append(sent, sentTexts(fx)...)
 		}
 		// What was queued behind a turn goes when the turn ends.
 		for range 3 {
 			h, fx = apply(t, h, routed("s1", PromptDone{At: t0, Stop: EndTurn}))
-			collect(fx)
+			sent = append(sent, sentTexts(fx)...)
 		}
-		if len(sent) != pasted {
-			t.Fatalf("%d pastes, %d sent: %+v", pasted, len(sent), sent)
+		all := strings.Join(sent, "\n")
+		for i := 1; i <= pasted; i++ {
+			if n := strings.Count(all, fmt.Sprint("paste ", i)); n < 1 {
+				t.Fatalf("paste %d never went out: %q", i, sent)
+			}
+		}
+		if strings.Contains(all, "[pasted ") {
+			t.Fatalf("a placeholder went out: %q", sent)
 		}
 	})
 }
 
-// An attach that fails leaves the role with no conversation; the queued
-// text comes back to the input and the pastes it names to the role's
-// draft, so it sends as typed once a conversation opens.
-func TestHubAttachFailureKeepsThePastes(t *testing.T) {
-	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0, Embedded: true})
-	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
-	tok, _ := insertText(fx)
-	h, _ = apply(t, h, Submit{At: t0, Text: "read " + tok})
-	h, fx = apply(t, h, Attached{At: t0, Role: "dev", Err: "busy"})
-	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Text != "read "+tok {
-		t.Fatalf("restore %v", fx)
-	}
-	h, fx = apply(t, h, StartConversation{At: t0}, Attached{At: t0, Role: "dev", Session: "s2"}, Submit{At: t0, Text: "read " + tok})
-	var sp *SendPrompt
+func TestHubPastesWorkInAConversation(t *testing.T) {
+	h := loadedHub(t)
+	h, fx := apply(t, h, Pasted{At: t0, Text: "an email\nwith lines"})
+	var ins []InsertInput
 	for _, f := range fx {
-		if fs, ok := f.(ForSession); ok {
-			if p, ok := fs.Effect.(SendPrompt); ok {
-				sp = &p
-			}
+		if i, ok := f.(InsertInput); ok {
+			ins = append(ins, i)
 		}
 	}
-	if sp == nil || len(sp.Attachments) != 1 || sp.Attachments[0].Text != "an email" {
-		t.Fatalf("sent %+v", sp)
+	if len(ins) != 1 || len(h.DraftOf("dev").Pastes) != 1 {
+		t.Fatalf("%v %+v", fx, h.DraftOf("dev").Pastes)
+	}
+	// It goes out as the text itself.
+	_, fx = apply(t, h, Submit{At: t0, Text: ins[0].Text})
+	if got := sentTexts(fx); len(got) != 1 || got[0] != "an email\nwith lines" {
+		t.Fatalf("%q", got)
+	}
+	// Under the help, nothing goes in.
+	_, fx = apply(t, loadedHub(t), ToggleHelp{At: t0}, Pasted{At: t0, Text: "x"})
+	for _, f := range fx {
+		if _, ok := f.(InsertInput); ok {
+			t.Fatal("pasted under the help")
+		}
+	}
+}
+
+func TestHubPasteToARoleWithNoConversationIsKept(t *testing.T) {
+	h, _ := apply(t, NewHub(""), HubConnected{At: t0},
+		RosterUpdate{At: t0, Roles: []Role{role("dev", ""), role("mail", "")}}, FocusIndex{At: t0, Index: 0}, Type{At: t0})
+	if h.Focused() != nil {
+		t.Fatal("moving opened a conversation")
+	}
+	h, fx := apply(t, h, Pasted{At: t0, Text: "an email body"})
+	tok, ok := insertText(fx)
+	if !ok {
+		t.Fatalf("the paste is lost: %v", fx)
+	}
+	if len(attachesIn(fx)) != 0 || h.Focused() != nil {
+		t.Fatal("a paste started a conversation")
+	}
+	// The first message starts the conversation and takes the paste along.
+	h, fx = apply(t, h, Submit{At: t0, Text: "summarise " + tok})
+	if len(attachesIn(fx)) != 1 {
+		t.Fatalf("%v", fx)
+	}
+	_, fx = apply(t, h, Attached{At: t0, Role: "dev", Session: "s1"})
+	if got := sentTexts(fx); len(got) != 1 || got[0] != "summarise an email body" {
+		t.Fatalf("the paste did not go with the message: %q", got)
+	}
+}
+
+// Quitting only detaches. A permission request from an older relay is
+// never held here, so there is nothing to answer when it goes.
+func TestHubQuitAnswersNothing(t *testing.T) {
+	h := loadedHub(t)
+	_, fx := apply(t, h, Interrupt{At: t0, InputEmpty: true}, EOF{At: t0})
+	for _, f := range fx {
+		if fs, ok := f.(ForSession); ok {
+			t.Fatalf("quitting sent %v", fs)
+		}
 	}
 }

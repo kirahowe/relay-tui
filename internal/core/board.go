@@ -72,12 +72,6 @@ type Card struct {
 	Cells    []Cell     // tracker
 	Note     *CardText  // note
 	Text     string     // the text form, for a kind the client does not know
-	// SHA256 is the digest relay sends with a card that holds outside
-	// text. Empty when relay sent none.
-	SHA256 string
-	// Review is relay's review text of the card, which its trust and its
-	// archive are confirmed from; nil when relay sent none.
-	Review *Review
 }
 
 // Native says the client draws the card's kind itself.
@@ -162,8 +156,6 @@ type Board struct {
 	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
 	// rev the operator was shown. A newer copy of it cancels the question.
 	Confirm, ConfirmRev int64
-	// Trust is a trust of a whole card waiting for y, or on its way.
-	Trust *CardTrust
 	// Sending is the card an op is on its way for; the op is its name.
 	// Sent is the input the op came from, if it carried text, so a
 	// refusal can give the operator back what they typed.
@@ -174,17 +166,6 @@ type Board struct {
 	// refusal, shown escaped.
 	Message string
 	Failure string
-}
-
-// CardTrust is a trust of a whole card: the card, and the rev and the
-// digest of the review relay sent with the card the operator is looking
-// at, so a card that changes meanwhile is not trusted. Sent says it is on
-// its way.
-type CardTrust struct {
-	Card   int64
-	Rev    int64
-	SHA256 string
-	Sent   bool
 }
 
 // Events about the board.
@@ -216,20 +197,11 @@ type (
 		Unchanged bool
 		Err       string
 	}
-	// CardTrustDone is relay's answer to _relay/cards/trust: the card,
-	// clean, or relay's refusal in Err.
-	CardTrustDone struct {
-		At     time.Time
-		CardID int64
-		Card   *Card
-		Err    string
-	}
 )
 
-func (e CardsLoaded) at() time.Time   { return e.At }
-func (e CardsChanged) at() time.Time  { return e.At }
-func (e CardOpDone) at() time.Time    { return e.At }
-func (e CardTrustDone) at() time.Time { return e.At }
+func (e CardsLoaded) at() time.Time  { return e.At }
+func (e CardsChanged) at() time.Time { return e.At }
+func (e CardOpDone) at() time.Time   { return e.At }
 
 // Effects asking the shell to call relay about cards.
 type (
@@ -238,18 +210,10 @@ type (
 		Card int64
 		Op   CardOp
 	}
-	// SendCardTrust asks relay to trust a card at the rev and digest the
-	// operator was shown.
-	SendCardTrust struct {
-		Card   int64
-		Rev    int64
-		SHA256 string
-	}
 )
 
-func (RequestCards) effect()  {}
-func (SendCardOp) effect()    {}
-func (SendCardTrust) effect() {}
+func (RequestCards) effect() {}
+func (SendCardOp) effect()   {}
 
 // BoardCard is the selected card and its index, or -1.
 func BoardCard(b Board) (Card, int) {
@@ -415,19 +379,8 @@ func (r *reducer) board(e Event) {
 	b := &r.a.Board
 	anchor, anchored := anchorOf(*b)
 	defer func() { r.reanchor(anchor, anchored) }()
-	defer r.keepTrust()
 	defer r.keepConfirm()
 	switch e := e.(type) {
-	case CardTrustDone:
-		b.Trust = nil
-		if e.Err != "" {
-			b.Message, b.Failure = "Trust failed.", e.Err
-			return
-		}
-		if e.Card != nil {
-			b.put(*e.Card)
-		}
-		b.Message, b.Failure = "Trusted.", ""
 	case CardsLoaded:
 		switch {
 		case e.Unavailable:
@@ -545,16 +498,10 @@ func (r *reducer) toggleBoard() {
 }
 
 // mayShowBoard says a card that changed may bring the board into view: the
-// board has loaded, and the operator is neither working in the pane nor
-// owed an answer on a proposal the items view shows.
+// board has loaded, and the operator is not working in the pane.
 func (r *reducer) mayShowBoard() bool {
 	b := r.a.Board
-	if !b.Loaded || !b.Items || r.a.PaneFocus || r.s.Pane.Trust != nil {
-		return false
-	}
-	return !slices.ContainsFunc(PaneItems(r.s), func(it Item) bool {
-		return it.Kind == ProposalItem && it.Status == StatusWaitingProposal
-	})
+	return b.Loaded && b.Items && !r.a.PaneFocus
 }
 
 // askCards asks relay for the board once the connection can take it,
@@ -599,22 +546,6 @@ func (r *reducer) boardKey(e PaneKey) {
 			r.sendOp(id, op)
 		} else {
 			b.Message = "Archive cancelled."
-		}
-		return
-	}
-	if t := b.Trust; t != nil {
-		switch {
-		case t.Sent: // the keys wait for relay's answer
-		case e.Action == PaneYes:
-			if !r.busy() {
-				sent := *t
-				sent.Sent = true
-				b.Trust = &sent
-				r.emit(SendCardTrust{Card: t.Card, Rev: t.Rev, SHA256: t.SHA256})
-			}
-		default:
-			b.Trust = nil
-			b.Message = "Trust cancelled."
 		}
 		return
 	}
@@ -675,27 +606,6 @@ func (r *reducer) boardKey(e PaneKey) {
 			b.SelID = c.ID
 			b.Confirm, b.ConfirmRev = c.ID, c.Rev
 		}
-	case PaneTrust:
-		if i >= 0 {
-			r.startCardTrust(e.At, c)
-		}
-	}
-}
-
-// startCardTrust asks the operator to trust card c, or says why it
-// cannot be.
-func (r *reducer) startCardTrust(at time.Time, c Card) {
-	b := &r.a.Board
-	switch {
-	case !c.Labels.Contaminated:
-		b.Message = "Nothing to trust: this card has no outside text."
-	case c.Review == nil:
-		// No review from relay: from this agent the card cannot be shown
-		// to be trusted (a relay older than this client sends none).
-		b.Message = "relay sent no review of this card, so it cannot be trusted here. In a terminal, run: relay trust card " + strconv.FormatInt(c.ID, 10)
-	default:
-		b.SelID = c.ID
-		b.Trust = &CardTrust{Card: c.ID, Rev: c.Rev, SHA256: c.Review.SHA256}
 	}
 }
 
@@ -710,22 +620,6 @@ func (r *reducer) keepConfirm() {
 	if i >= 0 && b.Cards[i].Rev != b.ConfirmRev {
 		b.Confirm, b.ConfirmRev = 0, 0
 		b.Message, b.Failure = "The card changed, so it was not archived. Look at it again.", ""
-	}
-}
-
-// keepTrust drops a trust not yet sent when its card has changed or left
-// the board: the operator vouches for what they were shown, and only
-// that.
-func (r *reducer) keepTrust() {
-	b := &r.a.Board
-	t := b.Trust
-	if t == nil || t.Sent {
-		return
-	}
-	i := slices.IndexFunc(b.Cards, func(c Card) bool { return c.ID == t.Card })
-	if i < 0 || b.Cards[i].Rev != t.Rev || b.Cards[i].Review == nil || b.Cards[i].Review.SHA256 != t.SHA256 {
-		b.Trust = nil
-		b.Message, b.Failure = "The card changed, so nothing was trusted. Look at it again.", ""
 	}
 }
 

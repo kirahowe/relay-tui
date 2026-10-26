@@ -9,13 +9,13 @@ import (
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
-// The workspace pane is drawn from data relay sent: displays, proposals,
-// and what relay answered about the references in the latest reply. Model
-// text is never shown as it is, only searched for references. Everything
-// that prints goes through core.EscapeLabel or core.EscapeNonPrinting, so
-// no control, bidi or format character reaches the terminal, and text from
-// an item labelled contaminated sits under an "untrusted" mark with its
-// URLs defanged. The pane never writes a hyperlink.
+// The workspace pane is drawn from data relay sent: displays, and what
+// relay answered about the references in the latest reply. Model text is
+// never shown as it is, only searched for references. Everything that
+// prints goes through core.EscapeLabel or core.EscapeNonPrinting, so no
+// control, bidi or format character reaches the terminal, and text that
+// came from outside says where from, in plain words (core.Provenance),
+// with its URLs defanged. The pane never writes a hyperlink.
 
 // SideMinWidth is the narrowest drawing width that gets a side pane. The
 // shell draws one column short of the screen, so this is a 120-column
@@ -65,8 +65,6 @@ func joinColumns(lines, pane []string, left int) []string {
 	return out
 }
 
-func untrustedMark() string { return styled(bold|reverse, " untrusted ") }
-
 // line is text on one line, safe to print.
 func paneLine(text string, defang bool) string {
 	t := core.EscapeLabel(text)
@@ -115,82 +113,16 @@ func hang(first, text string, width int) []string {
 	return out
 }
 
-func labelWords(l core.Labels) []string {
-	var w []string
-	if l.Private {
-		w = append(w, "private")
-	}
-	if l.Contaminated {
-		w = append(w, "contaminated")
-	}
-	return w
-}
-
-// hostText is a host as it shows: defanged where the text is.
-func hostText(h string, defang bool) string {
-	if defang {
-		return strings.ReplaceAll(h, ".", "[.]")
-	}
-	return h
-}
-
-// newDomainsLine names the hosts in texts that no approved or trusted item
-// has shown, or nothing.
-func newDomainsLine(s core.State, defang bool, width int, texts ...string) []string {
-	hosts := s.Pane.NewHosts(texts...)
-	if len(hosts) == 0 {
-		return nil
-	}
-	for i, h := range hosts {
-		hosts[i] = hostText(paneLine(h, false), defang)
-	}
-	return hang("  ", styled(bold, "new domain: ")+strings.Join(hosts, ", "), width)
-}
-
-// newDomainTag marks a link whose host is new. It goes in front of the
-// link, where a line break cannot split it.
-func newDomainTag(s core.State, texts ...string) string {
-	if len(s.Pane.NewHosts(texts...)) > 0 {
-		return styled(bold, "[new domain]") + " "
+// fromMark is the words for where something came from, in the warning
+// colour, or nothing.
+func fromMark(l core.Labels, sources []core.Source) string {
+	if p := core.Provenance(l, sources); p != "" {
+		return styled(warnColour, p)
 	}
 	return ""
 }
 
-// statusWord is a proposal's status.
-func statusWord(it core.Item, waitingForYou bool) string {
-	st := paneLine(it.Status, false)
-	switch {
-	case it.Status == core.StatusWaitingProposal && waitingForYou:
-		return styled(bold, "waiting for you")
-	case st == "":
-		return "unknown"
-	}
-	return st
-}
-
-// isCurrent says whether the item is the permission request on offer.
-func isCurrent(s core.State, it core.Item) bool {
-	if it.Kind != core.ProposalItem || it.Status != core.StatusWaitingProposal || len(s.Asks) == 0 {
-		return false
-	}
-	a := s.Asks[0]
-	if it.AskID != 0 {
-		return it.AskID == a.ID
-	}
-	return it.CallID != "" && it.CallID == a.CallID
-}
-
 func itemTitle(it core.Item, defang bool) string {
-	if it.Kind == core.ProposalItem {
-		t := it.Tool
-		if strings.TrimSpace(t) == "" {
-			t = it.Title
-		}
-		if strings.TrimSpace(t) == "" {
-			t = "tool call"
-		}
-		return paneLine(t, defang)
-	}
 	if t := paneLine(it.Title, defang); strings.TrimSpace(t) != "" {
 		return t
 	}
@@ -208,66 +140,26 @@ func firstText(text string) string {
 }
 
 // listBlock is an item's rows in the list.
-func listBlock(s core.State, it core.Item, selected bool, width int) []string {
+func listBlock(it core.Item, selected bool, width int) []string {
 	def := it.Labels.Contaminated
 	marker := "  "
 	st := style(0)
 	if selected {
 		marker, st = "▸ ", bold
 	}
-	head := ""
-	if def {
-		head = untrustedMark() + " "
+	out := hang(marker, styled(st, itemTitle(it, def)), width)
+	if m := fromMark(it.Labels, it.Sources); m != "" {
+		out = append(out, "  "+m)
 	}
-	var out []string
-	switch it.Kind {
-	case core.ProposalItem:
-		cur := isCurrent(s, it)
-		out = hang(marker, head+styled(st, itemTitle(it, def))+styled(faint, " · ")+statusWord(it, cur), width)
-		meta := "proposal"
-		for _, w := range labelWords(it.Labels) {
-			meta += " · " + w
+	if l := firstText(it.Text); l != "" {
+		out = append(out, styled(faint, "  "+truncate(oneLinePane(l, def), max(width-2, 1))))
+	}
+	for i, src := range it.Sources {
+		if i == 3 {
+			out = append(out, styled(faint, fmt.Sprintf("  + %d more sources", len(it.Sources)-i)))
+			break
 		}
-		out = append(out, styled(faint, "  "+meta))
-		if it.Preview != "" {
-			n := 0
-			for _, l := range textLines(it.Preview, true, max(width-4, 1)) {
-				if n == 3 {
-					out = append(out, styled(faint, "    …"))
-					break
-				}
-				out = append(out, styled(faint, "    "+l))
-				n++
-			}
-		} else {
-			for i, l := range core.FaithfulLines(it.Input) {
-				if i == 2 {
-					out = append(out, styled(faint, "    …"))
-					break
-				}
-				out = append(out, styled(faint, "    "+truncate(paneLine2(l, def), max(width-4, 1))))
-			}
-		}
-	default:
-		out = hang(marker, head+styled(st, itemTitle(it, def)), width)
-		meta := "shown"
-		for _, w := range labelWords(it.Labels) {
-			meta += " · " + w
-		}
-		if !def {
-			meta += " · trusted"
-		}
-		out = append(out, styled(faint, "  "+meta))
-		if l := firstText(it.Text); l != "" {
-			out = append(out, styled(faint, "  "+truncate(oneLinePane(l, def), max(width-2, 1))))
-		}
-		for i, src := range it.Sources {
-			if i == 3 {
-				out = append(out, styled(faint, fmt.Sprintf("  + %d more sources", len(it.Sources)-i)))
-				break
-			}
-			out = append(out, sourceLines(s, src, def, width)...)
-		}
+		out = append(out, sourceLines(src, def, width)...)
 	}
 	return out
 }
@@ -286,12 +178,12 @@ func oneLinePane(text string, defang bool) string {
 }
 
 // sourceLines is one source of a shown item.
-func sourceLines(s core.State, src core.Source, def bool, width int) []string {
+func sourceLines(src core.Source, def bool, width int) []string {
 	text := paneLine(src.Title, def)
 	if text == "" {
 		text = "(untitled)"
 	}
-	text = newDomainTag(s, src.Ref) + text + styled(faint, " · ") + paneLine(src.Ref, def)
+	text += styled(faint, " · ") + paneLine(src.Ref, def)
 	return hang("  ↳ ", text, width)
 }
 
@@ -303,41 +195,21 @@ func citationBlock(s core.State, ref string, width int) []string {
 	var text string
 	switch c.Status {
 	case core.CiteOK:
-		head := ""
-		if c.Labels.Contaminated {
-			head = untrustedMark() + " "
+		text = paneLine(c.Title, def) + styled(faint, " · "+name)
+		if m := fromMark(c.Labels, nil); m != "" {
+			text += styled(faint, " · ") + m
 		}
-		text = head + paneLine(c.Title, def) + styled(faint, " · "+name)
 	case core.CiteMissing:
 		text = styled(reverse, " missing ") + " " + name
 	case core.CiteExternal:
 		text = name
 		if c.Target != "" {
-			text = newDomainTag(s, c.Target, ref) + text + styled(faint, " → ") + paneLine(c.Target, def)
+			text += styled(faint, " → ") + paneLine(c.Target, def)
 		}
 	default:
 		text = styled(faint, "unchecked ") + name
 	}
 	return hang("  ", text, width)
-}
-
-// commandLines shows a command to run in a terminal, hard-wrapped and
-// escaped. A command with characters that do not print is shown escaped
-// and flagged, since pasting it would not run what is shown.
-func commandLines(cmd string, width int) []string {
-	var out []string
-	shown := core.EscapeNonPrinting(cmd)
-	unusual := shown != cmd || strings.Contains(cmd, "\n") || live(cmd)
-	if unusual {
-		shown = Defang(core.EscapeLabel(cmd))
-	}
-	for _, l := range hardwrap(shown, max(width-2, 1)) {
-		out = append(out, "  "+styled(bold, l))
-	}
-	if unusual {
-		out = append(out, styled(faint, "  it holds characters that do not print: do not paste it"))
-	}
-	return out
 }
 
 // parts are the pieces of a pane, top to bottom: a header, a body that
@@ -366,21 +238,12 @@ func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 	}
 	pr.head = paneHead("Workspace", len(items), other, a.PaneFocus, width)
 
-	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 	sel := core.SelectedIndex(s)
 	switch {
-	case p.Trust != nil:
-		pr.body = trustBody(s, width)
-		if p.Trust.Sent {
-			pr.foot = hint("trusting…")
-		} else {
-			pr.foot = hint("its review is open") // the review is the screen while it is
-		}
-		return pr
 	case p.Detail && sel >= 0:
-		pr.body = detailBody(s, items[sel], width)
+		pr.body = detailBody(items[sel], width)
 		pr.scrolls = true
-		pr.keys = "↑↓ scroll · t trust · esc back"
+		pr.keys = "↑↓ scroll · esc back"
 	default:
 		for i, it := range items {
 			if i > 0 {
@@ -389,7 +252,7 @@ func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 			if i == sel {
 				pr.selA = len(pr.body)
 			}
-			pr.body = append(pr.body, listBlock(s, it, a.PaneFocus && i == sel, width)...)
+			pr.body = append(pr.body, listBlock(it, a.PaneFocus && i == sel, width)...)
 			if i == sel {
 				pr.selB = len(pr.body)
 			}
@@ -405,20 +268,11 @@ func paneParts(a core.App, s core.State, now time.Time, width int) parts {
 		}
 		switch {
 		case a.PaneFocus:
-			pr.keys = "↑↓ select · enter open · t trust · b board · esc back"
+			pr.keys = "↑↓ select · enter open · b board · esc back"
 		case hasBoard(a.Board):
 			pr.keys = PaneKey + " to focus, then b for the board"
 		default:
 			pr.keys = PaneKey + " to focus"
-		}
-	}
-	if p.Message != "" {
-		pr.foot = append(wrap(styled(bold, paneLine(p.Message, false)), width), pr.foot...)
-		if p.Failure != "" {
-			pr.foot = append(hang("  ", paneLine(p.Failure, true), width), pr.foot...)
-		}
-		if p.Command != "" {
-			pr.foot = append(commandLines(p.Command, width), pr.foot...)
 		}
 	}
 	return pr
@@ -452,112 +306,33 @@ func paneHead(name string, count int, other string, focus bool, width int) []str
 	return []string{title + strings.Repeat(" ", pad) + right}
 }
 
-// labelsLine is the faint line of an item's labels.
-func labelsLine(it core.Item) string {
-	w := labelWords(it.Labels)
-	if !it.Labels.Contaminated && it.Kind == core.ShownItem {
-		w = append(w, "trusted")
-	}
-	if len(w) == 0 {
-		return ""
-	}
-	return styled(faint, "  "+strings.Join(w, " · "))
-}
-
-// untrustedNote is the line under the mark that says why.
-func untrustedNote(width int) []string {
-	return hang("  ", untrustedMark()+styled(faint, " outside text: links are defanged"), width)
-}
-
-func detailBody(s core.State, it core.Item, width int) []string {
+func detailBody(it core.Item, width int) []string {
 	def := it.Labels.Contaminated
 	var out []string
 	out = append(out, hang("", styled(bold, itemTitle(it, def)), width)...)
-	if def {
-		out = append(out, untrustedNote(width)...)
-	}
-	if l := labelsLine(it); l != "" {
-		out = append(out, l)
+	if m := fromMark(it.Labels, it.Sources); m != "" {
+		out = append(out, hang("  ", m+styled(faint, " · links are broken on purpose"), width)...)
 	}
 	inner := max(width-2, 1)
-	switch it.Kind {
-	case core.ProposalItem:
-		out = append(out, styled(faint, "  proposal · ")+statusWord(it, isCurrent(s, it)))
-		if it.Preview != "" {
-			out = append(out, "", styled(faint, "preview"))
-			// A preview is a service's text: its links always defang.
-			for _, l := range textLines(it.Preview, true, inner) {
-				out = append(out, "  "+l)
-			}
-		}
-		out = append(out, "", styled(faint, "input"))
-		in := core.FaithfulLines(it.Input)
-		if len(in) == 0 {
-			in = []string{"(no input)"}
-		}
-		for _, l := range wrapAll(in, inner) {
-			out = append(out, "  "+paneLine2(l, def))
-		}
-		for _, l := range fixedLines(it.FixedArgs, def, inner) {
-			out = append(out, "  "+l)
-		}
-		out = append(out, newDomainsLine(s, def || it.Preview != "", width, it.Input, it.Preview)...)
-	default:
-		var ids []string
-		for _, id := range []string{it.Ref, it.Path} {
-			if id != "" {
-				ids = append(ids, paneLine(id, def))
-			}
-		}
-		if it.Version != "" {
-			ids = append(ids, "v"+paneLine(it.Version, def))
-		}
-		if len(ids) > 0 {
-			out = append(out, hang("  ", styled(faint, strings.Join(ids, " · ")), width)...)
-		}
-		out = append(out, "")
-		for _, l := range textLines(it.Text, def, inner) {
-			out = append(out, "  "+l)
-		}
-		if len(it.Sources) > 0 {
-			out = append(out, "", styled(faint, "sources"))
-			for _, src := range it.Sources {
-				out = append(out, sourceLines(s, src, def, width)...)
-			}
-		}
-		texts := []string{it.Text}
-		for _, src := range it.Sources {
-			texts = append(texts, src.Ref)
-		}
-		out = append(out, newDomainsLine(s, def, width, texts...)...)
-		if !it.CanTrust && def && it.TrustCommand != "" {
-			out = append(out, "", styled(faint, "to trust it, run in a terminal"))
-			out = append(out, commandLines(it.TrustCommand, width)...)
-		}
-	}
-	return out
-}
-
-// trustBody is the confirmation: exactly what will be trusted.
-func trustBody(s core.State, width int) []string {
-	it := s.Pane.Trust.Item
-	inner := max(width-2, 1)
-	out := wrap(styled(bold, "Trust this?")+" It clears contaminated from what it says now.", width)
-	out = append(out, "")
-	out = append(out, hang(untrustedMark()+" ", itemTitle(it, true), width)...)
 	var ids []string
-	for _, id := range []string{it.Path, "v" + it.Version} {
-		ids = append(ids, paneLine(id, true))
+	for _, id := range []string{it.Ref, it.Path} {
+		if id != "" {
+			ids = append(ids, paneLine(id, def))
+		}
 	}
-	if len(it.SHA256) >= 12 {
-		ids = append(ids, "sha256 "+paneLine(it.SHA256[:12], true))
+	if len(ids) > 0 {
+		out = append(out, hang("  ", styled(faint, strings.Join(ids, " · ")), width)...)
 	}
-	out = append(out, hang("", styled(faint, strings.Join(ids, " · ")), width)...)
 	out = append(out, "")
-	for _, l := range textLines(it.Text, true, inner) {
+	for _, l := range textLines(it.Text, def, inner) {
 		out = append(out, "  "+l)
 	}
-	out = append(out, newDomainsLine(s, true, width, it.Text)...)
+	if len(it.Sources) > 0 {
+		out = append(out, "", styled(faint, "sources"))
+		for _, src := range it.Sources {
+			out = append(out, sourceLines(src, def, width)...)
+		}
+	}
 	return out
 }
 
@@ -580,6 +355,17 @@ func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) 
 	return lines, mx, pr.keys
 }
 
+// paneNeed is how many rows the pane must have for its foot to show whole:
+// the question, the editor and the keys that answer them.
+func paneNeed(a core.App, s core.State, now time.Time, width int) int {
+	pr := paneParts(a, s, now, max(width, 1))
+	n := len(pr.foot)
+	if pr.keys != "" {
+		n += len(wrap(styleKeys(pr.keys), max(width, 1)))
+	}
+	return n
+}
+
 func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	height = max(height, 0)
 	width = max(width, 1)
@@ -587,7 +373,10 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	var all []string
 	maxScroll := 0
 	if avail <= 0 {
+		// Too little room: the foot has what the operator answers, so the
+		// head is what goes.
 		all = append(append([]string(nil), pr.head...), pr.foot...)
+		all = all[max(len(all)-height, 0):]
 	} else {
 		maxScroll = max(len(pr.body)-avail, 0)
 		start := 0
@@ -630,10 +419,13 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 }
 
 // paneActive is what the pane draws while it has the keys: its editor,
-// or itself. A question it asks has the whole screen, as its review.
+// the archive question, or itself.
 func paneActive(a core.App, s core.State) core.SurfaceKind {
-	if b := a.Board; !b.Items && b.Input != nil {
+	switch b := a.Board; {
+	case !b.Items && b.Input != nil:
 		return core.SurfaceEditor // the prompt and its text
+	case !b.Items && b.Confirm != 0:
+		return core.SurfaceArchive
 	}
 	return core.SurfacePane
 }

@@ -441,9 +441,9 @@ func splitChunks(t *rapid.T, s string) []string {
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
 // The mode is always readable on the status line: whatever else it
-// says, at any width with room for the labels and the mode, the mode
-// shows whole, and the line never runs past its width. Only a line too
-// narrow for both drops it, for the labels.
+// says, at any width with room for the mode, the mode shows whole, and
+// the line never runs past its width. Only a line too narrow for both
+// drops it.
 func TestStatusLineAlwaysNamesTheMode(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		l := core.StatusLine{
@@ -456,12 +456,9 @@ func TestStatusLineAlwaysNamesTheMode(t *testing.T) {
 			Queued:     rapid.IntRange(0, 3).Draw(t, "queued"),
 			Context:    rapid.IntRange(0, 100).Draw(t, "context"),
 			HasContext: rapid.Bool().Draw(t, "has context"),
-			Labels:     core.Labels{Private: rapid.Bool().Draw(t, "private"), Contaminated: rapid.Bool().Draw(t, "contaminated")},
 			Message:    rapid.StringMatching(`[a-z ]{0,30}`).Draw(t, "message"),
-			Asks:       rapid.IntRange(0, 3).Draw(t, "asks"),
 			PaneHint:   rapid.Bool().Draw(t, "pane hint"), PaneView: "board", PaneItems: 2,
 			Moving: rapid.Bool().Draw(t, "moving"), ShowMode: true,
-			AnswerHint: rapid.SampledFrom([]string{"", "esc to answer"}).Draw(t, "answer"),
 		}
 		width := rapid.IntRange(1, 200).Draw(t, "width")
 		got := StatusText(l, "ctrl+j for a new line", t0, width)
@@ -470,7 +467,7 @@ func TestStatusLineAlwaysNamesTheMode(t *testing.T) {
 			t.Fatalf("%d wide at %d: %q", w, width, plain)
 		}
 		mode := Mode(l.Moving)
-		room := Width(ansi.Strip(StatusText(core.StatusLine{Kind: l.Kind, Labels: l.Labels}, "", t0, 1000))) + len(" · "+mode)
+		room := Width(ansi.Strip(StatusText(core.StatusLine{Kind: l.Kind}, "", t0, 1000))) + len(" · "+mode)
 		if width >= room && !strings.Contains(plain, mode) {
 			t.Fatalf("no %s at %d (room %d): %q", mode, width, room, plain)
 		}

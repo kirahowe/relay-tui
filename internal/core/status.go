@@ -16,7 +16,6 @@ const (
 	StatusRunning
 	StatusRetrying
 	StatusCancelling
-	StatusAsking // a permission request waits for the person
 	StatusExited
 )
 
@@ -39,9 +38,7 @@ type StatusLine struct {
 	Context    int
 	HasContext bool
 	Spend      *Cost  // what the session has cost, once the agent says
-	Labels     Labels // what the session has seen
 	Message    string // a word that shows for a few seconds
-	Asks       int    // permission requests waiting, including the one on offer
 	// PaneView is what the workspace pane shows, "board" or "workspace",
 	// and PaneItems how many cards or items it lists. PaneHint says the
 	// pane is a toggled overlay, so the status line names its key.
@@ -58,14 +55,11 @@ type StatusLine struct {
 	// status line names the mode; the panels name it elsewhere. The
 	// renderer sets Moving from the surface (see Surface).
 	Moving, ShowMode bool
-	// AnswerHint is how to get to the request waiting, when it is not
-	// what has the keys; the renderer sets it.
-	AnswerHint string
 }
 
 // Status describes conversation s, in app a, at time now.
 func Status(a App, s State, now time.Time) StatusLine {
-	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend, Labels: s.Labels, Asks: len(s.Asks),
+	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend,
 		PaneView: "workspace", PaneItems: len(PaneItems(s)), Moving: a.Moving || a.PaneFocus, ShowMode: true}
 	if !a.Board.Items {
 		l.PaneView, l.PaneItems = "board", len(a.Board.Cards)
@@ -76,11 +70,6 @@ func Status(a App, s State, now time.Time) StatusLine {
 		hi, lo := bits.Mul64(min(u.Used, u.Size), 100)
 		pct, _ := bits.Div64(hi, lo, u.Size) // hi < Size, as Used <= Size
 		l.Context = int(pct)
-	}
-	if s.Shared && len(s.Asks) > 0 && s.Phase != Busy && s.Phase != Exited {
-		// A request in a conversation whose turn another device runs.
-		l.Kind, l.NoClock = StatusAsking, true
-		return l
 	}
 	if m := s.Message; m.Text != "" && now.Sub(m.At) < MessageFor {
 		l.Message = m.Text
@@ -118,9 +107,6 @@ func Status(a App, s State, now time.Time) StatusLine {
 	switch {
 	case t.Cancelling:
 		l.Kind = StatusCancelling
-	case len(s.Asks) > 0:
-		l.Kind = StatusAsking
-		l.Quiet = 0 // the silence is the person's, not the agent's
 	case t.Retry != nil && t.Retry.At.After(now):
 		l.Kind = StatusRetrying
 		l.RetryIn = t.Retry.At.Sub(now)

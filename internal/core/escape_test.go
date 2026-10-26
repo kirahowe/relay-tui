@@ -1,8 +1,6 @@
 package core
 
 import (
-	"encoding/json"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,58 +33,6 @@ func allShown(s string) (rune, bool) {
 		}
 	}
 	return 0, true
-}
-
-// P-esc1: whatever string the agent puts in a call's input, the approval
-// view has no raw control or format character and reads back, as JSON, to
-// exactly the value that was sent.
-func TestFaithfulLinesRoundTrip(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		v := map[string]any{genText(t, "key"): genText(t, "val"), "list": []any{genText(t, "item"), 1.5, nil, true}}
-		raw, err := json.Marshal(v)
-		if err != nil {
-			t.Skip()
-		}
-		var want any
-		_ = json.Unmarshal(raw, &want) // what the agent's input is, after invalid UTF-8 is cleaned
-		shown := strings.Join(FaithfulLines(string(raw)), "\n")
-		if r, ok := allShown(shown); !ok {
-			t.Fatalf("U+%04X is raw in %q", r, shown)
-		}
-		var got any
-		if err := json.Unmarshal([]byte(shown), &got); err != nil {
-			t.Fatalf("does not parse: %v\n%s", err, shown)
-		}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("shown %s\nreads back as %#v\nwant %#v", shown, got, want)
-		}
-	})
-}
-
-// A string that is not JSON shows as a quoted string that reads back.
-func TestFaithfulLinesPlainText(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		s := genText(t, "text")
-		if json.Valid([]byte(s)) || strings.TrimSpace(s) == "" {
-			t.Skip()
-		}
-		lines := FaithfulLines(s)
-		if len(lines) != 1 {
-			t.Fatalf("%d lines", len(lines))
-		}
-		if r, ok := allShown(lines[0]); !ok {
-			t.Fatalf("U+%04X is raw in %q", r, lines[0])
-		}
-		var got string
-		if err := json.Unmarshal([]byte(lines[0]), &got); err != nil {
-			t.Fatalf("%q does not parse: %v", lines[0], err)
-		}
-		// Invalid UTF-8 cannot come from JSON; genText has none, but
-		// rapid.String is valid too, so the value is exact.
-		if got != s {
-			t.Fatalf("shown %q reads back as %q, want %q", lines[0], got, s)
-		}
-	})
 }
 
 func TestEscapeKnown(t *testing.T) {
@@ -152,17 +98,6 @@ func TestEscapeLabelRoundTrip(t *testing.T) {
 			t.Fatalf("%q -> %q -> %q", s, e, got)
 		}
 	})
-}
-
-// The note of an answer escapes the label too.
-func TestAnswerNoteIsEscaped(t *testing.T) {
-	s := busyState()
-	s, _ = Reduce(s, PermissionAsked{At: t0, Permission: Permission{ID: 1, Name: "ok\u202etool", Options: []PermOption{{ID: "a", Kind: AllowOnce}}}})
-	s, _ = Reduce(s, OpenReview{At: t0})
-	s, _ = Reduce(s, PermissionQuick{At: t0.Add(ArmDelay), Kind: AllowOnce})
-	if n := s.Entries[len(s.Entries)-1]; n.Text != `allowed: ok\u202etool` {
-		t.Fatalf("note %q", n.Text)
-	}
 }
 
 // Regression (Codex review): variation selectors and other code points

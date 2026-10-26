@@ -6,7 +6,6 @@ package ui
 import (
 	"image/color"
 	"reflect"
-	"slices"
 	"strings"
 	"time"
 
@@ -22,20 +21,17 @@ import (
 type Conn interface {
 	// The methods that take a session name the conversation they are
 	// about; against a plain agent it is "", its only one.
-	Prompt(session, text string, atts []core.Attachment)
+	Prompt(session, text string)
 	Cancel(session string)
-	Answer(core.AnswerPermission)
-	// Items, Resolve and Trust call relay's extension methods; their
-	// answers come back as events.
+	// Items and Resolve call relay's extension methods; their answers
+	// come back as events.
 	Items(session string)
 	Resolve(session, ref string)
-	Trust(session, path, version, sha string)
-	// Cards, CardOp and CardTrust call relay's board methods, which are
-	// the connection's and about no conversation; their answers, and
-	// relay's notifications of changed cards, come back as events.
+	// Cards and CardOp call relay's board methods, which are the
+	// connection's and about no conversation; their answers, and relay's
+	// notifications of changed cards, come back as events.
 	Cards()
 	CardOp(card int64, op core.CardOp)
-	CardTrust(card, rev int64, sha string)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as
@@ -122,15 +118,8 @@ type Model struct {
 	savedNote string
 	// holding says the kind is known but the screen input lands on is
 	// not yet (see connect.go), and replaying that held input is being
-	// replayed. drawnSet is the review the last frame drew, if it drew
-	// one, and drawnReview what of its text; drawnGen counts the frames
-	// reported, and drawnPending says the report of the last is on its
-	// way (see drawn).
+	// replayed.
 	holding, replaying bool
-	drawnSet           []string
-	drawnReview        *core.ReviewDrawn
-	drawnGen           int
-	drawnPending       bool
 	held               []heldMsg
 	size               *tea.WindowSizeMsg
 	caps0              *tea.KeyboardEnhancementsMsg
@@ -286,101 +275,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		next, cmd := m.update(msg)
 		next, cmd2 := next.(Model).settled(msg)
-		return next.(Model).drawn(tea.Batch(cmd, cmd2))
+		return next, tea.Batch(cmd, cmd2)
 	}
-	next, cmd := m.update(msg)
-	return next.(Model).drawn(cmd)
-}
-
-// drawLag is how long after an update its frame is taken to be on
-// screen: Bubble Tea draws the view at most a frame (about 16 ms) after
-// the update that changed it.
-const drawLag = 50 * time.Millisecond
-
-// drawnMsg says frame gen, which drew the review in set (if any) and
-// that part of its text, is on screen.
-type drawnMsg struct {
-	gen    int
-	set    []string
-	review *core.ReviewDrawn
-}
-
-// drawn tells the core what the frame about to be drawn shows of the
-// review, the one surface that consents to anything: a review it no
-// longer shows is forgotten at once, and what it newly shows counts as
-// drawn from a frame later, when it is on screen (see core/review.go).
-// Nothing is drawn while input is held, as the screen is "connecting…"
-// then.
-func (m Model) drawn(cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	if m.kind == kindUnknown || m.holding {
-		return m, cmd
-	}
-	set, review := m.reviewDrawn()
-	if slices.Equal(set, m.drawnSet) && reflect.DeepEqual(review, m.drawnReview) {
-		// The same frame: report it again only if the surface was forgotten
-		// meanwhile (it changed and came back) and no report is on its way.
-		if m.drawnPending || !slices.Contains(set, m.surfaceID()) || m.app().Shown.Surface == m.surfaceID() {
-			return m, cmd
-		}
-	} else if !slices.Equal(set, m.drawnSet) {
-		var kept []string
-		for _, id := range set {
-			if slices.Contains(m.drawnSet, id) {
-				kept = append(kept, id)
-			}
-		}
-		m.coreEvent(core.Drawn{At: m.now(), Surfaces: kept, OnlyForget: true})
-	}
-	m.drawnSet, m.drawnReview = set, review
-	m.drawnGen++
-	m.drawnPending = true
-	msg := drawnMsg{gen: m.drawnGen, set: set, review: review}
-	return m, tea.Batch(cmd, tea.Tick(drawLag, func(time.Time) tea.Msg { return msg }))
-}
-
-// reviewDrawn is the review the frame as drawn now shows, and what of
-// its text, or nothing when no review has the keys or it drew none.
-func (m Model) reviewDrawn() ([]string, *core.ReviewDrawn) {
-	if m.alt {
-		return nil, nil // the transcript asks nothing
-	}
-	r := m.pagerFrame(m.now())
-	if r.Drawn == nil {
-		return nil, nil
-	}
-	return []string{r.Drawn.ID}, r.Drawn
-}
-
-// pagerFrame is the review as drawn now, in either mode; the zero frame
-// when no review has the keys.
-func (m Model) pagerFrame(now time.Time) render.PagerFrame {
-	if m.kind == kindHub {
-		if core.HubSurface(m.hub).Kind != core.SurfaceReview {
-			return render.PagerFrame{}
-		}
-		return m.hubFrame(now).Review
-	}
-	if core.SingleSurface(m.one).Kind != core.SurfaceReview {
-		return render.PagerFrame{}
-	}
-	return m.frame(now).Review
-}
-
-// coreEvent applies an event with no effects to the core, in either mode.
-func (m *Model) coreEvent(e core.Event) {
-	if m.kind == kindHub {
-		m.hub, _ = core.ReduceHub(m.hub, e)
-		return
-	}
-	m.one, _ = core.ReduceSingle(m.one, e)
-}
-
-// surfaceID names what has the keys, in either mode.
-func (m Model) surfaceID() string {
-	if m.kind == kindHub {
-		return core.HubSurfaceID(m.hub)
-	}
-	return core.SingleSurfaceID(m.one)
+	return m.update(msg)
 }
 
 // update handles a message once input is no longer held.
@@ -418,12 +315,6 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.PasteMsg:
 		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.SingleSurface(m.one), now, msg.Content)}
-	case drawnMsg:
-		if msg.gen != m.drawnGen {
-			return m, nil // a later frame replaced it
-		}
-		m.drawnPending = false
-		ev = core.Drawn{At: now, Surfaces: msg.set, Review: msg.review}
 	case EventMsg:
 		ev = msg.Event
 		if _, ok := ev.(core.AgentExited); ok && !m.quitting {
@@ -569,18 +460,12 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 		m.conn.Cards()
 	case core.SendCardOp:
 		m.conn.CardOp(f.Card, f.Op)
-	case core.SendCardTrust:
-		m.conn.CardTrust(f.Card, f.Rev, f.SHA256)
-	case core.AnswerPermission:
-		m.conn.Answer(f)
 	case core.InsertInput:
 		m.editDraft(f.Role, func(s string) string { return s + f.Text }, func() { m.input.InsertString(f.Text) })
 	case core.RestoreInput:
 		m.editDraft(f.Role, func(s string) string { return ahead(f.Text, s) }, nil)
 	case core.RestoreDraft:
 		m.editDraft(f.Role, func(s string) string { return ahead(f.Text, s) }, nil)
-	case core.ReplaceInput:
-		m.editDraft(f.Role, func(s string) string { return strings.Replace(s, f.Old, f.New, 1) }, nil)
 	case core.Quit:
 		m.quitting = true // stop ends the program
 	}
@@ -628,15 +513,13 @@ func ahead(text, typed string) string {
 func (m *Model) sessionEffect(session string, f core.Effect) bool {
 	switch f := f.(type) {
 	case core.SendPrompt:
-		m.conn.Prompt(session, f.Text, f.Attachments)
+		m.conn.Prompt(session, f.Text)
 	case core.SendCancel:
 		m.conn.Cancel(session)
 	case core.RequestItems:
 		m.conn.Items(session)
 	case core.RequestResolve:
 		m.conn.Resolve(session, f.Ref)
-	case core.SendTrust:
-		m.conn.Trust(session, f.Path, f.Version, f.SHA256)
 	default:
 		return false
 	}
@@ -682,22 +565,11 @@ func (m *Model) print(now time.Time) tea.Cmd {
 // tick keeps the status line moving while the agent works, and stops when
 // it is idle, so an idle screen is never redrawn.
 func (m *Model) tick(now time.Time) tea.Cmd {
-	if m.ticking || (m.one.State.Phase != core.Busy && m.one.State.Phase != core.Starting && !m.trustArming(now)) {
+	if m.ticking || (m.one.State.Phase != core.Busy && m.one.State.Phase != core.Starting) {
 		return nil
 	}
 	m.ticking = true
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
-}
-
-// trustArming says a review is waiting out its delay, so it must redraw
-// when it arms.
-func (m *Model) trustArming(now time.Time) bool { return reviewArming(m.app(), now) }
-
-// reviewArming says the open review has been read and arms within a
-// tick, so the screen must redraw then to show its yes armed.
-func reviewArming(a core.App, now time.Time) bool {
-	t, ok := a.Pager.ArmedAt()
-	return ok && now.Before(t.Add(tickEvery))
 }
 
 // width is the width everything is drawn at: one column narrower than

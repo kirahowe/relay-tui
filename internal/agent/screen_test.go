@@ -120,62 +120,87 @@ func TestScreenedPassesLines(t *testing.T) {
 	}
 }
 
-// relay#52: the permission prompt shows the tool's input with its numbers
-// as written. The SDK decodes rawInput into any, rounding each number
-// through a float64, so relay-tui reads it from the request's own params.
-func TestPermissionShowsTheInputAsWritten(t *testing.T) {
-	asked := make(chan core.PermissionAsked, 8)
+// relay-tui asks nothing: a session/request_permission is answered at once
+// with a plain cancel, whatever it holds, and nothing reaches the screen.
+// _relay/permission/settled is ignored.
+func TestPermissionRequestsAreRefusedWithoutAWord(t *testing.T) {
+	var mu sync.Mutex
+	var events []core.Event
 	a := &Agent{emit: func(e core.Event) {
-		if p, ok := e.(core.PermissionAsked); ok {
-			asked <- p
-		}
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, e)
 	}}
 	pr, pw := io.Pipe()
-	conn, err := acp.NewClientSideConnectionWithOptions(client{a}, io.Discard, newScreened(pr, io.Discard), acp.ConnectionOptions{})
+	out, outw := io.Pipe()
+	conn, err := acp.NewClientSideConnectionWithOptions(client{a}, outw, newScreened(pr, io.Discard), acp.ConnectionOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ask := func(id int, method, call, input, options string) string {
-		return `{"jsonrpc":"2.0","id":` + strconv.Itoa(id) + `,"method":"` + method + `","params":{"sessionId":"s","toolCall":{"toolCallId":"` + call +
-			`","rawInput":` + input + `},"options":` + options + `}}` + "\n"
+	replies := make(chan string, 8)
+	go func() {
+		buf := make([]byte, 4096)
+		var acc string
+		for {
+			n, err := out.Read(buf)
+			acc += string(buf[:n])
+			for {
+				i := strings.IndexByte(acc, '\n')
+				if i < 0 {
+					break
+				}
+				replies <- acc[:i]
+				acc = acc[i+1:]
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	ask := func(id int, input, options string) string {
+		return `{"jsonrpc":"2.0","id":` + strconv.Itoa(id) + `,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"c","name":"send","rawInput":` +
+			input + `,"_meta":{"agentloop/labels":["contaminated"]}},"options":` + options +
+			`,"_meta":{"relay/review":{"text":"t","sha256":"` + strings.Repeat("0", 64) + `"}}}}` + "\n"
 	}
-	const allow = `[{"optionId":"allow","name":"Allow","kind":"allow_once"}]`
-	exact := `{"text":"hello","n":9007199254740993,"big":123456789012345678901234567890,"d":0.1000000000000000055511151231257827}`
-	want := `{"big":123456789012345678901234567890,"d":0.1000000000000000055511151231257827,"n":9007199254740993,"text":"hello"}`
-	expect := func(what, want string) {
-		t.Helper()
+	const allow = `[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"no","name":"No","kind":"reject_once"}]`
+	write := func(line string) { go func() { _, _ = pw.Write([]byte(line)) }() }
+	for id, line := range []string{
+		ask(1, `{"to":"a@example.com"}`, allow),
+		ask(2, `{"n":9007199254740993}`, `[{"optionId":"a","name":"Always","kind":"allow_always"}]`),
+		`{"jsonrpc":"2.0","method":"_relay/permission/settled","params":{"sessionId":"s","toolCallId":"c","outcome":{"outcome":"selected"}}}` + "\n",
+	} {
+		write(line)
+		if id == 2 {
+			continue // a notification has no reply
+		}
 		select {
-		case p := <-asked:
-			if p.Input != want {
-				t.Errorf("%s: input %s, want %s", what, p.Input, want)
+		case r := <-replies:
+			if !strings.Contains(r, `"outcome":"cancelled"`) || strings.Contains(r, "selected") || strings.Contains(r, "relay/review") {
+				t.Errorf("request %d answered %s", id+1, r)
 			}
 		case <-time.After(10 * time.Second):
-			t.Fatalf("%s: no permission request", what)
+			t.Fatalf("request %d: no answer", id+1)
 		}
 	}
-	write := func(line string) {
-		go func() { _, _ = pw.Write([]byte(line)) }()
-	}
-	write(ask(1, "session/request_permission", "c1", exact, allow))
-	expect("plain", want)
-	// The method spelled with an escape is the same method.
-	write(ask(2, `session\/request_permission`, "c2", exact, allow))
-	expect("escaped method", want)
 	// A request the SDK cannot decode (options of the wrong type) never
-	// reaches the prompt, and lends its input to no later request with
-	// the same tool call, though both inputs round to the same float64.
-	write(ask(3, "session/request_permission", "c3", `{"n":9007199254740992}`, `"x"`))
-	write(ask(4, "session/request_permission", "c3", `{"n":9007199254740993}`, allow))
-	expect("after a refused request", `{"n":9007199254740993}`)
-	// 1e400 is past a float64: the SDK cannot decode this one at all.
-	write(ask(5, "session/request_permission", "c4", `{"l":[1e400]}`, allow))
+	// reaches the handler: the SDK itself answers with an error.
+	write(ask(9, `{"n":1}`, `"x"`))
 	select {
-	case p := <-asked:
-		t.Fatalf("asked %q", p.Input)
-	case <-time.After(500 * time.Millisecond):
+	case r := <-replies:
+		if !strings.Contains(r, `"error"`) || strings.Contains(r, "selected") {
+			t.Fatalf("an unreadable request was answered %s", r)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no answer to an unreadable request")
 	}
 	_ = pw.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = conn.Wait(ctx)
+	_ = outw.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 0 {
+		t.Errorf("events reached the screen: %#v", events)
+	}
 }

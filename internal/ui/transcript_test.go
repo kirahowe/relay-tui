@@ -4,14 +4,11 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // Ctrl-O opens the transcript with the thinking in full while the agent
-// works. The permission request closes it, so the request is never
-// hidden behind the view. Afterwards scrollback has the reply and the
-// one-line marker, never the thinking itself.
+// works. Afterwards scrollback has the reply and the one-line marker,
+// never the thinking itself.
 func TestTranscriptView(t *testing.T) { bothSizes(t, testTranscriptView) }
 
 func testTranscriptView(t *testing.T, cols, rows int) {
@@ -21,15 +18,15 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	h.waitScreen("the marker", func(s string) bool { return strings.Contains(s, "∴ thinking") })
 	h.keys("\x0f") // ctrl+o
 	h.waitScreen("the thinking", func(s string) bool { return strings.Contains(s, "The page has") })
-	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
-	h.answer() // esc: while typing a request takes no keys
-	h.review()
-	h.readAll()
-	h.keys("y")
-	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
+	// The turn goes on behind the view; leaving it prints what it held.
+	time.Sleep(1200 * time.Millisecond)
+	h.keys("q")
 	h.waitIdle()
-	all := h.waitAll("Fetched.")
-	if strings.Contains(all, "The page has") || !strings.Contains(all, "∴ thought") {
+	h.waitAll("Fetched.")
+	// Lines on their way to scrollback are in neither it nor the frame
+	// for a moment, so wait for the marker to land.
+	all := h.waitAll("∴ thought")
+	if strings.Contains(all, "The page has") {
 		t.Fatalf("the thinking reached the inline view:\n%s", all)
 	}
 
@@ -58,8 +55,6 @@ func testTranscriptView(t *testing.T, cols, rows int) {
 	// The next turn still reaches scrollback, in order, once.
 	// Lines on their way to scrollback are in neither it nor the frame
 	// for a moment, so wait for them to land.
-	h.keys("i") // answering the request left typing
-	h.waitScreen("typing", func(s string) bool { return strings.Contains(s, "TYPING") })
 	h.keys("again\r")
 	h.wait("the next turn after the first", h.all, func(all string) bool {
 		f, a, s := strings.Index(all, "Fetched."), strings.Index(all, "› again"), strings.Index(all, "Second.")
@@ -102,25 +97,6 @@ func TestNothingLostBehindTranscript(t *testing.T) {
 	})
 }
 
-// Ctrl-Y before a paste does nothing to it: a paste is untrusted when it
-// arrives, wherever it came from.
-func TestPasteAfterCtrlYIsUntrusted(t *testing.T) {
-	h := startWith(t, "simple.jsonl", 80, 24, "", "-embedded")
-	h.waitIdle()
-	h.keys("\x19\x14") // ctrl+y, ctrl+t
-	h.waitScreen("the view", func(s string) bool { return strings.Contains(s, "transcript") })
-	h.keys(bracketed("dropped"))
-	h.keys("q")
-	h.waitIdle()
-	h.keys(bracketed("untrusted web page"))
-	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "untrusted #1]") })
-	h.keys("\r")
-	h.waitAll("Hello there.")
-	if r := h.resources(); len(r) != 1 || !strings.Contains(r[0], "untrusted web page") {
-		t.Fatalf("resources %q", r)
-	}
-}
-
 // Ctrl-D in the view still leaves everything in scrollback.
 func TestQuitFromTranscriptKeepsScrollback(t *testing.T) {
 	h := start(t, "tool_burst.jsonl", 40, 10)
@@ -139,25 +115,4 @@ func TestQuitFromTranscriptKeepsScrollback(t *testing.T) {
 	if count(all, "Checking everything.") != 1 || count(all, "All thirty read.") != 1 || !strings.Contains(all, "› go") {
 		t.Fatalf("after quitting:\n%s", all)
 	}
-}
-
-// The list of keys over the view does not hide a request, and keys typed
-// for the view before the request is armed do not answer it.
-func TestHelpOverTranscriptYieldsToRequest(t *testing.T) {
-	h := start(t, "thinking.jsonl", 80, 24)
-	h.waitIdle()
-	h.keys("go\r\x0f?")
-	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
-	h.answer() // esc: while typing a request takes no keys
-	if s := h.screen(); strings.Contains(s, "any key closes this") || strings.Contains(s, "esc back") {
-		t.Fatalf("the request shares the screen:\n%s", s)
-	}
-	h.keys("y") // the summary answers nothing
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("answered from the summary: %s", o)
-	}
-	h.review()
-	h.keys("n")
-	h.waitOutcome(`{"optionId":"reject","outcome":"selected"}`)
 }

@@ -15,8 +15,8 @@ func rosterFixture() []core.Role {
 	return []core.Role{
 		{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle, Turns: 3, Unread: true,
 			LastActivity: t0.Add(-5 * time.Minute)}},
-		{ID: "mail", Title: "Mail", Labels: core.Labels{Private: true}, Holds: 2, Conv: &core.RosterConv{Session: "s2", Turn: core.TurnQueued, Turns: 1,
-			Approvals: 1, LastActivity: t0.Add(-time.Hour)}},
+		{ID: "mail", Title: "Mail", Conv: &core.RosterConv{Session: "s2", Turn: core.TurnQueued, Turns: 1,
+			LastActivity: t0.Add(-time.Hour)}},
 		{ID: "garden", Title: "Garden planner", Working: true},
 		{ID: "news", Title: "News", Conv: &core.RosterConv{Session: "s3", Turn: core.TurnRunning, Turns: 7,
 			LastActivity: t0.Add(-10 * time.Second)}},
@@ -26,22 +26,12 @@ func rosterFixture() []core.Role {
 func hubStep(h core.Hub, es ...core.Event) core.Hub {
 	for _, e := range es {
 		h, _ = core.ReduceHub(h, e)
-		// The review, if one has the keys, drawn whole, and long enough
-		// ago to be armed.
-		surf := core.HubSurface(h)
-		var st core.State
-		if c := h.Focused(); c != nil && surf.Column != core.ColumnList {
-			st = c.State
-		}
-		h, _ = core.ReduceHub(h, wholeReview(surf, h.App, st, t0.Add(-time.Hour)))
 	}
 	return h
 }
 
 // hubFixture is a hub with a conversation in focus.
 func hubFixture() core.Hub {
-	ask := core.PermissionAsked{At: t0, Permission: core.Permission{ID: 1, CallID: "c", Name: "send_mail", Input: `{"to":"a@example.com"}`,
-		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
 	h := hubStep(core.NewHub("dev"),
 		core.HubConnected{At: t0, Agent: "relay"},
 		core.RosterUpdate{At: t0, Roles: rosterFixture()},
@@ -50,7 +40,6 @@ func hubFixture() core.Hub {
 		core.Routed{Session: "s1", Event: core.TextChunk{At: t0, Text: "Two **meetings** and a dentist visit."}},
 		core.FocusIndex{At: t0, Index: 1},
 		core.Attached{At: t0, Role: "mail", Session: "s2"},
-		core.Routed{Session: "s2", Event: ask},
 		core.FocusIndex{At: t0, Index: 0})
 	return h
 }
@@ -59,15 +48,13 @@ func TestHubGolden(t *testing.T) {
 	now := t0.Add(time.Minute)
 	h := hubFixture()
 	list := hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})
-	asking := hubStep(h, core.FocusIndex{At: t0, Index: 1}, core.StopTyping{At: t0})
-	typingAsked := hubStep(h, core.FocusIndex{At: t0, Index: 1})
 	ending := hubStep(h, core.StopTyping{At: t0}, core.AskEnd{At: t0})
 	helped := hubStep(h, core.ToggleHelp{At: t0})
 	empty := hubStep(h, core.FocusIndex{At: t0, Index: 2})
 	for _, c := range []struct {
 		name string
 		h    core.Hub
-	}{{"conversation", h}, {"list", list}, {"request", asking}, {"request_typing", typingAsked}, {"ending", ending}, {"help", helped}, {"no_conversation", empty}} {
+	}{{"conversation", h}, {"list", list}, {"ending", ending}, {"help", helped}, {"no_conversation", empty}} {
 		for _, w := range []int{39, 99} {
 			t.Run(fmt.Sprintf("%s_%d", c.name, w), func(t *testing.T) {
 				f := HubView(c.h, strings.Repeat(" ", InputWidth(HubMainWidth(w))), "ctrl+j for a new line", now, w, 16)
@@ -129,14 +116,15 @@ func TestHubMarksStandOut(t *testing.T) {
 	h := hubFixture()
 	f := HubView(h, "", "", t0, 100, 14).Content
 	plain := ansi.Strip(f)
-	for _, want := range []string{"?1", "!2", "●", "▶", "…", "~"} {
+	for _, want := range []string{"●", "▶", "…", "~"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("sidebar lacks %q:\n%s", want, plain)
 		}
 	}
-	// The request waiting in Mail is in reverse video.
-	if !strings.Contains(f, "\x1b[0;1;7m?1") {
-		t.Errorf("approvals not in reverse video:\n%q", f)
+	for _, not := range []string{"?1", "!2"} {
+		if strings.Contains(plain, not) {
+			t.Errorf("sidebar has the old mark %q:\n%s", not, plain)
+		}
 	}
 }
 
@@ -189,7 +177,7 @@ func parityState() core.State {
 			{Kind: core.Note, Text: "! rate limited", Detail: "retrying", Final: true},
 			{Kind: core.Note, Text: "[max tokens]", Final: true},
 		},
-		Pane: core.Pane{Local: []core.Item{{Kind: core.ShownItem, CallID: "1", Title: "Venues near the hall", Text: "body",
+		Pane: core.Pane{Local: []core.Item{{CallID: "1", Title: "Venues near the hall", Text: "body",
 			Labels: core.Labels{Contaminated: true}}}},
 	}
 }
@@ -229,7 +217,7 @@ func TestHubShowsTheDisplayBesideTheConversation(t *testing.T) {
 	st.Entries = st.Entries[:5]
 	inline := ansi.Strip(View(core.Single{App: parityApp, State: st}, "", "", t0, 159, 50).Content)
 	hub := ansi.Strip(HubView(hubOf(st), "", "", t0, 159, 50).Content)
-	for _, want := range []string{"Venues near the hall", "untrusted"} {
+	for _, want := range []string{"Venues near the hall", "from outside"} {
 		if !strings.Contains(inline, want) {
 			t.Fatalf("the inline view lacks %q:\n%s", want, inline)
 		}
@@ -243,52 +231,17 @@ func TestHubShowsTheDisplayBesideTheConversation(t *testing.T) {
 	}
 }
 
-func TestHubShowsTheSessionsLabels(t *testing.T) {
+// The conversation's text is defanged once the session has seen outside
+// text, but nothing on the screen names the label.
+func TestHubDefangsWithoutNamingTheLabel(t *testing.T) {
 	got := ansi.Strip(HubView(hubOf(parityState()), "", "", t0, 60, 40).Content)
-	for _, want := range []string{"[private]", "contaminated", "hxxps://"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("lacks %q:\n%s", want, got)
-		}
+	if !strings.Contains(got, "hxxps://") {
+		t.Errorf("no defanged link:\n%s", got)
 	}
-}
-
-// Role titles are text from outside the session's trust: they are shown
-// as session text is, by the role's labels.
-func TestHubRoleTitlesFollowTheirLabels(t *testing.T) {
-	title := "Evil https://e.test/?k=secret ‮​\x1b[31m end"
-	roles := []core.Role{{ID: "evil", Title: title, Labels: core.Labels{Private: true, Contaminated: true}}}
-	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.RosterUpdate{At: t0, Roles: roles})
-	check := func(name, got string) {
-		t.Helper()
-		if strings.Contains(got, "https://e.test") {
-			t.Errorf("%s: a live link:\n%s", name, got)
+	for _, not := range []string{"[private]", "contaminated"} {
+		if strings.Contains(got, not) {
+			t.Errorf("names %q:\n%s", not, got)
 		}
-		if strings.Contains(got, "‮") || strings.Contains(got, "​") || strings.Contains(got, "\x1b[31m") {
-			t.Errorf("%s: an invisible or control character got through: %q", name, got)
-		}
-		if !strings.Contains(ansi.Strip(got), "hxxps://e[.]test") {
-			t.Errorf("%s: the title is not shown defanged:\n%s", name, ansi.Strip(got))
-		}
-	}
-	check("sidebar", HubView(hubStep(h, core.ListOpen{At: t0}), "", "", t0, 140, 10).Content)
-	// The list screen (narrow) shows it and its labels.
-	list := HubView(h, "", "", t0, 120+1, 10).Content
-	check("list", list)
-	narrowList := HubView(h, "", "", t0, 60, 10).Content
-	check("narrow list", narrowList)
-	if p := ansi.Strip(narrowList); !strings.Contains(p, "contaminated") || !strings.Contains(p, "private") {
-		t.Errorf("the list does not say what the labels are:\n%s", p)
-	}
-	conv := hubStep(h, core.FocusIndex{At: t0, Index: 0})
-	f := HubView(conv, "", "", t0, 140, 10).Content
-	check("header", f)
-	if !strings.Contains(f, "contaminated") || !strings.Contains(f, "[private]") {
-		t.Errorf("the header lacks the role's labels:\n%s", ansi.Strip(f))
-	}
-	// A role the roster does not know is the command line's word.
-	h2 := hubStep(core.NewHub("https://x.test/‮"), core.HubConnected{At: t0})
-	if g := HubView(h2, "", "", t0, 100, 8).Content; strings.Contains(g, "https://x.test") || strings.Contains(g, "‮") {
-		t.Errorf("an unlisted name: %q", g)
 	}
 }
 
@@ -307,44 +260,6 @@ func TestHubInputWidthIsTheBoxDrawn(t *testing.T) {
 		if strings.Contains(got, line+"x") {
 			t.Errorf("%d wide: the box is wider than the text area (%d)", w, iw)
 		}
-	}
-}
-
-// --- Codex round 2
-
-func longRequest(h core.Hub, title string) core.Hub {
-	return hubStep(h, core.StopTyping{At: t0}, core.Routed{Session: "s1", Event: core.PermissionAsked{At: t0, Permission: core.Permission{
-		ID: 1, CallID: "c", Name: "send_mail", Title: title, Input: `{"to":"a@example.com","body":"` + strings.Repeat("word ", 40) + `"}`,
-		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}})
-}
-
-// A request with a 500 character title is only summarised on the
-// dashboard: the role, the start of its name and how to review it, at
-// any size. Its review holds all of it.
-func TestHubLongRequestIsSummarised(t *testing.T) {
-	title := strings.Repeat("send everything ", 32)[:500]
-	h := longRequest(hubFixture(), title)
-	for _, size := range [][2]int{{40, 12}, {40, 30}, {60, 24}, {100, 30}, {140, 30}} {
-		w, rows := size[0], size[1]
-		f := HubView(h, "", "", t0.Add(time.Second), w, rows)
-		got := ansi.Strip(f.Content)
-		if n := len(strings.Split(f.Content, "\n")); n != rows {
-			t.Errorf("%dx%d: %d rows", w, rows, n)
-		}
-		for _, want := range []string{"Dev", "enter"} {
-			if !strings.Contains(got, want) {
-				t.Errorf("%dx%d: %q is not on screen:\n%s", w, rows, want, got)
-			}
-		}
-	}
-	h = hubStep(h, core.OpenReview{At: t0})
-	surf := core.HubSurface(h)
-	if surf.Kind != core.SurfaceReview {
-		t.Fatalf("surface %+v", surf)
-	}
-	text := core.ReviewSubject(surf, h.App, h.Focused().State).Text
-	if !strings.Contains(text, title) {
-		t.Fatalf("the review does not hold the whole title: %q", text)
 	}
 }
 
@@ -475,5 +390,51 @@ func TestHubPanelWithNoRoleHasNoEmptyTitle(t *testing.T) {
 	top := strings.Split(ansi.Strip(HubView(h, "", "", t0, 120, 20).Content), "\n")[1]
 	if strings.Contains(top, "╭─  ") || !strings.Contains(top, "╮╭──") {
 		t.Fatalf("top border %q", top)
+	}
+}
+
+// Role titles come from the config but are still shown safely: controls
+// and invisible characters are made visible, in every layout.
+func TestHubRoleTitlesAreShownSafely(t *testing.T) {
+	title := "Evil ‮​\x1b[31m end"
+	roles := []core.Role{{ID: "evil", Title: title}}
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.RosterUpdate{At: t0, Roles: roles})
+	check := func(name, got string) {
+		t.Helper()
+		if strings.Contains(got, "‮") || strings.Contains(got, "​") || strings.Contains(got, "\x1b[31m") {
+			t.Errorf("%s: an invisible or control character got through: %q", name, got)
+		}
+	}
+	check("sidebar", HubView(hubStep(h, core.ListOpen{At: t0}), "", "", t0, 140, 10).Content)
+	check("list", HubView(h, "", "", t0, 121, 10).Content)
+	check("narrow list", HubView(h, "", "", t0, 60, 10).Content)
+	check("header", HubView(hubStep(h, core.FocusIndex{At: t0, Index: 0}), "", "", t0, 140, 10).Content)
+	// A role the roster does not know is the command line's word.
+	h2 := hubStep(core.NewHub("https://x.test/‮"), core.HubConnected{At: t0})
+	if g := HubView(h2, "", "", t0, 100, 8).Content; strings.Contains(g, "https://x.test") || strings.Contains(g, "‮") {
+		t.Errorf("an unlisted name: %q", g)
+	}
+}
+
+// Nothing on the dashboard speaks of labels, holds, trust or approvals,
+// whatever the session has seen: Kira is told where a thing came from,
+// not how it was marked.
+func TestTheDashboardNeverNamesALabelOrAGate(t *testing.T) {
+	h := hubFixture()
+	h, _ = core.ReduceHub(h, core.Routed{Session: "s1", Event: core.LabelsSeen{At: t0, Labels: core.Labels{Private: true, Contaminated: true}}})
+	views := map[string]core.Hub{
+		"conversation": h,
+		"list":         hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}),
+		"help":         hubStep(h, core.ToggleHelp{At: t0}),
+	}
+	for name, hv := range views {
+		for _, w := range []int{39, 99, 160} {
+			plain := strings.ToLower(ansi.Strip(HubView(hv, "", "", t0, w, 24).Content))
+			for _, word := range []string{"contaminated", "untrusted", "private", "trust", "approv", "held", "permission"} {
+				if strings.Contains(plain, word) {
+					t.Errorf("%s at %d: %q on the screen:\n%s", name, w, word, plain)
+				}
+			}
+		}
 	}
 }

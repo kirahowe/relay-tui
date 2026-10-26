@@ -54,13 +54,6 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	case core.StatusCancelling:
 		lead = " "
 		add("cancelling")
-	case core.StatusAsking:
-		lead = "?"
-		add("waiting for you")
-		add(l.AnswerHint)
-		if l.Asks > 1 {
-			add(strconv.Itoa(l.Asks) + " requests")
-		}
 	}
 	add(oneLine(l.Message))
 	if l.Remote == core.TurnQueued {
@@ -102,9 +95,8 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	if idle {
 		add("? keys")
 	}
-	// The labels and the first part always show, the first part cut if
-	// it must be. The mode comes next: it shows whole whenever it fits
-	// after them, whatever else would have, since what a key does depends
+	// The first part always shows, cut if it must be. The mode comes next: it shows whole whenever it fits
+	// after it, whatever else would have, since what a key does depends
 	// on it. Each other part shows only if it fits whole, so a narrow
 	// terminal loses the least important ones instead of showing half a
 	// word. The parts keep their order on the line.
@@ -112,7 +104,7 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 		parts = []string{""}
 	}
 	sep := Method.StringWidth(" · ")
-	first := truncate(lead+" "+badges(l)+parts[0], width)
+	first := truncate(lead+" "+parts[0], width)
 	used := Method.StringWidth(first)
 	keep := make([]bool, len(parts))
 	if mode > 0 && used+sep+Method.StringWidth(parts[mode]) <= width {
@@ -145,30 +137,6 @@ func Mode(moving bool) string {
 // modeTag names the mode in the status line, in bold, and returns to
 // faint, the style the whole line is in.
 func modeTag(moving bool) string { return sgr(bold) + Mode(moving) + sgr(faint) }
-
-// badges shows the session's labels in front of the status, so they are
-// always on screen: private in bold, contaminated in reverse video, which
-// is the one that must not be missed. Each returns to faint, the style the
-// whole line is in, rather than resetting.
-func badges(sl core.StatusLine) string {
-	l := sl.Labels
-	var b string
-	if p, ok := pill("private", labelColour); ok && l.Private {
-		b += p + sgr(faint) + " "
-		l.Private = false
-	}
-	if p, ok := pill("contaminated", warnColour); ok && l.Contaminated {
-		b += p + sgr(faint) + " "
-		l.Contaminated = false
-	}
-	if l.Private {
-		b += sgr(bold) + "[private]" + sgr(faint) + " "
-	}
-	if l.Contaminated {
-		b += sgr(bold|reverse) + " contaminated " + sgr(faint) + " "
-	}
-	return b
-}
 
 // Money formats a cost to the cent: $1.23 in US dollars, else the
 // amount and the currency code. It is empty for an amount that is not a

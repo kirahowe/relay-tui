@@ -35,9 +35,7 @@ type Agent struct {
 	session acp.SessionId // set before Connected is emitted; unused in hub mode
 	hub     bool          // set before HubConnected is emitted
 
-	mu      sync.Mutex
-	nextAsk uint64
-	asks    map[uint64]chan core.AnswerPermission // requests waiting for the person
+	mu sync.Mutex
 
 	// Calls to relay's extension methods run one at a time, in the order
 	// they were asked, so an older answer cannot overwrite a newer one.
@@ -124,14 +122,14 @@ func (a *Agent) handshake(dir string) error {
 	return nil
 }
 
-// Prompt sends text, with atts as resources, and, when the agent answers, emits PromptDone or
+// Prompt sends text and, when the agent answers, emits PromptDone or
 // PromptFailed. It does not block.
-func (a *Agent) Prompt(session, text string, atts []core.Attachment) {
+func (a *Agent) Prompt(session, text string) {
 	id := a.sid(session)
 	go func() {
 		resp, err := a.proc.Connection.Prompt(context.Background(), acp.PromptRequest{
 			SessionId: id,
-			Prompt:    wire.PromptBlocks(text, atts),
+			Prompt:    wire.PromptBlocks(text),
 		})
 		a.emit(a.route(id, wire.Response(resp, err, time.Now())))
 	}()
@@ -186,62 +184,17 @@ func (c client) SessionUpdate(_ context.Context, n acp.SessionNotification) erro
 	return nil
 }
 
-// RequestPermission hands the request to the UI and waits for the
-// person's answer, which arrives through Answer. A request nobody
-// answers before the connection ends is cancelled.
-func (c client) RequestPermission(ctx context.Context, req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	a := c.a
-	reply := make(chan core.AnswerPermission, 1)
-	a.mu.Lock()
-	a.nextAsk++
-	id := a.nextAsk
-	if a.asks == nil {
-		a.asks = map[uint64]chan core.AnswerPermission{}
-	}
-	a.asks[id] = reply
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		delete(a.asks, id)
-		a.mu.Unlock()
-	}()
-	now := time.Now()
-	if l, ok := wire.PermissionLabels(req, now); ok {
-		a.emit(a.route(req.SessionId, l))
-	}
-	// The request's own params, as received, for its input as written.
-	input := ""
-	params, exact := acp.InboundParamsFromContext(ctx)
-	if exact {
-		input = wire.ExactInput(params)
-	}
-	asked := wire.Permission(req, input, id, now)
-	if exact {
-		// The content as sent, so a field the SDK's decoding drops is
-		// still seen, and the review fails closed on it.
-		asked.Content, asked.Unshown = wire.CallContent(wire.ExactContent(params))
-	}
-	a.emit(a.route(req.SessionId, asked))
-	select {
-	case ans := <-reply:
-		return wire.Outcome(ans), nil
-	case <-ctx.Done():
-		return wire.Outcome(core.AnswerPermission{ID: id, Cancelled: true}), nil
-	}
+// RequestPermission refuses the request, as a plain cancelled. relay-tui
+// advertises no approvals and shows no dialog: an agent that still asks
+// (relay before it dropped its holds) is answered at once, and nothing
+// reaches the screen.
+func (c client) RequestPermission(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	return wire.Cancelled(), nil
 }
 
-// Answer replies to a permission request. It does not block.
-func (a *Agent) Answer(ans core.AnswerPermission) {
-	a.mu.Lock()
-	reply := a.asks[ans.ID]
-	a.mu.Unlock()
-	if reply != nil {
-		select {
-		case reply <- ans:
-		default: // answered already
-		}
-	}
-}
+// methodSettled is relay's notice that another client answered a
+// permission request. This client asks none, so it has nothing to close.
+const methodSettled = "_relay/permission/settled"
 
 // extTimeout is how long a call to relay's extension methods may take.
 const extTimeout = 15 * time.Second
@@ -300,16 +253,6 @@ func (a *Agent) Resolve(session, ref string) {
 	})
 }
 
-// Trust asks relay to trust the doc at path as it was listed and emits
-// TrustDone. It does not block.
-func (a *Agent) Trust(session, path, version, sha string) {
-	id := a.sid(session)
-	a.enqueue(func() {
-		raw, err := a.call(wire.MethodTrust, wire.TrustParams(id, path, version, sha))
-		a.emit(a.route(id, wire.TrustOutcome(path, raw, err, time.Now())))
-	})
-}
-
 // Cards asks relay for the board and emits CardsLoaded. The board is the
 // connection's, so the answer is about no conversation. It does not
 // block.
@@ -329,17 +272,10 @@ func (a *Agent) CardOp(card int64, op core.CardOp) {
 	})
 }
 
-// CardTrust asks relay to trust a card at the rev and digest the operator
-// was shown, and emits CardTrustDone. It does not block.
-func (a *Agent) CardTrust(card, rev int64, sha string) {
-	a.enqueue(func() {
-		raw, err := a.call(wire.MethodCardTrust, wire.CardTrustParams(card, rev, sha))
-		a.emit(wire.CardTrustOutcome(card, raw, err, time.Now()))
-	})
-}
-
-// HandleExtensionMethod takes relay's _relay/cards/changed notification.
-// The client answers no extension request.
+// HandleExtensionMethod takes relay's notifications about the board, the
+// roster and replays. It ignores _relay/permission/settled, which a relay
+// that still holds calls sends: this client was never asked. The client
+// answers no extension request.
 func (c client) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {
 	switch method {
 	case wire.MethodCardsChanged:
@@ -357,10 +293,7 @@ func (c client) HandleExtensionMethod(_ context.Context, method string, params j
 			c.a.emit(e)
 		}
 		return nil, nil
-	case wire.MethodSettled:
-		if e, ok := wire.Settled(params, time.Now()); ok && c.a.hub {
-			c.a.emit(e)
-		}
+	case methodSettled:
 		return nil, nil
 	}
 	return nil, acp.NewMethodNotFound(method)

@@ -271,12 +271,6 @@ func TestSimpleReply(t *testing.T) {
 // toolRun is how tool_loop.jsonl's run of two calls shows, as chips.
 const toolRun = `✓  echo {"text":"hi"}   ls -la`
 
-// privateBadge says the session's private label is on screen, as a pill
-// or, without tints, as [private].
-func privateBadge(s string) bool {
-	return strings.Contains(s, "private")
-}
-
 // Tool calls show as one line each, apart from the prose, and the status
 // line names the running tool.
 func TestToolLoop(t *testing.T) { bothSizes(t, testToolLoop) }
@@ -567,98 +561,8 @@ func TestBanner(t *testing.T) {
 	}
 }
 
-// permit starts a turn that stops on a permission request and waits for
-// the request's summary to have the keys.
-func permit(t *testing.T, cols, rows int) *harness {
-	h := start(t, "permission.jsonl", cols, rows)
-	h.keys("go\r")
-	h.waitScreen("the request", func(s string) bool { return strings.Contains(s, "permission needed") })
-	h.answer() // esc: while typing a request takes no keys
-	return h
-}
-
-// review opens the review of the request on offer from its summary.
-func (h *harness) review() {
-	h.t.Helper()
-	h.keys("\r")
-	h.waitScreen("the review", func(s string) bool { return strings.Contains(s, "Allow this tool call?") })
-}
-
-// readAll pages through the review to its end, then waits out the arm
-// delay: allowing waits for both.
-func (h *harness) readAll() {
-	h.t.Helper()
-	// Each page stays a moment: one replaced within a frame or two never
-	// counts as drawn.
-	time.Sleep(150 * time.Millisecond)
-	for strings.Contains(h.screen(), "more below") {
-		was := pageOf(h.screen())
-		h.keys(" ")
-		h.waitScreen("the next page", func(s string) bool { return pageOf(s) != was })
-		time.Sleep(150 * time.Millisecond)
-	}
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-}
-
-// pageOf is the review's "page N of M", or "".
-func pageOf(screen string) string {
-	i := strings.Index(screen, "page ")
-	if i < 0 {
-		return ""
-	}
-	end := strings.IndexAny(screen[i:], "·\n")
-	if end < 0 {
-		return screen[i:]
-	}
-	return screen[i : i+end]
-}
-
-// answer stops typing so the request's summary takes the keys, and
-// waits until it does: esc on its own, since an escape sent with the
-// next key reads as alt and that key.
-func (h *harness) answer() {
-	h.t.Helper()
-	h.keys("\x1b")
-	h.waitScreen("the request with the keys", func(s string) bool {
-		return strings.Contains(s, "enter to review") && !strings.Contains(s, "esc, then enter to review")
-	})
-}
-
-// A request that arrives while you type takes no keys: a y typed long
-// after it is text, and the request says how to review it. Esc gives its
-// summary the keys, which answers nothing; enter opens the review, and
-// only once it is read, after its delay, does y allow.
-func TestPermissionWaitsWhileTyping(t *testing.T) {
-	h := start(t, "permission.jsonl", 80, 24)
-	h.keys("go\r")
-	h.waitScreen("the request, waiting", func(s string) bool {
-		return strings.Contains(s, "permission needed") && strings.Contains(s, "esc, then enter to review")
-	})
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	h.keys("yes y")
-	h.waitScreen("typed", func(s string) bool { return strings.Contains(s, "› yes y") })
-	time.Sleep(100 * time.Millisecond)
-	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("typing answered the request: %s", o)
-	}
-	h.answer()
-	h.keys("y") // on the summary: nothing
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("a y on the summary answered: %s", o)
-	}
-	h.review()
-	h.keys("y") // right behind enter: too soon
-	time.Sleep(100 * time.Millisecond)
-	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("a y right behind enter answered: %s", o)
-	}
-	h.readAll()
-	h.keys("y")
-	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
-	h.waitScreen("the draft", func(s string) bool { return strings.Contains(s, "› yes y") })
-}
-
+// permissionOutcome is how the fake agent was answered when it asked
+// permission, or "".
 func (h *harness) permissionOutcome() string {
 	for _, l := range strings.Split(h.agentLog(), "\n") {
 		if rest, ok := strings.CutPrefix(l, "permission "); ok {
@@ -676,180 +580,80 @@ func (h *harness) waitOutcome(want string) {
 	}
 }
 
-// y allows: the request shows the tool and its input, the status line
-// shows the labels as they grow, and the turn carries on.
-func TestPermissionAllow(t *testing.T) { bothSizes(t, testPermissionAllow) }
+// An agent that still asks permission (a relay from before it dropped its
+// holds) is answered at once with a plain cancel, whatever the screen is
+// doing: no dialog, no summary, no word about it, and the turn carries on.
+func TestPermissionRequestsAreRefusedWithoutAWord(t *testing.T) { bothSizes(t, testPermissionRefused) }
 
-func testPermissionAllow(t *testing.T, cols, rows int) {
-	h := permit(t, cols, rows)
-	if st := h.waitScreen("the private badge", func(s string) bool { return privateBadge(s) }); !strings.Contains(st, "waiting for you") && cols >= 80 {
-		t.Errorf("status does not say it is waiting:\n%s", st)
-	}
-	h.review()
-	scr := h.screen()
-	for _, want := range []string{"web_fetch", "https://example.com/page", "1 allow_once (y)", "2 reject_once (n)"} {
-		if cols >= 80 && !strings.Contains(scr, want) {
-			t.Errorf("%q not on screen:\n%s", want, scr)
+func testPermissionRefused(t *testing.T, cols, rows int) {
+	h := start(t, "permission.jsonl", cols, rows)
+	h.keys("go\r")
+	h.waitOutcome(`{"outcome":"cancelled"}`)
+	h.waitAll("Fetched.")
+	h.waitIdle()
+	all := h.all()
+	for _, not := range []string{"permission", "Allow", "allowed", "rejected", "cancelled: web_fetch", "review", "private", "contaminated"} {
+		if strings.Contains(all, not) {
+			t.Errorf("%q on screen:\n%s", not, all)
 		}
 	}
-	h.readAll()
+	// The input never lost the keys: what is typed now is typed.
 	h.keys("y")
-	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
-	h.waitAll("Fetched.")
-	h.waitIdle()
-	h.waitScreen("both badges", func(s string) bool {
-		st := statusLine(s)
-		return privateBadge(st) && strings.Contains(st, "contaminated")
-	})
-	h.waitAll("allowed: web_fetch")
-	if p := h.prompts(); len(p) != 1 || p[0] != "go" {
-		t.Fatalf("prompts %q: the y reached the input", p)
-	}
-	// A plain agent sent no review: relay-tui built the text itself, and
-	// the allow carries no digest.
-	if strings.Contains(h.agentLog(), "permission-meta") {
-		t.Errorf("an allow to a plain agent carried _meta:\n%s", h.agentLog())
-	}
+	h.waitScreen("typed", func(s string) bool { return strings.Contains(s, "› y") })
 }
 
-// Keys before the review is read answer nothing but a refusal, and
-// nothing typed while it waits reaches the input box or sends a prompt.
-func TestPermissionNoAccidents(t *testing.T) { bothSizes(t, testPermissionNoAccidents) }
-
-func testPermissionNoAccidents(t *testing.T, cols, rows int) {
-	h := permit(t, cols, rows)
-	h.keys("y\rhey") // y on the summary, enter opens the review, the rest is swallowed
-	time.Sleep(core.ArmDelay + 100*time.Millisecond)
-	if o := h.permissionOutcome(); o != "" {
-		t.Fatalf("answered before it was armed: %s", o)
-	}
-	h.keys("more text") // swallowed
-	h.keys("\r")        // enter takes the highlighted option, which is Reject
-	h.waitOutcome(`{"optionId":"reject","outcome":"selected"}`)
-	h.waitAll("Fetched.")
-	h.waitIdle()
-	if p := h.prompts(); len(p) != 1 {
-		t.Fatalf("prompts %q", p)
-	}
-	if all := h.all(); strings.Contains(all, "hello") || strings.Contains(all, "more text") {
-		t.Fatalf("typing got into the input:\n%s", all)
-	}
-	h.waitAll("rejected: web_fetch")
-}
-
-func TestPermissionEscCancels(t *testing.T) {
-	h := permit(t, 80, 24)
-	h.review()
-	h.keys("\x1b")
+// Ctrl-C while an older relay's request is out still stops the turn.
+func TestCtrlCStopsATurnThatAsked(t *testing.T) {
+	h := start(t, "permission.jsonl", 80, 24)
+	h.keys("go\r")
 	h.waitOutcome(`{"outcome":"cancelled"}`)
-	h.waitAll("cancelled: web_fetch")
-}
-
-// Ctrl-C stops the turn and answers the request cancelled, as ACP wants.
-func TestPermissionCtrlCCancels(t *testing.T) {
-	h := permit(t, 80, 24)
 	h.keys("\x03")
-	h.waitOutcome(`{"outcome":"cancelled"}`)
-	h.wait("the cancel", h.agentLog, func(s string) bool { return strings.Contains(s, "cancel\n") })
-}
-
-// q leaves the review for the dashboard and answers nothing; enter
-// opens it again, read afresh.
-func TestPermissionReviewBack(t *testing.T) {
-	h := permit(t, 80, 24)
-	h.review()
-	h.keys("q")
-	h.waitScreen("the summary again", func(s string) bool { return strings.Contains(s, "enter to review") })
-	if h.permissionOutcome() != "" {
-		t.Fatal("going back answered it")
-	}
-	h.review()
-	h.keys("y")
-	time.Sleep(100 * time.Millisecond)
-	if h.permissionOutcome() != "" {
-		t.Fatal("a y right behind reopening answered it")
-	}
-	h.readAll()
-	h.keys("y")
-	h.waitOutcome(`{"optionId":"allow","outcome":"selected"}`)
+	h.waitIdle()
 }
 
 // bracketed is a paste as a terminal sends it.
 func bracketed(s string) string { return "\x1b[200~" + s + "\x1b[201~" }
 
-func (h *harness) resources() []string {
-	var out []string
-	for _, l := range strings.Split(h.agentLog(), "\n") {
-		if rest, ok := strings.CutPrefix(l, "resource "); ok {
-			out = append(out, rest)
-		}
-	}
-	return out
-}
-
 // A paste is held and shown as a placeholder; on send the prompt is the
-// typed text plus the paste as a resource block.
-func TestPasteGoesAsResource(t *testing.T) {
-	h := startWith(t, "simple.jsonl", 80, 24, "", "-embedded")
+// typed text with the pasted text in place of it: what Kira pastes is
+// hers, and nothing about it says otherwise.
+func TestPasteGoesAsPlainText(t *testing.T) {
+	h := start(t, "simple.jsonl", 80, 24)
 	h.waitIdle()
 	h.keys("read ")
 	h.keys(bracketed("line1\nline2\nline3"))
-	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "[pasted 3 lines · untrusted #1]") })
-	if strings.Contains(h.screen(), "line2") {
-		t.Fatalf("the paste is in the input:\n%s", h.screen())
+	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "[pasted 3 lines #1]") })
+	scr := h.screen()
+	if strings.Contains(scr, "line2") || strings.Contains(scr, "trusted") {
+		t.Fatalf("the paste is in the input, or the placeholder is labelled:\n%s", scr)
 	}
 	h.keys("\r")
 	h.waitAll("Hello there.")
 	h.waitIdle()
-	if p := h.prompts(); len(p) != 1 || p[0] != "read [paste:1]" {
+	if p := h.prompts(); len(p) != 1 || p[0] != "read line1\nline2\nline3" {
 		t.Fatalf("prompts %q", p)
 	}
-	want := `{"mimeType":"text/plain","text":"line1\nline2\nline3","uri":"paste:1"}`
-	if r := h.resources(); len(r) != 1 || r[0] != want {
-		t.Fatalf("resources %q, want %s", r, want)
+	if strings.Contains(h.agentLog(), "resource ") {
+		t.Fatalf("a resource block was sent:\n%s", h.agentLog())
+	}
+	all := h.all()
+	for _, not := range []string{"not labelled", "trusted"} {
+		if strings.Contains(all, not) {
+			t.Errorf("%q in the transcript:\n%s", not, all)
+		}
 	}
 }
 
-// A paste is untrusted when it arrives. Ctrl-Y marks the latest one in
-// the input as trusted: the placeholder says so, and it goes as plain
-// text, with a note in the transcript.
-func TestTrustedPaste(t *testing.T) {
-	h := startWith(t, "simple.jsonl", 80, 24, "", "-embedded")
-	h.waitIdle()
-	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
-	h.keys("\x19")                                   // nothing to trust yet
-	h.waitScreen("the word", func(s string) bool { return strings.Contains(s, "no untrusted paste in the input to trust") })
-	h.keys(bracketed("trusted text"))
-	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "untrusted #1]") })
-	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
-	h.keys("\x19")
-	h.waitScreen("trusted", func(s string) bool {
-		return strings.Contains(s, "[pasted 1 line · trusted #1]") && !strings.Contains(s, "untrusted #1]")
-	})
-	h.keys("\r")
-	h.waitAll("Hello there.")
-	h.waitIdle()
-	if p := h.prompts(); len(p) != 1 || p[0] != "trusted text" {
-		t.Fatalf("prompts %q", p)
-	}
-	if r := h.resources(); len(r) != 0 {
-		t.Fatalf("resources %q", r)
-	}
-	h.waitAll("as trusted text, not labelled")
-}
-
-// An agent that takes no embedded context gets the text in the prompt,
-// and the transcript says it was not labelled.
-func TestPasteWithoutEmbeddedContext(t *testing.T) {
+// Ctrl-Y does nothing special: there is nothing to trust.
+func TestCtrlYTrustsNothing(t *testing.T) {
 	h := start(t, "simple.jsonl", 80, 24)
 	h.waitIdle()
-	h.keys(bracketed("SECRET"))
-	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "[pasted 1 line · untrusted #1]") })
-	h.keys("\r")
-	h.waitAll("Hello there.")
-	h.waitIdle()
-	if p := h.prompts(); len(p) != 1 || p[0] != "SECRET" {
-		t.Fatalf("prompts %q", p)
+	h.keys(bracketed("text"))
+	h.waitScreen("the placeholder", func(s string) bool { return strings.Contains(s, "[pasted 1 line #1]") })
+	h.keys("\x19")
+	time.Sleep(100 * time.Millisecond)
+	scr := h.screen()
+	if strings.Contains(scr, "rust") || !strings.Contains(scr, "[pasted 1 line #1]") {
+		t.Fatalf("ctrl+y did something:\n%s", scr)
 	}
-	h.waitAll("not labelled untrusted")
 }

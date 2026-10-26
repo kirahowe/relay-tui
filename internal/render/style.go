@@ -49,10 +49,9 @@ const (
 	hueMagenta
 	hueCyan
 	// Tints, for backgrounds only: a selected row, a key chip or a block
-	// of the operator's own text, and a label pill.
+	// of the operator's own text.
 	tintSel
 	tintChip
-	tintPill
 )
 
 const (
@@ -69,14 +68,12 @@ func (st style) attrs() style { return st & 0xff }
 
 // The colours by what they mean.
 var (
-	accent      = fg(hueCyan)    // what has focus, and keys
-	okColour    = fg(hueGreen)   // done, and a call that worked
-	warnColour  = fg(hueYellow)  // text from outside
-	errColour   = fg(hueRed)     // a failure
-	labelColour = fg(hueMagenta) // a label pill's text
-	selBar      = bg(tintSel)
-	chipBg      = bg(tintChip)
-	pillBg      = bg(tintPill)
+	accent     = fg(hueCyan)   // what has focus, and keys
+	okColour   = fg(hueGreen)  // done, and a call that worked
+	warnColour = fg(hueYellow) // text from outside
+	errColour  = fg(hueRed)    // a failure
+	selBar     = bg(tintSel)
+	chipBg     = bg(tintChip)
 )
 
 type rgb struct{ r, g, b uint8 }
@@ -101,7 +98,7 @@ func toRGB(c color.Color) rgb {
 }
 
 // tintMix is how far each tint moves from the background toward the text.
-var tintMix = map[hue]float64{tintSel: 0.16, tintChip: 0.08, tintPill: 0.14}
+var tintMix = map[hue]float64{tintSel: 0.16, tintChip: 0.08}
 
 // tintOf is the colour of tint h, and false when the terminal's colours
 // are not known.
@@ -190,7 +187,7 @@ func parseSGR(seq string) style {
 			g, _ := strconv.Atoi(codes[i+3])
 			b, _ := strconv.Atoi(codes[i+4])
 			i += 4
-			for _, t := range []hue{tintSel, tintChip, tintPill} {
+			for _, t := range []hue{tintSel, tintChip} {
 				if c, ok := tintOf(t); ok && c == (rgb{uint8(r), uint8(g), uint8(b)}) {
 					st = st&^(0xff<<bgShift) | bg(t)
 				}

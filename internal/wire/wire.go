@@ -3,12 +3,8 @@
 package wire
 
 import (
-	"bytes"
 	"encoding/json"
-	"encoding/json/jsontext"
 	"errors"
-	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -19,12 +15,11 @@ import (
 )
 
 // Capabilities is what relay-tui tells the agent it supports: notices,
-// no file system or terminal access, and relay's review: it shows the
-// review text relay sends, and gives back its digest with an allow or a
-// trust (_meta["relay/review"]: 1).
+// and no file system, terminal or permission handling. It advertises no
+// approvals: a permission request is answered with a plain refusal (see
+// Cancelled).
 func Capabilities() acp.ClientCapabilities {
 	return acp.ClientCapabilities{
-		Meta:    map[string]json.RawMessage{ReviewKey: json.RawMessage("1")},
 		Session: &acp.ClientSessionCapabilities{Notices: &acp.NoticeCapabilities{}},
 	}
 }
@@ -33,7 +28,7 @@ func Capabilities() acp.ClientCapabilities {
 // answered: the agent's name, title and version from agentInfo, and the
 // current model when the session has a config option of category model.
 func Connected(init acp.InitializeResponse, sess acp.NewSessionResponse, at time.Time) core.Event {
-	c := core.Connected{At: at, Model: model(sess.ConfigOptions), Embedded: init.AgentCapabilities.PromptCapabilities.EmbeddedContext}
+	c := core.Connected{At: at, Model: model(sess.ConfigOptions)}
 	if info := init.AgentInfo; info != nil {
 		c.Agent, c.Version = oneLine(info.Name), oneLine(info.Version)
 		if info.Title != nil {
@@ -43,17 +38,10 @@ func Connected(init acp.InitializeResponse, sess acp.NewSessionResponse, at time
 	return c
 }
 
-// PromptBlocks is the content of a session/prompt: the text, then each
-// paste as an embedded text resource, uri paste:N, mime type text/plain.
-func PromptBlocks(text string, atts []core.Attachment) []acp.ContentBlock {
-	blocks := []acp.ContentBlock{{Text: &acp.ContentBlockText{Type: "text", Text: text}}}
-	for _, a := range atts {
-		mime := "text/plain"
-		blocks = append(blocks, acp.ResourceBlock(acp.EmbeddedResourceResource{
-			TextResourceContents: &acp.TextResourceContents{Uri: a.URI, MimeType: &mime, Text: a.Text},
-		}))
-	}
-	return blocks
+// PromptBlocks is the content of a session/prompt: the text, as one
+// block.
+func PromptBlocks(text string) []acp.ContentBlock {
+	return []acp.ContentBlock{{Text: &acp.ContentBlockText{Type: "text", Text: text}}}
 }
 
 // model is the display name of the current value of the first config
@@ -165,95 +153,14 @@ func Response(r acp.PromptResponse, err error, at time.Time) core.Event {
 	return core.PromptFailed{At: at, Message: msg}
 }
 
-// ExactInput reads the params of a session/request_permission, as the SDK
-// received them (acp.InboundParamsFromContext), for the tool call's
-// rawInput as written. The SDK decodes rawInput into any with
-// encoding/json v1, which rounds every number through a float64
-// (9007199254740993 comes out 9007199254740992), so the permission prompt
-// would show a value the call does not run on (relay#52). The result is
-// in rawJSON's form, keys sorted, with its numbers as written, or "" when
-// the params hold no rawInput.
-func ExactInput(params []byte) string {
-	var p struct {
-		ToolCall struct {
-			RawInput jsontext.Value `json:"rawInput"`
-		} `json:"toolCall"`
-	}
-	if strictjson.Unmarshal(params, &p) != nil {
-		return ""
-	}
-	return exactJSON(p.ToolCall.RawInput)
-}
-
-// exactJSON is raw in rawJSON's form, keys sorted and compact, with every
-// number kept as written.
-func exactJSON(raw jsontext.Value) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if dec.Decode(&v) != nil || v == nil {
-		return ""
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
-
-// Permission translates a session/request_permission. id is the shell's
-// handle for answering it. input is the tool call's rawInput as written,
-// from ExactInput, or "" to show the SDK's decoding of it.
-func Permission(req acp.RequestPermissionRequest, input string, id uint64, at time.Time) core.PermissionAsked {
-	if input == "" {
-		input = rawJSON(req.ToolCall.RawInput)
-	}
-	// relay's keys are read as claims; the core decides whether they
-	// count (core.trustRelay).
-	p := core.Permission{ID: id, Input: input, CallID: string(req.ToolCall.ToolCallId),
-		FixedArgs: fixedArgs(req.ToolCall.Meta)}
-	p.Labels, _ = labelsOf(req.ToolCall.Meta)
-	if n := req.ToolCall.Name; n != nil {
-		p.Name = *n
-	}
-	if t := req.ToolCall.Title; t != nil {
-		p.Title = *t
-	}
-	if k := req.ToolCall.Kind; k != nil {
-		p.Kind = string(*k)
-	}
-	raw, _ := json.Marshal(req.ToolCall.Content)
-	p.Content, p.Unshown = CallContent(raw)
-	p.Claims.Review = Review(req.Meta[ReviewKey])
-	var refused string
-	if strictjson.Unmarshal(req.Meta[RefusedKey], &refused) == nil {
-		p.Claims.Refused = refused
-	}
-	for i, o := range req.Options {
-		p.Options = append(p.Options, core.PermOption{ID: string(o.OptionId), Name: o.Name, Kind: core.OptionKind(o.Kind), N: i + 1})
-	}
-	return core.PermissionAsked{At: at, Permission: p}
-}
-
-// Outcome is the reply to a session/request_permission: the chosen
-// option, or cancelled.
-func Outcome(a core.AnswerPermission) acp.RequestPermissionResponse {
-	if a.Cancelled {
-		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
-			Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
-		}}
-	}
-	r := acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
-		Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(a.OptionID), Outcome: "selected"},
+// Cancelled is the reply to every session/request_permission: cancelled,
+// which ACP uses when the person gave no answer. relay-tui advertises no
+// approvals and asks nothing, so a permission request from an agent that
+// still sends one is refused as it arrives, without a word on screen.
+func Cancelled() acp.RequestPermissionResponse {
+	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
+		Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}
-	if a.Review != "" {
-		h, _ := json.Marshal(a.Review) // a string always encodes
-		r.Meta = map[string]json.RawMessage{ReviewKey: h}
-	}
-	return r
 }
 
 // labelsKey is where agentloop puts the session's labels in _meta.
@@ -283,27 +190,6 @@ func Labels(n acp.SessionNotification, at time.Time) (core.LabelsSeen, bool) {
 	return core.LabelsSeen{At: at, Labels: l}, ok
 }
 
-// PermissionLabels reads the session's labels from the _meta of a
-// session/request_permission's tool call.
-func PermissionLabels(req acp.RequestPermissionRequest, at time.Time) (core.LabelsSeen, bool) {
-	l, ok := labelsOf(req.ToolCall.Meta)
-	return core.LabelsSeen{At: at, Labels: l}, ok
-}
-
-// fixedArgs names the arguments agentloop says the operator fixed, under
-// _meta["agentloop/fixed_args"], sorted.
-func fixedArgs(meta map[string]json.RawMessage) []string {
-	var m map[string]json.RawMessage
-	if strictjson.Unmarshal(meta[fixedArgsKey], &m) != nil || len(m) == 0 {
-		return nil
-	}
-	return slices.Sorted(maps.Keys(m))
-}
-
-// fixedArgsKey is where agentloop names the arguments the operator set.
-const fixedArgsKey = "agentloop/fixed_args"
-
-// labelsOf reads agentloop's labels from a _meta map.
 func labelsOf(meta map[string]json.RawMessage) (core.Labels, bool) {
 	var names []string
 	if strictjson.Unmarshal(meta[labelsKey], &names) != nil {

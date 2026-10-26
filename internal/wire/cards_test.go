@@ -82,19 +82,6 @@ func TestCardsWithoutTheMethod(t *testing.T) {
 	}
 }
 
-// The board's methods are the connection's: no params name a session,
-// which relay refuses on them.
-func TestBoardParamsNameNoSession(t *testing.T) {
-	for _, m := range []map[string]any{CardsParams(), CardOpParams(1, core.CardOp{Op: "tick"}), CardTrustParams(1, 2, "ab")} {
-		if _, ok := m["sessionId"]; ok {
-			t.Errorf("params %v name a session", m)
-		}
-	}
-	if got, _ := json.Marshal(CardsParams()); string(got) != `{}` {
-		t.Errorf("_relay/cards params %s", got)
-	}
-}
-
 func TestCardOpParamsLeaveOutWhatIsNotSet(t *testing.T) {
 	item, text, seen := 3, "Buy milk", int64(1842)
 	got, _ := json.Marshal(CardOpParams(1840, core.CardOp{Op: "edit", Item: &item, Text: &text, Seen: &seen}))
@@ -238,4 +225,17 @@ func TestWireFormRoundTrip(t *testing.T) {
 			t.Fatalf("read back\n%+v\nwant\n%+v", got.Cards, c)
 		}
 	})
+}
+
+// The board's methods are the connection's: no params name a session,
+// which relay refuses on them.
+func TestBoardParamsNameNoSession(t *testing.T) {
+	for _, m := range []map[string]any{CardsParams(), CardOpParams(1, core.CardOp{Op: "tick"})} {
+		if _, ok := m["sessionId"]; ok {
+			t.Errorf("params %v name a session", m)
+		}
+	}
+	if got, _ := json.Marshal(CardsParams()); string(got) != `{}` {
+		t.Errorf("_relay/cards params %s", got)
+	}
 }

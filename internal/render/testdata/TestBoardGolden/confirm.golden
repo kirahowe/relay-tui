@@ -11,7 +11,7 @@
 ␛[0;2m│␛[m   ␛[0;33mapprove␛[m                               ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ␛[0;2m○␛[m Import into the app, then the         ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m   spreadsheet                           ␛[m ␛[0;2m│␛[m
-␛[0;2m╰─␛[m ␛[0;33moutside text␛[m ␛[0;2m───────────────────────────␛[m␛[0;2m╯␛[m
+␛[0;2m╰─␛[m ␛[0;33mfrom outside␛[m ␛[0;2m───────────────────────────␛[m␛[0;2m╯␛[m
 
 ␛[0;2m╭─␛[m ␛[0;1;34mWhere the statements are␛[m ␛[0;2m────────␛[m ␛[0;2mnote␛[m ␛[0;2m─╮␛[m
 ␛[0;2m│␛[m BMO: online banking, Documents.         ␛[m ␛[0;2m│␛[m
@@ -22,5 +22,5 @@
 ␛[0;2m│␛[m Card 1870: Moves (kanban) [[card:1870]] ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m Todo: pack                              ␛[m ␛[0;2m│␛[m
 ␛[0;2m↓ 2 below␛[m
-␛[0;2marchive “Catch up monthly financials”: its␛[m
-␛[0;2mreview is open␛[m
+␛[0;1mArchive “Catch up monthly financials”?␛[m
+␛[0;2my archive · any other key keeps it␛[m

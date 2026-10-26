@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/fakehub"
 )
 
@@ -99,51 +100,25 @@ func TestHubBoardWorksWithNoConversationOpen(t *testing.T) {
 	}
 }
 
-// t, a moment, then y trusts a card with no conversation open: relay is
-// sent the rev and digest the operator was shown.
-func TestHubTrustsACardWithNoConversationOpen(t *testing.T) {
-	h := startHub(t, boardRoles(), 170, 40, "")
-	h.waitScreen("the board", contains("From a web page"))
-	h.keys("3") // News, no conversation
-	h.waitScreen("news", contains("No conversation with News"))
-	h.keys("ljj")
-	h.waitScreen("the outside card", contains("t trust"))
-	h.keys("t")
-	h.waitScreen("the review", contains("Trust this card?"))
-	h.keys("y") // too soon
-	time.Sleep(100 * time.Millisecond)
-	if calls := h.logged("card-trust "); len(calls) != 0 {
-		t.Fatalf("trusted at once: %q", calls)
-	}
-	h.readAll()
-	h.keys("y")
-	// The hub takes the trust only with the digest of the review it sent.
-	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") && !strings.Contains(s, "outside text") })
-	calls := h.logged("card-trust ")
-	if len(calls) != 1 || !strings.HasPrefix(calls[0], `card-trust {"card":9,"rev":9,"sha256":"`) || strings.Contains(calls[0], "aaaa") {
-		t.Errorf("trust calls %q", calls)
-	}
-}
-
-// X opens the review of the card to archive; y, once read, archives it
-// at the rev shown; n there cancels at once.
-func TestHubArchivesACardFromItsReview(t *testing.T) {
+// X asks whether to archive the card; n there keeps it at once; y, a
+// moment after the question came up, archives it at the rev shown.
+func TestHubArchivesACardAfterAsking(t *testing.T) {
 	h := startHub(t, boardRoles(), 170, 40, "")
 	h.waitScreen("the board", contains("From a web page"))
 	h.keys("l")
 	h.waitScreen("the pane has the keys", contains("↑↓ select"))
 	h.keys("X")
-	h.waitScreen("the review", contains("Archive this card?"))
+	h.waitScreen("the question", contains("y archive"))
 	h.keys("n")
 	h.waitScreen("cancelled", contains("Archive cancelled."))
 	h.keys("X")
-	h.waitScreen("the review", contains("Archive this card?"))
+	h.waitScreen("the question", contains("y archive"))
 	h.keys("y") // too soon
 	time.Sleep(100 * time.Millisecond)
 	if calls := h.logged("card-op "); len(calls) != 0 {
 		t.Fatalf("archived at once: %q", calls)
 	}
-	h.readAll()
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.waitLog("card-op ")
 	if calls := h.logged("card-op "); len(calls) != 1 || !strings.Contains(calls[0], `"op":"archive"`) || !strings.Contains(calls[0], `"seen":`) {

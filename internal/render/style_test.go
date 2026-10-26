@@ -11,7 +11,7 @@ func drawStyle(t *rapid.T) style {
 	st := style(rapid.IntRange(0, 63).Draw(t, "attrs"))
 	st |= fg(hue(rapid.IntRange(int(hueNone), int(hueCyan)).Draw(t, "fg")))
 	if rapid.Bool().Draw(t, "tinted") {
-		st |= bg(rapid.SampledFrom([]hue{tintSel, tintChip, tintPill}).Draw(t, "bg"))
+		st |= bg(rapid.SampledFrom([]hue{tintSel, tintChip}).Draw(t, "bg"))
 	}
 	return st
 }
@@ -55,7 +55,7 @@ func TestTintsAreDistinct(t *testing.T) {
 	} {
 		SetTerminalColors(pair[0], pair[1])
 		seen := map[rgb]bool{toRGB(pair[0]): true}
-		for _, h := range []hue{tintSel, tintChip, tintPill} {
+		for _, h := range []hue{tintSel, tintChip} {
 			c, ok := tintOf(h)
 			if !ok || seen[c] {
 				t.Fatalf("tint %d is %v, not distinct", h, c)

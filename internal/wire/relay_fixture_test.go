@@ -169,7 +169,7 @@ func TestRelayCardFixtures(t *testing.T) {
 		noLiveLink(t, "the board", list)
 
 		body := paneText(showCard(s, note))
-		for _, want := range []string{"outside text", "Read hxxps://evil[.]example/x?d=secret", `zero\u{200b}width`, "APPROVE: yes, send it"} {
+		for _, want := range []string{"from outside", "Read hxxps://evil[.]example/x?d=secret", `zero\u{200b}width`, "APPROVE: yes, send it"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%q not in the note:\n%s", want, body)
 			}
@@ -184,46 +184,6 @@ func TestRelayCardFixtures(t *testing.T) {
 			if l := lineWith(grid, row); lastCells(l, 4) != cells {
 				t.Errorf("row %q is %q, want cells %q", row, l, cells)
 			}
-		}
-	})
-
-	// Trusting the contaminated note: the digest relay sent with it, at a
-	// stale rev and then at the rev shown.
-	t.Run("a trust", func(t *testing.T) {
-		n := cardByID(t, s, note)
-		if n.SHA256 == "" || !n.Labels.Contaminated {
-			t.Fatalf("the note carries no digest to trust it by: %+v", n)
-		}
-		if cardByID(t, s, checklist).SHA256 != "" {
-			t.Error("a clean card carries a digest")
-		}
-		for _, c := range []struct {
-			name string
-			rev  int64
-		}{{"trust_stale", 1}, {"trust", n.Rev}} {
-			var x exchange
-			readRelayFixture(t, c.name, &x)
-			want, _ := json.Marshal(CardTrustParams(note, c.rev, n.SHA256))
-			if x.Request.Method != MethodCardTrust || !sameJSON(t, want, x.Request.Params) {
-				t.Errorf("%s: client would send %s %s, relay was sent %s %s", c.name, MethodCardTrust, want, x.Request.Method, x.Request.Params)
-			}
-		}
-		var stale, ok exchange
-		readRelayFixture(t, "trust_stale", &stale)
-		raw, err := stale.answer()
-		if done := CardTrustOutcome(note, raw, err, t0); done.Err == "" || !strings.Contains(done.Err, "changed since you read it") {
-			t.Errorf("stale trust %+v", done)
-		}
-		readRelayFixture(t, "trust", &ok)
-		raw, err = ok.answer()
-		done := CardTrustOutcome(note, raw, err, t0)
-		if done.Err != "" || done.Card == nil || done.Card.Labels.Contaminated || done.Card.SHA256 != "" || done.Card.Note.Outsider {
-			t.Fatalf("trust %+v", done)
-		}
-		after, _ := core.ReduceSingle(s, done)
-		list := paneText(after)
-		if strings.Contains(list, "outside text") || warned(paneRaw(after), "From a web page") {
-			t.Errorf("the trusted note is still marked:\n%s", list)
 		}
 	})
 

@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,19 +13,16 @@ import (
 
 type nopConn struct{}
 
-func (nopConn) Prompt(string, string, []core.Attachment) {}
-func (nopConn) Cancel(string)                            {}
-func (nopConn) Answer(core.AnswerPermission)             {}
-func (nopConn) Items(string)                             {}
-func (nopConn) Resolve(string, string)                   {}
-func (nopConn) Trust(string, string, string, string)     {}
-func (nopConn) Cards()                                   {}
-func (nopConn) CardOp(int64, core.CardOp)                {}
-func (nopConn) CardTrust(int64, int64, string)           {}
-func (nopConn) Attach(string, string)                    {}
-func (nopConn) End(string)                               {}
-func (nopConn) Seen(string, int)                         {}
-func (nopConn) Shutdown()                                {}
+func (nopConn) Prompt(string, string)     {}
+func (nopConn) Cancel(string)             {}
+func (nopConn) Items(string)              {}
+func (nopConn) Resolve(string, string)    {}
+func (nopConn) Cards()                    {}
+func (nopConn) CardOp(int64, core.CardOp) {}
+func (nopConn) Attach(string, string)     {}
+func (nopConn) End(string)                {}
+func (nopConn) Seen(string, int)          {}
+func (nopConn) Shutdown()                 {}
 
 func genKey(t *rapid.T) tea.KeyPressMsg {
 	code := rapid.OneOf(
@@ -102,89 +98,6 @@ func TestPrintChunks(t *testing.T) {
 		}
 		if !reflect.DeepEqual(back, lines) {
 			t.Fatalf("chunks give %q, want %q", back, lines)
-		}
-	})
-}
-
-// P-perm5: in the review a key is one of the review's own or swallowed;
-// it never edits the input.
-func TestReviewKeys(t *testing.T) {
-	for key, want := range map[string]ReviewAction{
-		"y": ReviewYes, "n": ReviewNo, "enter": ReviewPick, "esc": ReviewCancel, "q": ReviewBack, "v": ReviewNone,
-		"up": ReviewUp, "down": ReviewDown, "tab": ReviewNext, "space": ReviewPageDown, "g": ReviewTop, "G": ReviewBottom,
-		"ctrl+c": ReviewInterrupt, "a": ReviewNone, "ctrl+j": ReviewNone,
-	} {
-		var k tea.KeyPressMsg
-		switch key {
-		case "enter":
-			k = tea.KeyPressMsg{Code: tea.KeyEnter}
-		case "esc":
-			k = tea.KeyPressMsg{Code: tea.KeyEscape}
-		case "up":
-			k = tea.KeyPressMsg{Code: tea.KeyUp}
-		case "down":
-			k = tea.KeyPressMsg{Code: tea.KeyDown}
-		case "tab":
-			k = tea.KeyPressMsg{Code: tea.KeyTab}
-		case "ctrl+c":
-			k = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
-		case "ctrl+j":
-			k = tea.KeyPressMsg{Code: 'j', Mod: tea.ModCtrl}
-		case "space":
-			k = tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
-		default:
-			k = tea.KeyPressMsg{Code: rune(key[0]), Text: key}
-		}
-		if got := ClassifyReview(k); got != want {
-			t.Errorf("%s: %v, want %v", key, got, want)
-		}
-	}
-}
-
-// While moving, a request on offer has every key: none edits the input.
-func TestAskNeverTouchesTheInput(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		m := New(nopConn{}, "")
-		var model any = m
-		model, _ = model.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-		model, _ = model.(Model).Update(EventMsg{Event: core.PermissionAsked{At: time.Now(), Permission: core.Permission{ID: 1,
-			Options: []core.PermOption{{ID: "a", Kind: core.AllowOnce}}}}})
-		for range rapid.IntRange(1, 20).Draw(t, "keys") {
-			if len(model.(Model).one.Asks) == 0 {
-				break // a key answered it; the keys are the input's again
-			}
-			model, _ = model.(Model).Update(genKey(t))
-			if v := model.(Model).input.Value(); v != "" {
-				t.Fatalf("input %q", v)
-			}
-		}
-	})
-}
-
-// While the workspace pane has focus, no key reaches the input box.
-func TestPaneFocusSwallowsKeys(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		var model any = New(nopConn{}, "")
-		step := func(msg tea.Msg) { model, _ = model.(Model).Update(msg) }
-		step(tea.WindowSizeMsg{Width: 100, Height: 30})
-		step(EventMsg{Event: core.Connected{At: time.Now()}})
-		step(EventMsg{Event: core.ItemsLoaded{At: time.Now(), Items: []core.Item{{Kind: core.ShownItem, Ref: "shown:x", Title: "x"}}}})
-		step(tea.KeyPressMsg{Code: 'a', Text: "a"}) // something already typed
-		step(tea.KeyPressMsg{Code: tea.KeyEscape})
-		step(tea.KeyPressMsg{Code: 'l', Text: "l"})
-		if !model.(Model).one.PaneFocus {
-			t.Fatal("esc, l did not focus the pane")
-		}
-		for range rapid.IntRange(1, 30).Draw(t, "keys") {
-			m := model.(Model)
-			if !m.one.PaneFocus || m.one.Phase == core.Exited {
-				return
-			}
-			before := m.input.Value()
-			step(genKey(t))
-			if model.(Model).input.Value() != before {
-				t.Fatalf("input changed from %q to %q with the pane focused", before, model.(Model).input.Value())
-			}
 		}
 	})
 }

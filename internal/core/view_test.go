@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -18,9 +17,9 @@ func viewRoster() []Role { return []Role{role("dev", "s1"), role("mail", ""), ro
 func viewCards() []Card { return []Card{checklist(10, 10, false, false, false), tracker(20, 20)} }
 
 // leftHub is a hub as the operator left it: Mail in focus with no
-// conversation, a paste trusted and one not in its draft, the pane with
-// the keys, the tracker open on its second row and second column, and
-// Dev's conversation attached with a draft of its own.
+// conversation, two pastes in its draft, the pane with the keys, the
+// tracker open on its second row and second column, and Dev's
+// conversation attached with a draft of its own.
 func leftHub(t *testing.T) (Hub, map[string]string) {
 	t.Helper()
 	h, _ := apply(t, NewHub(""), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: viewRoster()},
@@ -30,8 +29,6 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 		FocusIndex{At: t0, Index: 1},
 		Pasted{At: t0, Text: "an email\nfrom outside"}, Pasted{At: t0, Text: "my own notes"})
 	b := h.DraftOf("mail")
-	h, _ = apply(t, h, TrustPaste{At: t0.Add(ArmDelay), Draft: b.Pastes[1].Token()})
-	b = h.DraftOf("mail")
 	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneEnter},
 		PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneRight})
 	devPaste := h.DraftOf("dev").Pastes[0]
@@ -41,30 +38,6 @@ func leftHub(t *testing.T) (Hub, map[string]string) {
 		"news": "  ", // nothing worth keeping
 	}
 	return h, drafts
-}
-
-func TestSaveHubDerivesWhereTheOperatorWas(t *testing.T) {
-	h, drafts := leftHub(t)
-	v := saveHub(h, drafts)
-	want := HubView{Focus: "mail", Cursor: "mail"}
-	if v.Hub == nil || *v.Hub != want || !v.PaneFocus || v.Items {
-		t.Fatalf("layout %+v pane %v items %v", v.Hub, v.PaneFocus, v.Items)
-	}
-	if v.Card != 20 || !v.Detail || v.Line != 1 || v.Col != 1 {
-		t.Fatalf("card %d detail %v line %d col %d", v.Card, v.Detail, v.Line, v.Col)
-	}
-	if len(v.Drafts) != 2 || v.Drafts[0].Role != "dev" || v.Drafts[1].Role != "mail" {
-		t.Fatalf("drafts %+v", v.Drafts)
-	}
-	mail := v.Drafts[1]
-	if len(mail.Pastes) != 2 || mail.Pastes[0].Trusted || !mail.Pastes[1].Trusted || mail.NextPaste != 2 {
-		t.Fatalf("mail's pastes %+v", mail)
-	}
-	// A paste whose placeholder is gone from the draft is not saved.
-	v = saveHub(h, map[string]string{"mail": "only " + mail.Pastes[1].Token()})
-	if ps := v.Drafts[0].Pastes; len(ps) != 1 || ps[0].ID != 2 {
-		t.Fatalf("pastes %+v", ps)
-	}
 }
 
 // reopen is a fresh hub given v, connected, with roster and board as
@@ -81,38 +54,6 @@ func restoredDrafts(fx []Effect) map[string]string {
 		out[d.Role] = d.Text
 	}
 	return out
-}
-
-func TestRestoreHubPutsTheViewBack(t *testing.T) {
-	left, drafts := leftHub(t)
-	v := saveHub(left, drafts)
-	h, fx := reopen(t, v, viewRoster(), viewCards())
-	if h.Restore != nil {
-		t.Fatalf("still restoring: %+v", h.Restore)
-	}
-	if h.Focus != "mail" || h.Cursor != "mail" || h.List || !h.App.PaneFocus {
-		t.Fatalf("focus %q cursor %q list %v pane %v", h.Focus, h.Cursor, h.List, h.App.PaneFocus)
-	}
-	if b := h.App.Board; b.SelID != 20 || !b.Detail || b.Line != 1 || b.Col != 1 || b.Items {
-		t.Fatalf("board %+v", b)
-	}
-	got := restoredDrafts(fx)
-	if !reflect.DeepEqual(got, map[string]string{"mail": drafts["mail"], "dev": drafts["dev"]}) {
-		t.Fatalf("drafts %q", got)
-	}
-	if mail := h.DraftOf("mail"); !reflect.DeepEqual(mail.Pastes, unseq(left.DraftOf("mail").Pastes)) || mail.NextPaste != 2 {
-		t.Fatalf("mail's pastes %+v", mail)
-	}
-	// Dev's pastes are its draft's, and stay so when its conversation
-	// attaches.
-	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"})
-	if d := h.DraftOf("dev"); !reflect.DeepEqual(d.Pastes, unseq(left.DraftOf("dev").Pastes)) {
-		t.Fatalf("dev's pastes %+v", d)
-	}
-	// Nothing restored counts as sent, asked or confirmed.
-	if len(effectsOf[SendPrompt](fx))+len(effectsOf[SendCardOp](fx))+len(effectsOf[SendCardTrust](fx))+len(effectsOf[AnswerPermission](fx)) != 0 {
-		t.Fatalf("effects %v", fx)
-	}
 }
 
 // The parts wait for what they refer to, whichever comes first, and
@@ -235,95 +176,14 @@ func TestSaveHubKeepsWhatHasNotComeBackYet(t *testing.T) {
 	}
 }
 
-// A paste made since the start keeps its number, and the saved draft's
-// pastes take the numbers after it, placeholders and trust with them, so
-// both come back.
-func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
-	left, drafts := leftHub(t)
-	v := saveHub(left, drafts)
-	v.Hub = nil
-	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
-	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: viewRoster()})
-	got := restoredDrafts(fx)
-	saved := left.DraftOf("mail").Pastes // #1 untrusted, #2 trusted
-	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
-	if want := "see " + moved[0].Token() + " and " + moved[1].Token(); got["mail"] != want || h.Notice != "" {
-		t.Fatalf("mail %q want %q notice %q", got["mail"], want, h.Notice)
-	}
-	d := h.DraftOf("mail")
-	if !reflect.DeepEqual(d.Pastes, append([]Paste{{ID: 1, Text: "new", Seq: 1}}, moved...)) || d.NextPaste != 3 {
-		t.Fatalf("mail %+v", d)
-	}
-}
-
-// A draft typed before the restore came back is saved with the one
-// still waiting, the saved one ahead, so closing in between loses
-// neither: not the text, not the pastes, not their trust.
-func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
-	left, drafts := leftHub(t)
-	v := saveHub(left, drafts)
-	v.Hub = nil
-	saved := left.DraftOf("mail").Pastes
-	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
-	newer := h.DraftOf("mail").Pastes[0]
-	got := saveHub(h, map[string]string{"mail": "n " + newer.Token()})
-	i := slices.IndexFunc(got.Drafts, func(d Draft) bool { return d.Role == "mail" })
-	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text, Trusted: true}}
-	want := Draft{Role: "mail", Text: "see " + moved[0].Token() + " and " + moved[1].Token() + "\nn " + newer.Token(),
-		Pastes: append([]Paste{newer}, moved...), NextPaste: 3}
-	if i < 0 || !reflect.DeepEqual(got.Drafts[i], want) {
-		t.Fatalf("saved %+v\nwant %+v", got.Drafts, want)
-	}
-	// Reopened from that, it all comes back.
-	g, fx := reopen(t, got, viewRoster(), viewCards())
-	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.DraftOf("mail").Pastes, unseq(want.Pastes)) {
-		t.Fatalf("reopened %v %+v", fx, g.Drafts)
-	}
-	// Against a single agent, typed text with no pastes.
-	x := RestoreSingle(Single{}, View{Drafts: []Draft{{Text: "old draft"}}})
-	if d := saveSingle(x, "n").Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
-		t.Fatalf("single %+v", d)
-	}
-}
-
-func TestRestoreSingle(t *testing.T) {
-	x, _ := feedS(Single{}, Connected{At: t0, Embedded: true}, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()},
-		Pasted{At: t0, Text: "outside"}, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneEnter})
-	draft := "read " + x.Draft.Pastes[0].Token()
-	v := saveSingle(x, draft)
-	if v.Hub != nil || !v.PaneFocus || v.Card != 10 || !v.Detail || len(v.Drafts) != 1 || len(v.Drafts[0].Pastes) != 1 {
-		t.Fatalf("saved %+v", v)
-	}
-	y := RestoreSingle(Single{}, v)
-	if got := saveSingle(y, ""); !reflect.DeepEqual(got, v) {
-		t.Fatalf("before the session: %+v", got)
-	}
-	y, fx := feedS(y, Connected{At: t0, Embedded: true})
-	if d := effectsOf[RestoreDraft](fx); len(d) != 1 || d[0] != (RestoreDraft{Text: draft}) || !y.PaneFocus {
-		t.Fatalf("after the session: pane %v %v", y.PaneFocus, fx)
-	}
-	if !reflect.DeepEqual(y.Draft.Pastes, unseq(x.Draft.Pastes)) || y.Draft.NextPaste != 1 {
-		t.Fatalf("pastes %+v", y.Draft.Pastes)
-	}
-	y, _ = feedS(y, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
-	if y.Board.SelID != 10 || !y.Board.Detail || y.Restore != nil {
-		t.Fatalf("board %+v", y.Board)
-	}
-	// The restored draft sends its paste as it was: untrusted, attached.
-	y, fx = feedS(y, Type{At: t0}, Submit{At: t0, Text: draft})
-	if p := effectsOf[SendPrompt](fx); len(p) != 1 || len(p[0].Attachments) != 1 || p[0].Attachments[0].Text != "outside" {
-		t.Fatalf("sent %v", fx)
-	}
-}
-
-// genDraft is a draft with pastes, some trusted, and the text holding
-// some of their placeholders in either form.
+// genDraft is a draft with pastes and the text holding some of their
+// placeholders.
 func genDraft(t *rapid.T) Draft {
 	n := rapid.IntRange(0, 5).Draw(t, "pastes")
 	var d Draft
 	var parts []string
 	for i := 1; i <= n; i++ {
-		p := Paste{ID: i, Text: rapid.StringMatching(`[a-z\n]{1,12}`).Draw(t, "text"), Trusted: rapid.Bool().Draw(t, "trusted")}
+		p := Paste{ID: i, Text: rapid.StringMatching(`[a-z\n]{1,12}`).Draw(t, "text")}
 		d.Pastes = append(d.Pastes, p)
 		if rapid.Bool().Draw(t, "in text") {
 			parts = append(parts, p.Token())
@@ -335,59 +195,32 @@ func genDraft(t *rapid.T) Draft {
 	return d
 }
 
-// mangle changes a draft the way damage might: a paste's trust lost,
-// its number duplicated or zeroed, its text changed, a placeholder in
-// the text swapped to the other form. A paste's trust is never gained
-// here: in the file it is sealed to the paste's number and text, which
-// package viewfile tests.
+// mangle changes a draft the way damage might: a paste's number zeroed,
+// its text emptied, a placeholder dropped from the text. (Two pastes with
+// one number are the example test's: renumbering one paste after another
+// could point a placeholder at different words.)
 func mangle(t *rapid.T, d Draft) Draft {
 	d.Pastes = slices.Clone(d.Pastes)
 	for i := rapid.IntRange(0, 4).Draw(t, "damage"); i > 0 && len(d.Pastes) > 0; i-- {
 		j := rapid.IntRange(0, len(d.Pastes)-1).Draw(t, "which")
 		p := &d.Pastes[j]
-		switch rapid.IntRange(0, 4).Draw(t, "how") {
+		switch rapid.IntRange(0, 2).Draw(t, "how") {
 		case 0:
-			p.Trusted = false
+			p.ID = rapid.IntRange(-1, 0).Draw(t, "id")
 		case 1:
-			// A paste's trust is sealed to its number and text, so damage
-			// to either loses the trust (package viewfile tests the seal).
-			p.ID, p.Trusted = d.Pastes[rapid.IntRange(0, len(d.Pastes)-1).Draw(t, "dup")].ID, false
+			p.Text = ""
 		case 2:
-			p.ID, p.Trusted = rapid.IntRange(-1, 0).Draw(t, "id"), false
-		case 3:
-			p.Text, p.Trusted = p.Text+"\nmore", false
-		case 4:
-			q := *p
-			q.Trusted = !q.Trusted
-			d.Text = strings.ReplaceAll(d.Text, p.Token(), q.Token())
+			d.Text = strings.ReplaceAll(d.Text, p.Token(), "")
 		}
 	}
 	return d
 }
 
-// sentAs is how a paste goes out when the text is sent: "trusted" when
-// as plain text the operator vouched for, "untrusted" when attached.
-func sentAs(text string, ps []Paste) map[string]string {
-	out := map[string]string{}
-	for _, p := range ps {
-		switch {
-		case strings.Contains(text, p.untrustedToken()):
-			out[p.Text] = "untrusted"
-		case p.Trusted && strings.Contains(text, p.Token()):
-			if out[p.Text] == "" {
-				out[p.Text] = "trusted"
-			}
-		}
-	}
-	return out
-}
-
-// trustedWords is the words of the pastes that go as trusted text when
-// text is sent.
-func trustedWords(text string, ps []Paste) map[string]bool {
+// sentWords is the words of the pastes that go out when text is sent.
+func sentWords(text string, ps []Paste) map[string]bool {
 	out := map[string]bool{}
 	for _, p := range ps {
-		if p.Trusted && strings.Contains(text, p.Token()) {
+		if strings.Contains(text, p.Token()) {
 			out[p.Text] = true
 		}
 	}
@@ -395,9 +228,8 @@ func trustedWords(text string, ps []Paste) map[string]bool {
 }
 
 // A saved draft comes back exactly, and a damaged one can only come back
-// less trusted: every paste that would go as trusted text went as
-// trusted text, with the same words, before.
-func TestRestoredDraftIsNeverMoreTrusted(t *testing.T) {
+// with less: every paste that goes out after the restore went out before.
+func TestRestoredDraftNeverGainsAPaste(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		d := genDraft(t)
 		text, pastes, next := restoredDraft(d)
@@ -406,13 +238,10 @@ func TestRestoredDraftIsNeverMoreTrusted(t *testing.T) {
 		}
 		m := mangle(t, d)
 		text, pastes, next = restoredDraft(m)
-		// By the words: two pastes may hold the same words, one trusted
-		// and one not, so what counts is whether those words went as
-		// trusted text before at all.
-		before := trustedWords(d.Text, d.Pastes)
-		for words := range trustedWords(text, pastes) {
+		before := sentWords(d.Text, d.Pastes)
+		for words := range sentWords(text, pastes) {
 			if !before[words] {
-				t.Fatalf("%q came back trusted, was not\nsaved %+v\ndamaged %+v\nrestored %q %+v", words, d, m, text, pastes)
+				t.Fatalf("%q came back, was not there\nsaved %+v\ndamaged %+v\nrestored %q %+v", words, d, m, text, pastes)
 			}
 		}
 		for _, p := range pastes {
@@ -424,34 +253,6 @@ func TestRestoredDraftIsNeverMoreTrusted(t *testing.T) {
 			}
 		}
 	})
-}
-
-func TestRestoredDraftExamples(t *testing.T) {
-	trusted := Paste{ID: 3, Text: "mine", Trusted: true}
-	untrusted := Paste{ID: 3, Text: "theirs"}
-	cases := []struct {
-		name   string
-		d      Draft
-		text   string
-		pastes []Paste
-	}{
-		{"faithful", Draft{Text: "a " + trusted.Token(), Pastes: []Paste{trusted}}, "a " + trusted.Token(), []Paste{trusted}},
-		{"untrusted with a trusted placeholder",
-			Draft{Text: "a " + Paste{ID: 3, Text: "theirs", Trusted: true}.Token(), Pastes: []Paste{untrusted}},
-			"a " + untrusted.Token(), []Paste{untrusted}},
-		{"trusted with an untrusted placeholder",
-			Draft{Text: "a " + untrusted.Token(), Pastes: []Paste{{ID: 3, Text: "theirs", Trusted: true}}},
-			"a " + untrusted.Token(), []Paste{untrusted}},
-		{"two with one number", Draft{Text: trusted.Token(), Pastes: []Paste{trusted, untrusted}}, trusted.Token(), nil},
-		{"not in the text", Draft{Text: "a", Pastes: []Paste{trusted}}, "a", nil},
-	}
-	for _, c := range cases {
-		text, pastes, _ := restoredDraft(c.d)
-		if text != c.text || !reflect.DeepEqual(pastes, c.pastes) {
-			t.Errorf("%s: %q %+v", c.name, text, pastes)
-		}
-	}
-	_ = fmt.Sprint
 }
 
 // A key before the roster has come: the drafts still come back, the
@@ -491,12 +292,12 @@ func TestCarryKeepsBothDrafts(t *testing.T) {
 			t.Fatalf("drafts %+v", got.Drafts)
 		}
 		m := got.Drafts[0]
-		want := sentAs(saved.Text, saved.Pastes)
-		for words, how := range sentAs(typed.Text, typed.Pastes) {
-			want[words] = how
+		want := sentWords(saved.Text, saved.Pastes)
+		for words := range sentWords(typed.Text, typed.Pastes) {
+			want[words] = true
 		}
-		if out := sentAs(m.Text, m.Pastes); !reflect.DeepEqual(out, want) {
-			t.Fatalf("sent as %v, want %v\nsaved %+v\ntyped %+v\nmerged %+v", out, want, saved, typed, m)
+		if out := sentWords(m.Text, m.Pastes); !reflect.DeepEqual(out, want) {
+			t.Fatalf("sent %v, want %v\nsaved %+v\ntyped %+v\nmerged %+v", out, want, saved, typed, m)
 		}
 		seen := map[int]bool{}
 		for _, p := range m.Pastes {
@@ -528,15 +329,6 @@ func TestAViewOfTheOtherKind(t *testing.T) {
 	}
 }
 
-// unseq is pastes as a restore gives them back: not from this run.
-func unseq(ps []Paste) []Paste {
-	out := slices.Clone(ps)
-	for i := range out {
-		out[i].Seq = 0
-	}
-	return out
-}
-
 // saveHub is SaveHub with each role's input text as the shell would have
 // written it back.
 func saveHub(h Hub, texts map[string]string) View {
@@ -551,4 +343,161 @@ func saveHub(h Hub, texts map[string]string) View {
 func saveSingle(x Single, text string) View {
 	x.Draft.Text = text
 	return SaveSingle(x)
+}
+
+func TestRestoredDraftExamples(t *testing.T) {
+	p := Paste{ID: 3, Text: "mine"}
+	cases := []struct {
+		name   string
+		d      Draft
+		text   string
+		pastes []Paste
+	}{
+		{"faithful", Draft{Text: "a " + p.Token(), Pastes: []Paste{p}}, "a " + p.Token(), []Paste{p}},
+		{"two with one number", Draft{Text: p.Token(), Pastes: []Paste{p, {ID: 3, Text: "theirs"}}}, p.Token(), nil},
+		{"not in the text", Draft{Text: "a", Pastes: []Paste{p}}, "a", nil},
+	}
+	for _, c := range cases {
+		text, pastes, _ := restoredDraft(c.d)
+		if text != c.text || !reflect.DeepEqual(pastes, c.pastes) {
+			t.Errorf("%s: %q %+v", c.name, text, pastes)
+		}
+	}
+}
+
+func TestRestoreHubPutsTheViewBack(t *testing.T) {
+	left, drafts := leftHub(t)
+	v := saveHub(left, drafts)
+	h, fx := reopen(t, v, viewRoster(), viewCards())
+	if h.Restore != nil {
+		t.Fatalf("still restoring: %+v", h.Restore)
+	}
+	if h.Focus != "mail" || h.Cursor != "mail" || h.List || !h.App.PaneFocus {
+		t.Fatalf("focus %q cursor %q list %v pane %v", h.Focus, h.Cursor, h.List, h.App.PaneFocus)
+	}
+	if b := h.App.Board; b.SelID != 20 || !b.Detail || b.Line != 1 || b.Col != 1 || b.Items {
+		t.Fatalf("board %+v", b)
+	}
+	got := restoredDrafts(fx)
+	if !reflect.DeepEqual(got, map[string]string{"mail": drafts["mail"], "dev": drafts["dev"]}) {
+		t.Fatalf("drafts %q", got)
+	}
+	if mail := h.DraftOf("mail"); !reflect.DeepEqual(mail.Pastes, left.DraftOf("mail").Pastes) || mail.NextPaste != 2 {
+		t.Fatalf("mail's pastes %+v", mail)
+	}
+	// Dev's pastes are its draft's, and stay so when its conversation
+	// attaches.
+	h, _ = apply(t, h, FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"})
+	if d := h.DraftOf("dev"); !reflect.DeepEqual(d.Pastes, left.DraftOf("dev").Pastes) {
+		t.Fatalf("dev's pastes %+v", d)
+	}
+	// Nothing restored counts as sent or confirmed.
+	if len(effectsOf[SendPrompt](fx))+len(effectsOf[SendCardOp](fx)) != 0 {
+		t.Fatalf("effects %v", fx)
+	}
+}
+
+// A paste made since the start keeps its number, and the saved draft's
+// pastes take the numbers after it, placeholders with them, so both come
+// back.
+func TestRestoreHubRenumbersSavedPastes(t *testing.T) {
+	left, drafts := leftHub(t)
+	v := saveHub(left, drafts)
+	v.Hub = nil
+	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
+	h, fx := apply(t, h, RosterUpdate{At: t0, Roles: viewRoster()})
+	got := restoredDrafts(fx)
+	saved := left.DraftOf("mail").Pastes // #1, #2
+	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text}}
+	if want := "see " + moved[0].Token() + " and " + moved[1].Token(); got["mail"] != want || h.Notice != "" {
+		t.Fatalf("mail %q want %q notice %q", got["mail"], want, h.Notice)
+	}
+	d := h.DraftOf("mail")
+	if !reflect.DeepEqual(d.Pastes, append([]Paste{{ID: 1, Text: "new"}}, moved...)) || d.NextPaste != 3 {
+		t.Fatalf("mail %+v", d)
+	}
+}
+
+func TestRestoreSingle(t *testing.T) {
+	x, _ := feedS(Single{}, Connected{At: t0}, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()},
+		Pasted{At: t0, Text: "outside"}, PaneKey{At: t0, Action: PaneToggle}, PaneKey{At: t0, Action: PaneEnter})
+	draft := "read " + x.Draft.Pastes[0].Token()
+	v := saveSingle(x, draft)
+	if v.Hub != nil || !v.PaneFocus || v.Card != 10 || !v.Detail || len(v.Drafts) != 1 || len(v.Drafts[0].Pastes) != 1 {
+		t.Fatalf("saved %+v", v)
+	}
+	y := RestoreSingle(Single{}, v)
+	if got := saveSingle(y, ""); !reflect.DeepEqual(got, v) {
+		t.Fatalf("before the session: %+v", got)
+	}
+	y, fx := feedS(y, Connected{At: t0})
+	if d := effectsOf[RestoreDraft](fx); len(d) != 1 || d[0] != (RestoreDraft{Text: draft}) || !y.PaneFocus {
+		t.Fatalf("after the session: pane %v %v", y.PaneFocus, fx)
+	}
+	if !reflect.DeepEqual(y.Draft.Pastes, x.Draft.Pastes) || y.Draft.NextPaste != 1 {
+		t.Fatalf("pastes %+v", y.Draft.Pastes)
+	}
+	y, _ = feedS(y, CardsLoaded{At: t0, Rev: 30, Cards: viewCards()})
+	if y.Board.SelID != 10 || !y.Board.Detail || y.Restore != nil {
+		t.Fatalf("board %+v", y.Board)
+	}
+	// The restored draft sends its paste as it was.
+	_, fx = feedS(y, Type{At: t0}, Submit{At: t0, Text: draft})
+	if p := effectsOf[SendPrompt](fx); len(p) != 1 || p[0].Text != "read outside" {
+		t.Fatalf("sent %v", fx)
+	}
+}
+
+func TestSaveHubDerivesWhereTheOperatorWas(t *testing.T) {
+	h, drafts := leftHub(t)
+	v := saveHub(h, drafts)
+	want := HubView{Focus: "mail", Cursor: "mail"}
+	if v.Hub == nil || *v.Hub != want || !v.PaneFocus || v.Items {
+		t.Fatalf("layout %+v pane %v items %v", v.Hub, v.PaneFocus, v.Items)
+	}
+	if v.Card != 20 || !v.Detail || v.Line != 1 || v.Col != 1 {
+		t.Fatalf("card %d detail %v line %d col %d", v.Card, v.Detail, v.Line, v.Col)
+	}
+	if len(v.Drafts) != 2 || v.Drafts[0].Role != "dev" || v.Drafts[1].Role != "mail" {
+		t.Fatalf("drafts %+v", v.Drafts)
+	}
+	mail := v.Drafts[1]
+	if len(mail.Pastes) != 2 || mail.NextPaste != 2 {
+		t.Fatalf("mail's pastes %+v", mail)
+	}
+	// A paste whose placeholder is gone from the draft is not saved.
+	v = saveHub(h, map[string]string{"mail": "only " + mail.Pastes[1].Token()})
+	if ps := v.Drafts[0].Pastes; len(ps) != 1 || ps[0].ID != 2 {
+		t.Fatalf("pastes %+v", ps)
+	}
+}
+
+// A draft typed before the restore came back is saved with the one
+// still waiting, the saved one ahead, so closing in between loses
+// neither: not the text, not the pastes.
+func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
+	left, drafts := leftHub(t)
+	v := saveHub(left, drafts)
+	v.Hub = nil
+	saved := left.DraftOf("mail").Pastes
+	h, _ := apply(t, RestoreHub(NewHub("mail"), v), HubConnected{At: t0}, Pasted{At: t0, Text: "new"})
+	newer := h.DraftOf("mail").Pastes[0]
+	got := saveHub(h, map[string]string{"mail": "n " + newer.Token()})
+	i := slices.IndexFunc(got.Drafts, func(d Draft) bool { return d.Role == "mail" })
+	moved := []Paste{{ID: 2, Text: saved[0].Text}, {ID: 3, Text: saved[1].Text}}
+	want := Draft{Role: "mail", Text: "see " + moved[0].Token() + " and " + moved[1].Token() + "\nn " + newer.Token(),
+		Pastes: append([]Paste{newer}, moved...), NextPaste: 3}
+	if i < 0 || !reflect.DeepEqual(got.Drafts[i], want) {
+		t.Fatalf("saved %+v\nwant %+v", got.Drafts, want)
+	}
+	// Reopened from that, it all comes back.
+	g, fx := reopen(t, got, viewRoster(), viewCards())
+	if restoredDrafts(fx)["mail"] != want.Text || !reflect.DeepEqual(g.DraftOf("mail").Pastes, want.Pastes) {
+		t.Fatalf("reopened %v %+v", fx, g.Drafts)
+	}
+	// Against a single agent, typed text with no pastes.
+	x := RestoreSingle(Single{}, View{Drafts: []Draft{{Text: "old draft"}}})
+	if d := saveSingle(x, "n").Drafts; len(d) != 1 || d[0].Text != "old draft\nn" {
+		t.Fatalf("single %+v", d)
+	}
 }

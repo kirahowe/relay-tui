@@ -71,8 +71,6 @@ type HubFrame struct {
 	InputX, InputY int
 	// Active is what the frame drew as having the keys.
 	Active core.SurfaceKind
-	// Review is the review pager, when it has the keys (see Frame).
-	Review PagerFrame
 	// title and right are the header's parts, for a panel's top border.
 	title, right string
 }
@@ -87,7 +85,6 @@ var TypingKeys = []KeyHelp{
 	{[]string{"pgup", "pgdown"}, "scroll the conversation"},
 	{[]string{"ctrl+t"}, "show or hide tool calls"},
 	{[]string{"ctrl+o"}, "show or hide thinking"},
-	{[]string{"ctrl+y"}, "trust the latest paste in the input"},
 	{[]string{"ctrl+c"}, "stop the turn, clear, or quit"},
 	{[]string{"ctrl+d"}, "quit, from an empty input"},
 	{[]string{"?"}, "these keys, from an empty input"},
@@ -115,47 +112,16 @@ var MovingKeys = []KeyHelp{
 var hubLegend = []string{
 	"▶ replying   … waiting for scheduled work",
 	"~ scheduled work runs   ● unread",
-	"?N requests to answer   !N held calls",
-	"p private   c contaminated",
 }
 
 // roleName is a role's title as text that may be shown: its controls and
-// invisible characters made visible and, when the role's labels say it has
-// seen untrusted content, its links defanged, as other text from the
-// session is.
-func roleName(r core.Role) string { return paneLine(r.Title, r.Labels.Contaminated) }
+// invisible characters made visible.
+func roleName(r core.Role) string { return paneLine(r.Title, false) }
 
-// roleBadges are a role's labels beside its name, as the status line
-// shows a session's.
-func roleBadges(l core.Labels) string {
-	var b string
-	if p, ok := pill("private", labelColour); ok && l.Private {
-		b += " " + p
-		l.Private = false
-	}
-	if p, ok := pill("contaminated", warnColour); ok && l.Contaminated {
-		b += " " + p
-		l.Contaminated = false
-	}
-	if l.Private {
-		b += " " + styled(bold, "[private]")
-	}
-	if l.Contaminated {
-		b += " " + styled(bold|reverse, " contaminated ")
-	}
-	return b
-}
-
-// marks are the indicators beside a role, styled, and their width. They
-// are in the order of how much they need the operator.
+// marks are the indicators beside a role, styled. They are in the order
+// of how much they need the operator.
 func marks(h core.Hub, r core.Role, now time.Time) string {
 	var parts []string
-	if n := h.Approvals(r); n > 0 {
-		parts = append(parts, styled(bold|reverse, fmt.Sprintf("?%d", n)))
-	}
-	if r.Holds > 0 {
-		parts = append(parts, styled(bold, fmt.Sprintf("!%d", r.Holds)))
-	}
 	if r.Conv != nil && r.Conv.Unread {
 		parts = append(parts, styled(bold, "●"))
 	}
@@ -169,12 +135,6 @@ func marks(h core.Hub, r core.Role, now time.Time) string {
 	}
 	if r.Working {
 		parts = append(parts, "~")
-	}
-	if r.Labels.Contaminated {
-		parts = append(parts, styled(bold|reverse, "c"))
-	}
-	if r.Labels.Private {
-		parts = append(parts, styled(bold, "p"))
 	}
 	return strings.Join(parts, " ")
 }
@@ -215,9 +175,6 @@ func describe(h core.Hub, r core.Role, now time.Time) string {
 		case core.TurnQueued:
 			parts = append(parts, "waiting for scheduled work")
 		}
-		if n := h.Approvals(r); n > 0 {
-			parts = append(parts, plural(n, "request")+" for you")
-		}
 		if c.Unread {
 			parts = append(parts, "unread")
 		}
@@ -228,15 +185,6 @@ func describe(h core.Hub, r core.Role, now time.Time) string {
 	}
 	if r.Working {
 		parts = append(parts, "scheduled work runs")
-	}
-	if r.Labels.Private {
-		parts = append(parts, "private")
-	}
-	if r.Labels.Contaminated {
-		parts = append(parts, "contaminated")
-	}
-	if r.Holds > 0 {
-		parts = append(parts, plural(r.Holds, "held call"))
 	}
 	return strings.Join(parts, " · ")
 }
@@ -383,15 +331,6 @@ func HubView(h core.Hub, input, hint string, now time.Time, width, height int) H
 		f := withHelp(h, input, hint, now, width, height, wide)
 		f.Active = core.SurfaceHelp
 		return f
-	case core.SurfaceReview:
-		// The review is the whole screen: nothing else is drawn while it
-		// has the keys.
-		var st core.State
-		if c := h.Focused(); c != nil && surf.Column != core.ColumnList {
-			st = c.State
-		}
-		r := Review(surf, h.App, st, h.Notice, now, width, height)
-		return HubFrame{Content: r.Content, Active: core.SurfaceReview, Review: r}
 	}
 	return hubFrame(h, input, hint, now, width, height, wide, nil)
 }
@@ -458,7 +397,7 @@ func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 // elsewhere summarises the other roles that want the operator, for the
 // narrow conversation's header.
 func elsewhere(h core.Hub) string {
-	unread, asks := 0, 0
+	unread := 0
 	for _, r := range h.Roles {
 		if r.ID == h.Focus {
 			continue
@@ -466,12 +405,8 @@ func elsewhere(h core.Hub) string {
 		if r.Conv != nil && r.Conv.Unread {
 			unread++
 		}
-		asks += h.Approvals(r)
 	}
 	var parts []string
-	if asks > 0 {
-		parts = append(parts, styled(bold|reverse, fmt.Sprintf("?%d", asks)))
-	}
 	if unread > 0 {
 		parts = append(parts, styled(bold, fmt.Sprintf("● %d", unread)))
 	}
@@ -479,13 +414,13 @@ func elsewhere(h core.Hub) string {
 }
 
 // hubMain is the conversation in focus: a header, the conversation
-// bottom-aligned, then queued messages, the input box (or the request
-// that takes its place) and the status line. help, when set, covers the
+// bottom-aligned, then queued messages, the input box and the status
+// line. help, when set, covers the
 // bottom of the conversation.
 func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, narrow bool, help []string) HubFrame {
 	// With room for it, the workspace pane stands beside the conversation,
-	// as it does in the single-session view: a display or a held call is
-	// in front of the operator without a key.
+	// as it does in the single-session view: a display is in front of
+	// the operator without a key.
 	if paneShown(h) && Side(width) {
 		mw := MainWidth(width)
 		f := hubMainAt(h, input, hint, now, mw, height, narrow, help, true)
@@ -517,7 +452,6 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		s = conv.State
 	}
 	surf := core.HubSurface(h)
-	asking := surf.Kind == core.SurfaceRequest
 	moving := !surf.Covered().Typing()
 
 	// The header.
@@ -526,9 +460,6 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		title = roleName(*role)
 	}
 	head := styled(bold, title)
-	if role != nil {
-		head += roleBadges(role.Labels)
-	}
 	panelTitle := head
 	if h.Focus == "" {
 		panelTitle = "" // no role, so nothing to name: the frame goes unbroken
@@ -574,17 +505,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		ask := fmt.Sprintf("End the conversation with %s? y to end it, n to keep it", title)
 		bottom = append(bottom, box("end conversation", wrap(ask, InputWidth(width)), width)...)
 		active = core.SurfaceEnd
-	case asking:
-		bottom = append(bottom, requestSummary(s, width)...)
-		active = core.SurfaceRequest
 	case h.Focus == "":
 		// No role in focus, so nothing to type into.
 	default:
-		if len(s.Asks) > 0 {
-			// Something else has the keys: the request waits above the
-			// input until the operator moves to it.
-			bottom = append(bottom, requestNote(s, surf, width))
-		}
 		if surf.Kind == core.SurfaceInput {
 			active = core.SurfaceInput
 		}
@@ -618,7 +541,6 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	} else {
 		st := core.Status(h.App, s, now)
 		if role != nil { // the roster may not have come yet
-			st.Labels = st.Labels.Union(role.Labels)
 			if role.Conv != nil && role.Conv.Session == conv.Session {
 				st.Remote = role.Conv.Turn
 			}
@@ -626,9 +548,6 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		st.PaneHint = st.PaneItems > 0 && !beside && surf.Column != core.ColumnPane
 		st.ShowMode = !inPanel // the panels name it in the row of keys
 		st.Moving = moving
-		if len(s.Asks) > 0 && !asking {
-			st.AnswerHint = howToAnswer(surf)
-		}
 		status = StatusText(st, hint, now, width)
 	}
 	bottom = append(bottom, status)
@@ -639,6 +558,16 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		headRows = 0
 	}
 	room := max(height-headRows-len(bottom), 0)
+	if surf.Column == core.ColumnPane && !beside && showInput {
+		// The pane covers the conversation and needs room for its question:
+		// a tall draft gives up its top rows, down to one, as in View.
+		if need := paneNeed(h.App, s, now, width); room < need {
+			rows := len(strings.Split(input, "\n"))
+			cut := min(need-room, rows-1)
+			bottom = append(bottom[:inputAt], bottom[inputAt+cut:]...)
+			room += cut
+		}
+	}
 	var lines []string
 	mx, detailMax := 0, 0
 	switch {
@@ -760,12 +689,8 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	case surf.Column == core.ColumnPane && pw > 0:
 	case surf.Column == core.ColumnPane:
 		keys = "" // the pane, in the conversation's place, lists its own
-	case under == core.SurfaceRequest:
-		keys = "enter review the request · h roles · 1 role"
 	case under == core.SurfaceEnd:
 		keys = "y end it · n keep it"
-	case under == core.SurfaceInput && len(s.Asks) > 0:
-		keys = "esc, then enter to review · alt+1 role" // typing: the request waits for esc
 	case under == core.SurfaceConversation && conv != nil:
 		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · ? keys"
 	case under == core.SurfaceConversation:

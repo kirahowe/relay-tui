@@ -1,12 +1,12 @@
 ␛[0;1;36mWorkspace␛[m␛[0;2m 3␛[m
 ␛[0;2m↑ 5 above␛[m
-
-  Three venues are open late.
   Details: hxxps://example[.]org/venues
   
   A second paragraph with more words so that
   the text wraps in a narrow pane.
 
 ␛[0;2msources␛[m
-␛[0;2m↓ 5 below␛[m
-␛[0;36m↑↓␛[m␛[0;2m scroll␛[m␛[0;2m • ␛[m␛[0;36mt␛[m␛[0;2m trust␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
+  ↳ Venue list␛[0;2m ·␛[m
+    ␛[0;2m␛[mweb:hxxps://example[.]org/venues
+␛[0;2m↓ 2 below␛[m
+␛[0;36m↑↓␛[m␛[0;2m scroll␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m

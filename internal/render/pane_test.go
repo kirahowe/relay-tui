@@ -13,23 +13,22 @@ import (
 )
 
 var (
-	untrusted = core.Item{
-		Kind: core.ShownItem, Ref: "shown:2026-10-18/t1", Path: "shown/2026-10-18/t1.md", CallID: "t1",
+	fromWeb = core.Item{
+		Ref: "shown:2026-10-18/t1", Path: "shown/2026-10-18/t1.md", CallID: "t1",
 		Title: "Concert venues near the hall",
 		Text:  "Three venues are open late.\nDetails: https://example.org/venues\n\nA second paragraph with more words so that the text wraps in a narrow pane.",
 		Sources: []core.Source{{Title: "Venue list", Ref: "web:https://example.org/venues"},
 			{Title: "Hall site", Ref: "web:https://hall.example.com/about"}},
-		Labels:  core.Labels{Private: true, Contaminated: true},
-		Version: "412", SHA256: "0123456789abcdef0123456789abcdef", CanTrust: true,
-		TrustCommand: "relay trust doc shown/2026-10-18/t1.md",
+		Labels: core.Labels{Private: true, Contaminated: true},
 	}
-	trusted = core.Item{
-		Kind: core.ShownItem, Ref: "shown:2026-10-18/t0", Title: "Hall address", Text: "1 Main Street", Labels: core.Labels{Private: true},
+	ownItem = core.Item{
+		Ref: "shown:2026-10-18/t0", Title: "Hall address", Text: "1 Main Street", Labels: core.Labels{Private: true},
 	}
-	proposal = core.Item{
-		Kind: core.ProposalItem, CallID: "t2", Tool: "send_campaign", Input: `{"group":"Kira only"}`,
-		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign",
-		Labels:  core.Labels{Private: true, Contaminated: true}, Status: core.StatusWaitingProposal,
+	fromMail = core.Item{
+		Ref: "shown:2026-10-18/t2", CallID: "t2", Title: "A note from a stranger",
+		Text:    "Please wire the deposit. See https://send.example.net/campaign",
+		Sources: []core.Source{{Title: "Mail", Ref: "mail:stranger@example.com"}},
+		Labels:  core.Labels{Contaminated: true},
 	}
 )
 
@@ -46,100 +45,10 @@ func goldenLines(t *testing.T, lines []string) {
 	requireGolden(t, strings.Join(lines, "\n"))
 }
 
-func TestPaneGolden(t *testing.T) {
-	list := paneState(true, proposal, untrusted, trusted)
-	list.Pane.Sel, list.Pane.SelKey = 1, untrusted.Key()
-	list.Entries = []core.Entry{{Kind: core.Agent, ID: "m", Final: true, Text: "The hall seats 900 [[fact:12]], see [[doc:gone]], [[web:https://x.test/a]] and [[note:later]]."}}
-	list.Pane.Cites = []core.Citation{
-		{Ref: "[[fact:12]]", Kind: "fact", Status: core.CiteOK, Title: "Fact 12 [venues]"},
-		{Ref: "[[doc:gone]]", Kind: "doc", Status: core.CiteMissing},
-		{Ref: "[[web:https://x.test/a]]", Kind: "web", Status: core.CiteExternal, Target: "https://x.test/a"},
-		{Ref: "[[note:later]]"},
-	}
-	list.Pane.Domains = []string{"example.org"}
-
-	t.Run("side", func(t *testing.T) {
-		list.Asks = []core.Permission{{ID: 1, CallID: "t2", Name: "send_campaign"}}
-		for i := range list.Pane.Server {
-			if list.Pane.Server[i].Kind == core.ProposalItem {
-				list.Pane.Server[i].AskID = 1
-			}
-		}
-		list.PaneFocus = false
-		f := View(list, "› ", "ctrl+j for a new line", t0, 130, 24)
-		goldenLines(t, strings.Split(f.Content, "\n"))
-	})
-	list.Asks = nil
-	list.PaneFocus = true
-	t.Run("side_focused", func(t *testing.T) {
-		f := View(list, "› ", "ctrl+j for a new line", t0, 130, 24)
-		goldenLines(t, strings.Split(f.Content, "\n"))
-	})
-	t.Run("overlay", func(t *testing.T) {
-		f := View(list, "› ", "ctrl+j for a new line", t0, 60, 24)
-		goldenLines(t, strings.Split(f.Content, "\n"))
-	})
-	t.Run("overlay_closed_hint", func(t *testing.T) {
-		closed := list
-		closed.PaneFocus = false
-		f := View(closed, "› ", "ctrl+j for a new line", t0, 60, 10)
-		goldenLines(t, strings.Split(f.Content, "\n"))
-	})
-	t.Run("detail_untrusted", func(t *testing.T) {
-		d := list
-		d.Pane.Detail = true
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 30))
-	})
-	t.Run("detail_untrusted_scrolled", func(t *testing.T) {
-		d := list
-		d.Pane.Detail, d.Pane.Scroll = true, 5
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 12))
-	})
-	t.Run("detail_proposal", func(t *testing.T) {
-		d := list
-		d.Pane.Detail, d.Pane.Sel, d.Pane.SelKey = true, 0, proposal.Key()
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
-	})
-	t.Run("trust_confirmation", func(t *testing.T) {
-		// The pane under the review: the review itself is pager.go's.
-		d := list
-		d.Pane.Trust = &core.TrustPrompt{Item: untrusted}
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
-	})
-	t.Run("trust_command", func(t *testing.T) {
-		d := list
-		d.Pane.Message, d.Pane.Command = "Trust needs a terminal. Run this there:", untrusted.TrustCommand
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
-	})
-	t.Run("trust_failed", func(t *testing.T) {
-		d := list
-		d.Pane.Message, d.Pane.Failure, d.Pane.Command = "Trust failed.", "the doc changed since it was listed", untrusted.TrustCommand
-		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
-	})
-}
-
-func TestPermissionBoxShowsThePreview(t *testing.T) {
-	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Contaminated: true}}
-	s.Asks = []core.Permission{{ID: 1, Name: "send_campaign", Input: `{"group":"Kira only"}`,
-		Preview: "Sends **Venue list** to Kira only.\nSee https://send.example.net/campaign",
-		Options: []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}, {ID: "r", Name: "Reject", Kind: core.RejectOnce}}}}
-	s.Pick = 1
-	s.Reviewing = &core.Reviewing{Ask: 1}
-	f := View(drawnLongAgo(core.Single{App: core.App{Moving: true}, State: s}), "", "", t0.Add(time.Second), 70, 20)
-	goldenLines(t, strings.Split(f.Content, "\n"))
-	plain := ansi.Strip(f.Content)
-	if strings.Contains(plain, "https://send") {
-		t.Error("a contaminated session's preview shows a live link")
-	}
-	if strings.Index(plain, "Sends") > strings.Index(plain, "Kira only\"") || strings.Index(plain, "Sends") < 0 {
-		t.Error("the preview does not come above the input")
-	}
-}
-
 // The side pane leaves the transcript alone: what goes to scrollback is
 // the same lines the frame would print without it, at the reduced width.
 func TestSidePaneLeavesPrintAlone(t *testing.T) {
-	s := paneState(false, untrusted)
+	s := paneState(false, fromWeb)
 	for i := range 30 {
 		s.Entries = append(s.Entries, core.Entry{Kind: core.Agent, ID: "m", Final: true, Text: strings.Repeat("word ", 5+i%7)})
 	}
@@ -157,7 +66,7 @@ func TestSidePaneLeavesPrintAlone(t *testing.T) {
 }
 
 func TestNarrowOverlayPrintsNothing(t *testing.T) {
-	s := paneState(true, untrusted)
+	s := paneState(true, fromWeb)
 	for i := range 30 {
 		s.Entries = append(s.Entries, core.Entry{Kind: core.Agent, ID: "m", Final: true, Text: strings.Repeat("word ", 5+i%7)})
 	}
@@ -190,10 +99,8 @@ func paneText0(t *rapid.T, label string) string {
 
 func genItem(t *rapid.T) core.Item {
 	it := core.Item{
-		Kind: core.ItemKind(rapid.IntRange(0, 1).Draw(t, "kind")), Ref: paneText0(t, "ref"), Path: paneText0(t, "path"), CallID: paneText0(t, "call"),
-		Title: paneText0(t, "title"), Text: paneText0(t, "text"), Tool: paneText0(t, "tool"), Input: rapid.SampledFrom([]string{"", `{"a":"` + paneText0(t, "arg") + `"}`, paneText0(t, "rawinput")}).Draw(t, "input"),
-		Preview: paneText0(t, "preview"), Status: rapid.SampledFrom([]string{"waiting", "allowed", "rejected", "cancelled", paneText0(t, "status")}).Draw(t, "status"),
-		Version: paneText0(t, "version"), SHA256: paneText0(t, "sha"), CanTrust: rapid.Bool().Draw(t, "can"), TrustCommand: paneText0(t, "cmd"),
+		Ref: paneText0(t, "ref"), Path: paneText0(t, "path"), CallID: paneText0(t, "call"),
+		Title: paneText0(t, "title"), Text: paneText0(t, "text"),
 		Labels: core.Labels{Private: rapid.Bool().Draw(t, "p"), Contaminated: rapid.Bool().Draw(t, "c")},
 	}
 	for range rapid.IntRange(0, 3).Draw(t, "sources") {
@@ -216,10 +123,6 @@ func genPaneState(t *rapid.T) core.Single {
 	}
 	s.Pane.Detail = rapid.Bool().Draw(t, "detail")
 	s.Pane.Scroll = rapid.IntRange(0, 30).Draw(t, "scroll")
-	s.Pane.Message, s.Pane.Failure, s.Pane.Command = paneText0(t, "msg"), paneText0(t, "fail"), paneText0(t, "command")
-	if len(items) > 0 && rapid.Bool().Draw(t, "trust") {
-		s.Pane.Trust = &core.TrustPrompt{Item: items[0]}
-	}
 	refs := ""
 	for range rapid.IntRange(0, 3).Draw(t, "refs") {
 		ref := "[[" + rapid.SampledFrom([]string{"fact", "doc", "web"}).Draw(t, "kind") + ":" + rapid.StringMatching(`[a-z0-9:/.%\x00-\x1f]{1,12}`).Draw(t, "id") + "]]"
@@ -245,7 +148,7 @@ func unprintable(r rune) bool {
 // The items view says how many cards the board holds and how to reach
 // it, so a card relay adds is never out of sight without a word.
 func TestPaneNamesTheBoard(t *testing.T) {
-	s := paneState(false, trusted)
+	s := paneState(false, ownItem)
 	if text := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 44, 12), "\n")); strings.Contains(text, "board") {
 		t.Fatalf("named a board that has not loaded:\n%s", text)
 	}
@@ -310,56 +213,6 @@ func TestPaneNeverEmitsRawControls(t *testing.T) {
 	})
 }
 
-// Text from a contaminated item shows under the untrusted mark, with no
-// live link, wherever it is drawn.
-func TestContaminatedItemsAreMarkedAndDefanged(t *testing.T) {
-	rapid.Check(t, func(t *rapid.T) {
-		it := genItem(t)
-		it.Labels.Contaminated = true
-		it.Kind = core.ShownItem
-		it.Title = rapid.SampledFrom([]string{"Title", "see https://evil.test/a?d=1", "www.evil.test x"}).Draw(t, "title")
-		it.Text = "go to " + rapid.SampledFrom([]string{"https://evil.test/x", "ftp://evil.test", "http://a.b.c/d", "www.e.test",
-			"https://a.test/?next=www.evil.test/?d=SECRET", "https://a.test/r?u=https://evil.test/x"}).Draw(t, "url") + " now"
-		it.Sources = []core.Source{{Title: "s", Ref: "web:https://evil.test/src"}}
-		s := paneState(true, it)
-		s.Pane.Relay = true
-		s.Entries = nil
-		mode := rapid.IntRange(0, 2).Draw(t, "mode")
-		switch mode {
-		case 1:
-			s.Pane.Detail = true
-		case 2:
-			s.Pane.Trust = &core.TrustPrompt{Item: it}
-		}
-		out := strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n")
-		plain := ansi.Strip(out)
-		if !strings.Contains(plain, "untrusted") {
-			t.Fatalf("no untrusted mark (mode %d):\n%s", mode, plain)
-		}
-		if !strings.Contains(out, sgr(bold|reverse)+" untrusted ") {
-			t.Fatalf("the mark is not in reverse video:\n%q", out)
-		}
-		for _, l := range strings.Split(plain, "\n") {
-			if live(l) {
-				t.Fatalf("live link in %q", l)
-			}
-		}
-	})
-}
-
-func TestPaneMarksNewDomains(t *testing.T) {
-	s := paneState(true, untrusted)
-	s.Pane.Domains = []string{"example.org"}
-	plain := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 40), "\n"))
-	if strings.Count(plain, "[new domain]") != 1 || !strings.Contains(plain, "hall[.]example[.]com") {
-		t.Errorf("only the hall site is new:\n%s", plain)
-	}
-	s.Pane.Domains = []string{"example.org", "hall.example.com"}
-	if plain := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 40), "\n")); strings.Contains(plain, "new domain") {
-		t.Errorf("known domains are marked:\n%s", plain)
-	}
-}
-
 func TestPaneShowsMissingInReverse(t *testing.T) {
 	s := paneState(false)
 	s.Entries = []core.Entry{{Kind: core.Agent, ID: "m", Final: true, Text: "[[doc:gone]] [[fact:1]]"}}
@@ -374,7 +227,7 @@ func TestPaneShowsMissingInReverse(t *testing.T) {
 }
 
 func TestDetailMaxMatchesWhatIsDrawn(t *testing.T) {
-	s := paneState(true, untrusted)
+	s := paneState(true, fromWeb)
 	s.Pane.Detail = true
 	_, mx := paneRender(s.App, s.State, t0, 30, 10)
 	if mx <= 0 {
@@ -382,7 +235,7 @@ func TestDetailMaxMatchesWhatIsDrawn(t *testing.T) {
 	}
 	s.Pane.Scroll = mx
 	last := ansi.Strip(strings.Join(paneBodyTail(s), "\n"))
-	if !strings.Contains(last, "relay trust doc") && !strings.Contains(last, "hall") {
+	if !strings.Contains(last, "hall") {
 		t.Errorf("the last scroll position does not reach the end:\n%s", last)
 	}
 	s.Pane.Scroll = mx + 50
@@ -400,85 +253,100 @@ func paneBodyTail(s core.Single) []string {
 	return l
 }
 
-// Regression (Codex review): a payload hidden in variation selectors
-// shows escaped in an item's detail and in the trust confirmation, so
-// what is trusted is what the person can see.
-func TestHiddenPayloadShowsInDetailAndTrust(t *testing.T) {
-	hidden := "Venues" + string(rune(0xE0100)) + string(rune(0xE0101)) + string(rune(0xFE0F))
-	it := core.Item{Kind: core.ShownItem, Title: "t", Text: hidden, Path: "shown/2026-10-18/x.md", Version: "1",
-		SHA256: "ab", CanTrust: true, Labels: core.Labels{Contaminated: true}}
-	for _, trust := range []bool{false, true} {
+func TestPaneGolden(t *testing.T) {
+	list := paneState(true, fromMail, fromWeb, ownItem)
+	list.Pane.Sel, list.Pane.SelKey = 1, fromWeb.Key()
+	list.Entries = []core.Entry{{Kind: core.Agent, ID: "m", Final: true, Text: "The hall seats 900 [[fact:12]], see [[doc:gone]], [[web:https://x.test/a]] and [[note:later]]."}}
+	list.Pane.Cites = []core.Citation{
+		{Ref: "[[fact:12]]", Kind: "fact", Status: core.CiteOK, Title: "Fact 12 [venues]"},
+		{Ref: "[[doc:gone]]", Kind: "doc", Status: core.CiteMissing},
+		{Ref: "[[web:https://x.test/a]]", Kind: "web", Status: core.CiteExternal, Target: "https://x.test/a"},
+		{Ref: "[[note:later]]"},
+	}
+
+	t.Run("side", func(t *testing.T) {
+		list.PaneFocus = false
+		f := View(list, "› ", "ctrl+j for a new line", t0, 130, 24)
+		goldenLines(t, strings.Split(f.Content, "\n"))
+	})
+	list.PaneFocus = true
+	t.Run("side_focused", func(t *testing.T) {
+		f := View(list, "› ", "ctrl+j for a new line", t0, 130, 24)
+		goldenLines(t, strings.Split(f.Content, "\n"))
+	})
+	t.Run("overlay", func(t *testing.T) {
+		f := View(list, "› ", "ctrl+j for a new line", t0, 60, 24)
+		goldenLines(t, strings.Split(f.Content, "\n"))
+	})
+	t.Run("overlay_closed_hint", func(t *testing.T) {
+		closed := list
+		closed.PaneFocus = false
+		f := View(closed, "› ", "ctrl+j for a new line", t0, 60, 10)
+		goldenLines(t, strings.Split(f.Content, "\n"))
+	})
+	t.Run("detail_from_the_web", func(t *testing.T) {
+		d := list
+		d.Pane.Detail = true
+		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 30))
+	})
+	t.Run("detail_from_the_web_scrolled", func(t *testing.T) {
+		d := list
+		d.Pane.Detail, d.Pane.Scroll = true, 5
+		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 12))
+	})
+	t.Run("detail_from_outside", func(t *testing.T) {
+		d := list
+		d.Pane.Detail, d.Pane.Sel, d.Pane.SelKey = true, 0, fromMail.Key()
+		goldenLines(t, PaneLines(d.App, d.State, t0, 44, 24))
+	})
+}
+
+// Text from a contaminated item says where it came from, in plain words,
+// with no live link, wherever it is drawn, and never uses a label's name.
+func TestContaminatedItemsSayWhereTheyCameFrom(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		it := genItem(t)
+		it.Labels.Contaminated = true
+		it.Title = rapid.SampledFrom([]string{"Title", "see https://evil.test/a?d=1", "www.evil.test x"}).Draw(t, "title")
+		it.Text = "go to " + rapid.SampledFrom([]string{"https://evil.test/x", "ftp://evil.test", "http://a.b.c/d", "www.e.test",
+			"https://a.test/?next=www.evil.test/?d=SECRET", "https://a.test/r?u=https://evil.test/x"}).Draw(t, "url") + " now"
+		web := rapid.Bool().Draw(t, "web")
+		it.Sources = []core.Source{{Title: "s", Ref: "doc:notes/a.md"}}
+		want := "from outside"
+		if web {
+			it.Sources = []core.Source{{Title: "s", Ref: "web:https://evil.test/src"}}
+			want = "from the web"
+		}
 		s := paneState(true, it)
-		s.Pane.Relay = true
-		s.Pane.Detail = true
-		if trust {
-			s.Pane.Trust = &core.TrustPrompt{Item: it}
+		s.Entries = nil
+		s.Pane.Detail = rapid.Bool().Draw(t, "detail")
+		out := strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n")
+		plain := ansi.Strip(out)
+		if !strings.Contains(plain, want) {
+			t.Fatalf("no %q (detail %v):\n%s", want, s.Pane.Detail, plain)
 		}
-		out := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n"))
-		if !strings.Contains(out, `Venues\udb40\udd00\udb40\udd01\ufe0f`) || strings.ContainsRune(out, 0xE0100) || strings.ContainsRune(out, 0xFE0F) {
-			t.Errorf("trust %v: hidden code points not escaped:\n%s", trust, out)
+		for _, l := range strings.Split(plain, "\n") {
+			if live(l) {
+				t.Fatalf("live link in %q", l)
+			}
 		}
-	}
-}
-
-// Regression (cross-cutting review): a clean, private session's act call
-// whose preview read contaminated service text showed the preview's link
-// live, in the permission box, the transcript and the pane. A preview
-// always defangs, and the input defangs by the preview's labels too.
-func TestACleanSessionsPreviewIsDefanged(t *testing.T) {
-	ask := core.Permission{ID: 1, Name: "send_campaign", Input: `{"group":"Kira only","note":"see https://in.example.net/x"}`,
-		Preview: "Sends to all.\nDetails https://evil.example.net/x?d=1",
-		Labels:  core.Labels{Private: true}, PreviewLabels: core.Labels{Private: true, Contaminated: true},
-		FixedArgs: []string{"group"},
-		Options:   []core.PermOption{{ID: "a", Name: "Allow", Kind: core.AllowOnce}}}
-	s := core.State{Phase: core.Busy, Ready: true, Labels: core.Labels{Private: true}, Asks: []core.Permission{ask},
-		Reviewing: &core.Reviewing{Ask: 1}}
-	plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content)
-	for _, live := range []string{"https://evil", "https://in."} {
-		if strings.Contains(plain, live) {
-			t.Errorf("the permission box shows %s live:\n%s", live, plain)
-		}
-	}
-	if !strings.Contains(plain, `set by your settings: "group"`) {
-		t.Errorf("the fixed argument is not marked:\n%s", plain)
-	}
-	// Even with clean labels everywhere, the preview defangs.
-	ask.PreviewLabels = core.Labels{}
-	s.Asks = []core.Permission{ask}
-	if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 90, 30).Content); strings.Contains(plain, "https://evil") {
-		t.Errorf("a clean preview shows a live link:\n%s", plain)
-	}
-	clean := proposal
-	clean.Labels = core.Labels{Private: true}
-	clean.Preview = ask.Preview
-	clean.FixedArgs = []string{"group"}
-	ps := paneState(true, clean)
-	ps.Labels = core.Labels{Private: true}
-	ps.Pane.Detail = true
-	got := ansi.Strip(strings.Join(detailBody(ps.State, clean, 60), "\n") + "\n" + strings.Join(listBlock(ps.State, clean, true, 60), "\n"))
-	if strings.Contains(got, "https://evil") {
-		t.Errorf("the pane shows a live preview link:\n%s", got)
-	}
-	if !strings.Contains(got, "set by your settings: group") {
-		t.Errorf("the pane does not mark the fixed argument:\n%s", got)
-	}
-}
-
-// Whatever the labels, no preview link is ever live in the box.
-func TestPropertyPreviewLinksNeverLive(t *testing.T) {
-	rapid.Check(t, func(rt *rapid.T) {
-		lab := func(name string) core.Labels {
-			return core.Labels{Private: rapid.Bool().Draw(rt, name+"-p"), Contaminated: rapid.Bool().Draw(rt, name+"-c")}
-		}
-		host := rapid.StringMatching(`[a-z]{1,8}\.[a-z]{2,4}`).Draw(rt, "host")
-		ask := core.Permission{ID: 1, Name: "send", Input: `{}`, Preview: "go to https://" + host + "/p",
-			Labels: lab("session"), PreviewLabels: lab("preview")}
-		s := core.State{Phase: core.Busy, Ready: true, Labels: lab("state"), Asks: []core.Permission{ask}}
-		if rapid.Bool().Draw(rt, "review") {
-			s.Reviewing = &core.Reviewing{Ask: 1}
-		}
-		if plain := ansi.Strip(View(core.Single{App: core.App{Moving: true}, State: s}, "", "", t0.Add(time.Second), 80, 30).Content); strings.Contains(plain, "https://") {
-			rt.Fatalf("a live link:\n%s", plain)
+		for _, w := range []string{"contaminated", "untrusted", "trusted"} {
+			if strings.Contains(plain, w) {
+				t.Fatalf("%q on the pane:\n%s", w, plain)
+			}
 		}
 	})
+}
+
+// A payload hidden in variation selectors shows escaped in an item's
+// detail, so what Kira reads is what is there.
+func TestHiddenPayloadShowsInDetail(t *testing.T) {
+	hidden := "Venues" + string(rune(0xE0100)) + string(rune(0xE0101)) + string(rune(0xFE0F))
+	it := core.Item{Title: "t", Text: hidden, Path: "shown/2026-10-18/x.md", Labels: core.Labels{Contaminated: true}}
+	s := paneState(true, it)
+	s.Pane.Detail = true
+	out := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n"))
+	if !strings.Contains(out, `Venues\udb40\udd00\udb40\udd01\ufe0f`) || strings.ContainsRune(out, 0xE0100) || strings.ContainsRune(out, 0xFE0F) {
+		t.Errorf("hidden code points not escaped:\n%s", out)
+	}
 }

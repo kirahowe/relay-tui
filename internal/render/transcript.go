@@ -38,10 +38,8 @@ func TranscriptView(s core.State, now time.Time, width, height int) TranscriptFr
 	return TranscriptFrame{Content: strings.Join(all, "\n"), Max: mx, Page: max(rows-1, 1)}
 }
 
-// transcriptFooter is the view's status line. The labels lead it, as on
-// the inline status line, so contamination is never off screen.
+// transcriptFooter is the view's status line.
 func transcriptFooter(s core.State, now time.Time, scroll, width int) string {
-	st := core.Status(core.App{}, s, now) // only its badges show
 	lead := " "
 	if s.Phase == core.Busy || s.Phase == core.Starting {
 		lead = spinner(now)
@@ -52,7 +50,7 @@ func transcriptFooter(s core.State, now time.Time, scroll, width int) string {
 	}
 	parts = append(parts, "esc back", toggleWord("ctrl+t", "tools", s.Transcript.Tools),
 		toggleWord("ctrl+o", "thinking", s.Transcript.Thinking), "? keys")
-	line := lead + " " + badges(st) + parts[0]
+	line := lead + " " + parts[0]
 	for _, p := range parts[1:] {
 		if next := line + " · " + p; Method.StringWidth(next) <= width {
 			line = next
@@ -83,7 +81,6 @@ var InlineTypingKeys = []KeyHelp{
 	{[]string{"esc"}, "stop typing; what you typed stays"},
 	{[]string{"ctrl+t"}, "transcript with tool calls in full"},
 	{[]string{"ctrl+o"}, "transcript with thinking in full"},
-	{[]string{"ctrl+y"}, "trust the latest paste in the input"},
 	{[]string{"ctrl+c"}, "stop the turn, clear, or quit"},
 	{[]string{"ctrl+d"}, "quit, from an empty input"},
 	{[]string{"?"}, "these keys, from an empty input"},

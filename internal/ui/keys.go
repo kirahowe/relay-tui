@@ -26,7 +26,6 @@ const (
 	EOF                        // Ctrl-D on an empty input
 	ShowTools                  // Ctrl-T: tool calls in full
 	ShowThinking               // Ctrl-O: thinking in full
-	TrustPaste                 // Ctrl-Y: trust the latest paste in the input
 	Help                       // ? on an empty input: the list of keys
 	StopTyping                 // Esc: start moving; what was typed stays
 	Jump                       // alt+1 to alt+9: that role, still typing
@@ -55,8 +54,6 @@ func Classify(k tea.KeyPressMsg, inputEmpty bool) (Action, int) {
 		return ShowTools, 0
 	case "ctrl+o":
 		return ShowThinking, 0
-	case "ctrl+y":
-		return TrustPaste, 0
 	case "?":
 		if inputEmpty {
 			return Help, 0
@@ -207,63 +204,6 @@ func NewlineHint(c Caps) string {
 	return "ctrl+j for a new line"
 }
 
-// ReviewAction is what a key press does in the review.
-type ReviewAction int
-
-const (
-	ReviewNone      ReviewAction = iota // swallowed
-	ReviewUp                            // up, k
-	ReviewDown                          // down, j
-	ReviewPageUp                        // pgup, b
-	ReviewPageDown                      // pgdown, space, f
-	ReviewTop                           // home, g
-	ReviewBottom                        // end, G
-	ReviewNext                          // tab, right: the next option
-	ReviewPrev                          // shift+tab, left: the one before
-	ReviewPick                          // enter: the highlighted option
-	ReviewYes                           // y: allow once, trust, archive
-	ReviewNo                            // n: reject once, or cancel
-	ReviewCancel                        // esc: cancel
-	ReviewBack                          // q: back to the dashboard, answering nothing
-	ReviewInterrupt                     // ctrl+c
-)
-
-// ClassifyReview decides what a key press does in the review. It is
-// pure. Every other key is swallowed: nothing reaches the input box.
-func ClassifyReview(k tea.KeyPressMsg) ReviewAction {
-	switch k.String() {
-	case "up", "k":
-		return ReviewUp
-	case "down", "j":
-		return ReviewDown
-	case "pgup", "b":
-		return ReviewPageUp
-	case "pgdown", "space", "f":
-		return ReviewPageDown
-	case "home", "g":
-		return ReviewTop
-	case "end", "G":
-		return ReviewBottom
-	case "tab", "right":
-		return ReviewNext
-	case "shift+tab", "left":
-		return ReviewPrev
-	case "enter":
-		return ReviewPick
-	case "y", "Y":
-		return ReviewYes
-	case "n", "N":
-		return ReviewNo
-	case "esc":
-		return ReviewCancel
-	case "q":
-		return ReviewBack
-	case "ctrl+c":
-		return ReviewInterrupt
-	}
-	return ReviewNone
-}
-
 // ClassifyPane decides what a key press does while the workspace pane has
 // focus. Every key is swallowed, so nothing typed reaches the input box. It
 // is pure.
@@ -281,8 +221,6 @@ func ClassifyPane(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEnter
 	case "esc":
 		return core.PaneEsc
-	case "t":
-		return core.PaneTrust
 	case "y", "Y":
 		return core.PaneYes
 	case "b":
@@ -327,8 +265,6 @@ func ClassifyBoard(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEditColumn
 	case "X":
 		return core.PaneArchive
-	case "t":
-		return core.PaneTrust
 	case "y", "Y":
 		return core.PaneYes
 	}

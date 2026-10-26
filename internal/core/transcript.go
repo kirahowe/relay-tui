@@ -53,17 +53,11 @@ func (e TranscriptKey) at() time.Time { return e.At }
 func (e ToggleHelp) at() time.Time    { return e.At }
 
 // show opens the transcript with one kind of block in full, or flips that
-// kind when it is already open. Against a single agent the transcript
-// covers the screen, so it does not open while a request waits: it could
-// not be drawn and the request too, and what has the keys is drawn.
+// kind when it is already open.
 func (r *reducer) show(kind *bool, at time.Time) {
 	t := &r.s.Transcript
 	if t.Open {
 		*kind = !*kind
-		return
-	}
-	if !r.s.Shared && len(r.s.Asks) > 0 {
-		r.s.Message = Message{Text: "a request waits: answer it first (esc)", At: at}
 		return
 	}
 	t.Open, *kind, t.Scroll = true, true, 0
@@ -96,8 +90,8 @@ func (r *reducer) transcriptKey(e TranscriptKey) {
 	t.Scroll = min(max(t.Scroll+d, 0), max(e.Max, 0))
 }
 
-// closeTranscript leaves the view, so what needs the person, such as a
-// permission request, is on screen.
+// closeTranscript leaves the view, so the end of the conversation (what
+// it held back from scrollback) can print.
 func (r *reducer) closeTranscript() {
 	if r.s.Shared {
 		return // the hub's conversation view is the transcript

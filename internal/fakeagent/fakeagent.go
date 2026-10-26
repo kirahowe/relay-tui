@@ -12,16 +12,12 @@
 //
 //	{"request_permission": {"toolCallId": ..., "name": ..., "title": ...,
 //	  "rawInput": ..., "options": [...]}}
-//	                                ask the client; the answer is logged as
-//	                                "permission <outcome JSON>", and its
-//	                                _meta, if any, as "permission-meta
-//	                                <JSON>". The options default to
-//	                                allow_once and reject_once.
-//
-//	{"request_permission": {..., "content": [...], "_meta": {...}}}
-//	                                content and _meta go on the request's
-//	                                tool call, so a script can give a
-//	                                request relay's preview.
+//	                                ask the client, as a relay from before
+//	                                it dropped its holds does; the answer
+//	                                is logged as "permission <outcome
+//	                                JSON>". The options default to
+//	                                allow_once and reject_once. relay-tui
+//	                                answers cancelled to every one.
 //
 //	{"extension": {"method": "_relay/items", "result": {...}}}
 //	                                answer a relay extension method. These
@@ -34,9 +30,7 @@
 //	                                _relay/resolve, "ref" picks the
 //	                                reference it answers. Several lines for
 //	                                _relay/items answer in turn, the last
-//	                                one from then on; "after_trust": true
-//	                                marks the answer that takes over once
-//	                                a _relay/trust has succeeded. Each call
+//	                                one from then on. Each call
 //	                                is logged as "extension <method>
 //	                                <params>". Several lines for
 //	                                _relay/cards or _relay/cards/op also
@@ -94,22 +88,18 @@ type notification struct {
 
 // extension is a canned answer to an extension method.
 type extension struct {
-	Method     string            `json:"method"`
-	Ref        string            `json:"ref"`
-	AfterTrust bool              `json:"after_trust"`
-	Result     json.RawMessage   `json:"result"`
-	Error      *acp.RequestError `json:"error"`
-	Notify     *notification     `json:"notify"`
-	Card       *int64            `json:"card"`
+	Method string            `json:"method"`
+	Ref    string            `json:"ref"`
+	Result json.RawMessage   `json:"result"`
+	Error  *acp.RequestError `json:"error"`
+	Notify *notification     `json:"notify"`
+	Card   *int64            `json:"card"`
 }
 
 // Info is what the agent says about itself: Title goes in agentInfo,
 // Model, when set, is offered as a session config option of category
-// model, and Embedded advertises promptCapabilities.embeddedContext.
-type Info struct {
-	Title, Model string
-	Embedded     bool
-}
+// model.
+type Info struct{ Title, Model string }
 
 // Agent plays a script.
 type Agent struct {
@@ -123,7 +113,6 @@ type Agent struct {
 	ext       []extension
 	itemsCall int            // how many _relay/items calls have been answered
 	calls     map[string]int // how many calls of other in-turn methods have been answered
-	trusted   bool           // a _relay/trust has succeeded
 }
 
 // New parses a script. log receives one line per prompt and cancel.
@@ -159,11 +148,9 @@ func (a *Agent) Initialize(context.Context, acp.InitializeRequest) (acp.Initiali
 		impl.Title = &a.info.Title
 	}
 	return acp.InitializeResponse{
-		AgentInfo:       impl,
-		ProtocolVersion: acp.ProtocolVersion(acp.ProtocolVersionNumber),
-		AgentCapabilities: acp.AgentCapabilities{
-			PromptCapabilities: acp.PromptCapabilities{EmbeddedContext: a.info.Embedded},
-		},
+		AgentInfo:         impl,
+		ProtocolVersion:   acp.ProtocolVersion(acp.ProtocolVersionNumber),
+		AgentCapabilities: acp.AgentCapabilities{},
 	}, nil
 }
 
@@ -304,13 +291,11 @@ func (a *Agent) send(ctx context.Context, session acp.SessionId, update json.Raw
 // does not abort the wait: the test wants to see how the client answered.
 func (a *Agent) askPermission(ctx context.Context, session acp.SessionId, spec json.RawMessage) error {
 	var p struct {
-		ToolCallID string                     `json:"toolCallId"`
-		Name       *string                    `json:"name"`
-		Title      *string                    `json:"title"`
-		RawInput   any                        `json:"rawInput"`
-		Options    json.RawMessage            `json:"options"`
-		Content    []acp.ToolCallContent      `json:"content"`
-		Meta       map[string]json.RawMessage `json:"_meta"`
+		ToolCallID string          `json:"toolCallId"`
+		Name       *string         `json:"name"`
+		Title      *string         `json:"title"`
+		RawInput   any             `json:"rawInput"`
+		Options    json.RawMessage `json:"options"`
 	}
 	if err := json.Unmarshal(spec, &p); err != nil {
 		return err
@@ -331,18 +316,13 @@ func (a *Agent) askPermission(ctx context.Context, session acp.SessionId, spec j
 	resp, err := conn.RequestPermission(context.WithoutCancel(ctx), acp.RequestPermissionRequest{
 		SessionId: session,
 		Options:   opts,
-		ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(p.ToolCallID), Name: p.Name, Title: p.Title, RawInput: p.RawInput,
-			Content: p.Content, Meta: p.Meta},
+		ToolCall:  acp.ToolCallUpdate{ToolCallId: acp.ToolCallId(p.ToolCallID), Name: p.Name, Title: p.Title, RawInput: p.RawInput},
 	})
 	if err != nil {
 		return err
 	}
 	out, _ := json.Marshal(resp.Outcome)
 	a.logf("permission %s", out)
-	if len(resp.Meta) > 0 {
-		meta, _ := json.Marshal(resp.Meta)
-		a.logf("permission-meta %s", meta)
-	}
 	return nil
 }
 
@@ -404,19 +384,11 @@ func (a *Agent) answer(method string, params json.RawMessage) *extension {
 	var want *extension
 	switch method {
 	case "_relay/items":
-		var turn, base []extension
+		var list []extension
 		for _, e := range a.ext {
 			if e.Method == method {
-				if e.AfterTrust {
-					turn = append(turn, e)
-				} else {
-					base = append(base, e)
-				}
+				list = append(list, e)
 			}
-		}
-		list := base
-		if a.trusted && len(turn) > 0 {
-			list = turn
 		}
 		if len(list) > 0 {
 			want = &list[min(a.itemsCall, len(list)-1)]
@@ -462,9 +434,6 @@ func (a *Agent) answer(method string, params json.RawMessage) *extension {
 				break
 			}
 		}
-	}
-	if want != nil && want.Error == nil && method == "_relay/trust" {
-		a.trusted = true
 	}
 	return want
 }

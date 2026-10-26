@@ -69,7 +69,6 @@ func TestBoardGolden(t *testing.T) {
 	cases["input"] = input
 	confirm := all
 	confirm.Board.Confirm = 1840
-	confirm = drawnLongAgo(confirm)
 	cases["confirm"] = confirm
 	none := boardState(true)
 	none.Board.Unavailable, none.Board.Loaded = true, false
@@ -125,7 +124,7 @@ func TestOutsiderTextIsMarked(t *testing.T) {
 		for _, s := range []core.Single{boardState(true, c), detail(boardState(true, c), c.ID, 1, 0)} {
 			lines := PaneLines(s.App, s.State, t0, w, 30)
 			plain := ansi.Strip(strings.Join(lines, "\n"))
-			if !strings.Contains(plain, "outside text") {
+			if !strings.Contains(plain, "from outside") {
 				t.Fatalf("the footer does not say so:\n%s", plain)
 			}
 			for _, l := range lines {

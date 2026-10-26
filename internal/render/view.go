@@ -22,9 +22,6 @@ type Frame struct {
 	DetailMax int
 	// Active is what the frame drew as having the keys.
 	Active core.SurfaceKind
-	// Review is the review pager, when it has the keys: what it drew of
-	// the review's text and how far it scrolls.
-	Review PagerFrame
 }
 
 // View lays out the live part of the screen. It always fills height-1
@@ -32,8 +29,7 @@ type Frame struct {
 // never changes height (Bubble Tea redraws the whole frame when it does).
 // From the top: the transcript not yet in scrollback, queued messages,
 // the input box, and the status line. input is the text area as already
-// drawn, InputWidth(width) wide. While a permission request waits, its
-// summary takes the input box's place. The review takes the whole frame.
+// drawn, InputWidth(width) wide.
 //
 // The transcript is bottom-aligned, with blank rows above it while it is
 // short. Final lines that no longer fit go to Print. Lines that do not
@@ -47,21 +43,12 @@ type Frame struct {
 // while the pane has focus, the pane takes the transcript's place. The
 // lines that go to scrollback are the transcript's own either way.
 //
-// With s.Help the list of keys takes the transcript's place, unless a
-// permission request waits.
+// With s.Help the list of keys takes the transcript's place.
 func View(x core.Single, input, hint string, now time.Time, width, height int) Frame {
 	a, s := x.App, x.State
 	// What has the keys is what is drawn as active: core.SingleSurface
 	// decides it, and nothing here decides it again.
 	surf := core.SingleSurface(x)
-	if surf.Kind == core.SurfaceReview {
-		note := ""
-		if m := s.Message; m.Text != "" && now.Sub(m.At) < core.MessageFor {
-			note = m.Text
-		}
-		r := Review(surf, a, s, note, now, width, max(height-1, 1))
-		return Frame{Content: r.Content, PrintTo: s.Printed, Active: core.SurfaceReview, Review: r}
-	}
 	help := func(w int) func(room int) []string {
 		if surf.Kind != core.SurfaceHelp {
 			return nil
@@ -69,7 +56,7 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 		return func(room int) []string { return HelpLines(!surf.Covered().Typing(), w, room) }
 	}
 	if Side(width) {
-		f := view(a, s, surf, input, hint, now, MainWidth(width), height, help(MainWidth(width)), false)
+		f := view(a, s, surf, input, hint, now, MainWidth(width), height, help(MainWidth(width)), 0, false)
 		rows := max(height-1, 1)
 		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
@@ -80,7 +67,7 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 		return f
 	}
 	if h := help(width); h != nil {
-		return view(a, s, surf, input, hint, now, width, height, h, true)
+		return view(a, s, surf, input, hint, now, width, height, h, 0, true)
 	}
 	if surf.Column == core.ColumnPane {
 		mx := 0
@@ -88,20 +75,20 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 			var lines []string
 			lines, mx = paneRender(a, s, now, width, room)
 			return lines
-		}, true)
+		}, paneNeed(a, s, now, width), true)
 		f.DetailMax = mx
 		if a.PaneFocus {
 			f.Active = paneActive(a, s)
 		}
 		return f
 	}
-	return view(a, s, surf, input, hint, now, width, height, nil, true)
+	return view(a, s, surf, input, hint, now, width, height, nil, 0, true)
 }
 
 // view lays out the frame at width. over, when set, draws the rows
 // the transcript would have had; paneHint says the status line names the
 // pane's key.
-func view(a core.App, s core.State, surf core.Surface, input, hint string, now time.Time, width, height int, over func(room int) []string, paneHint bool) Frame {
+func view(a core.App, s core.State, surf core.Surface, input, hint string, now time.Time, width, height int, over func(room int) []string, need int, paneHint bool) Frame {
 	lines, at := transcript(s, width, now)
 
 	var bottom []string
@@ -115,33 +102,15 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 	}
 	inputLines := strings.Split(input, "\n")
 	inputAt, x := 0, 0
-	asking := surf.Kind == core.SurfaceRequest
-	if len(s.Asks) > 0 && !asking {
-		// Something else has the keys: the request waits above the input
-		// until the operator moves to it.
-		bottom = append(bottom, "", requestNote(s, surf, width))
+	bottom = append(bottom, "") // the input box stands apart from the text above
+	inputAt = len(bottom)
+	if boxed(width) {
+		inputAt++ // the top border
+		x = 2
 	}
-	if asking {
-		// The request's summary takes the input box's place: enter opens
-		// its review, which alone answers it.
-		bottom = append(bottom, "")
-		bottom = append(bottom, requestSummary(s, width)...)
-		inputLines = []string{""}
-		inputAt = -1
-	} else {
-		bottom = append(bottom, "") // the input box stands apart from the text above
-		inputAt = len(bottom)
-		if boxed(width) {
-			inputAt++ // the top border
-			x = 2
-		}
-		bottom = append(bottom, box("", inputLines, width)...)
-	}
+	bottom = append(bottom, box("", inputLines, width)...)
 	st := core.Status(a, s, now)
 	st.Moving = !surf.Covered().Typing()
-	if len(s.Asks) > 0 && !asking {
-		st.AnswerHint = howToAnswer(surf)
-	}
 	// With nothing to see the status line stays as it was, and a pane with
 	// the keys lists its own.
 	st.PaneHint = paneHint && st.PaneItems > 0 && surf.Column != core.ColumnPane
@@ -149,6 +118,16 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 
 	rows := max(height-1, 1)
 	room := rows - len(bottom)
+	if over != nil && room < need {
+		// What covers the transcript needs room for its question: a tall
+		// draft gives up its top rows (it is all still there to scroll back
+		// to), down to one.
+		cut := min(need-room, len(inputLines)-1)
+		first := inputAt // the first input row, past any top border
+		bottom = append(bottom[:first], bottom[first+cut:]...)
+		inputLines = inputLines[cut:]
+		room += cut
+	}
 	if over != nil {
 		// Nothing goes to scrollback while the pane covers the transcript.
 		lines = over(max(room, 0))
@@ -188,8 +167,6 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 	f.Content = strings.Join(all, "\n")
 	f.InputX, f.InputY = x, max(y, 0)
 	switch {
-	case asking:
-		f.Active = core.SurfaceRequest
 	case over != nil && surf.Kind == core.SurfaceHelp:
 		f.Active = core.SurfaceHelp
 	case surf.Kind == core.SurfaceInput:

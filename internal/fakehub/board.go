@@ -1,18 +1,14 @@
 package fakehub
 
 // The board, as relay's hub keeps it for every client on a connection:
-// _relay/cards, _relay/cards/op and _relay/cards/trust, about no
-// conversation, and _relay/cards/changed once the client has asked.
+// _relay/cards and _relay/cards/op, about no conversation, and
+// _relay/cards/changed once the client has asked.
 //
 // A config with "cards" (wire forms, as relay sends them) has a board; one
 // without answers the board's methods method-not-found. An op takes tick
 // and untick of a checklist item, and archive (refused if "seen" is not
-// the card's rev). A trust takes the card's rev and
-// sha256 (for a client that declared relay/review, the digest of the
-// card's review; see review.go), as relay does, and clears its outside
-// text. Each call is logged
-// as "cards <params>", "card-op <params>" or "card-trust <params>". As
-// relay does, each refuses a parameter it does not take: the board is the
+// the card's rev). Each call is logged as "cards <params>" or "card-op
+// <params>". As relay does, each refuses a parameter it does not take: the board is the
 // connection's, so a sessionId is refused. The
 // control file's "archive-card <id>" archives a card and notifies it.
 
@@ -97,15 +93,14 @@ func strict(method string, params map[string]any, takes ...string) error {
 func refused(msg string) error { return &acp.RequestError{Code: -32000, Message: msg} }
 
 // boardMethods are the methods boardMethod answers.
-var boardMethods = []string{"_relay/cards", "_relay/cards/op", "_relay/cards/trust"}
+var boardMethods = []string{"_relay/cards", "_relay/cards/op"}
 
 // boardMethod answers one of the board's methods, with a copy of what it
 // holds. The caller holds no lock.
 func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, error) {
 	var params map[string]any
 	_ = json.Unmarshal(raw, &params)
-	h.logf("%s %s", map[string]string{"_relay/cards": "cards", "_relay/cards/op": "card-op",
-		"_relay/cards/trust": "card-trust"}[method], raw)
+	h.logf("%s %s", map[string]string{"_relay/cards": "cards", "_relay/cards/op": "card-op"}[method], raw)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	b := h.board
@@ -118,7 +113,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			return nil, err
 		}
 		b.subscribed = true
-		return copyOf(map[string]any{"rev": b.rev, "cards": withReviews(b.active())}), nil
+		return copyOf(map[string]any{"rev": b.rev, "cards": b.active()}), nil
 	case "_relay/cards/op":
 		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "seen"); err != nil {
 			return nil, err
@@ -134,7 +129,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			}
 			c["status"] = "archived"
 			b.bump(c)
-			return copyOf(map[string]any{"card": withReview(c), "changed": true}), nil
+			return copyOf(map[string]any{"card": c, "changed": true}), nil
 		}
 		if op != "tick" && op != "untick" {
 			return nil, refused("fakehub takes tick, untick and archive only.")
@@ -144,48 +139,12 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 			if m, _ := it.(map[string]any); m != nil && num(m["id"]) == num(params["item"]) {
 				m["done"] = op == "tick"
 				b.bump(c)
-				return copyOf(map[string]any{"card": withReview(c), "changed": true}), nil
+				return copyOf(map[string]any{"card": c, "changed": true}), nil
 			}
 		}
 		return nil, refused(fmt.Sprintf("Item %v is not on card %v.", params["item"], params["card"]))
-	default: // _relay/cards/trust
-		if err := strict(method, params, "card", "rev", "sha256"); err != nil {
-			return nil, err
-		}
-		c := b.card(num(params["card"]))
-		want := any(nil)
-		if c != nil {
-			want = c["sha256"]
-			if h.reviews && want != nil {
-				want = review(cardText(c))["sha256"] // the digest of the review it sent
-			}
-		}
-		if c == nil || num(c["rev"]) != num(params["rev"]) || want == nil || want != params["sha256"] {
-			return nil, refused("Nothing was trusted; look again.")
-		}
-		delete(c, "sha256")
-		clean(c)
-		labels, _ := c["labels"].([]any)
-		c["labels"] = slices.DeleteFunc(labels, func(l any) bool { return l == "contaminated" })
-		b.bump(c)
-		return copyOf(map[string]any{"trusted": true, "card": withReview(c)}), nil
-	}
-}
-
-// clean marks every piece of text in v as the operator's.
-func clean(v any) {
-	switch v := v.(type) {
-	case map[string]any:
-		if _, ok := v["outsider"]; ok {
-			v["outsider"] = false
-		}
-		for _, x := range v {
-			clean(x)
-		}
-	case []any:
-		for _, x := range v {
-			clean(x)
-		}
+	default:
+		return nil, acp.NewMethodNotFound(method)
 	}
 }
 
@@ -206,7 +165,7 @@ func (h *Hub) archiveCard(ctx context.Context, id string) {
 	}
 	c["status"] = "archived"
 	b.bump(c)
-	body := copyOf(map[string]any{"rev": b.rev, "cards": []any{withReview(c)}})
+	body := copyOf(map[string]any{"rev": b.rev, "cards": []any{c}})
 	notify := b.subscribed
 	h.mu.Unlock()
 	if notify && conn != nil {

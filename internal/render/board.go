@@ -15,7 +15,8 @@ import (
 // The board view of the workspace pane draws the cards relay sent. relay
 // has already made every text safe: hidden characters made visible, and
 // outside text defanged and flagged outsider. The board draws that text
-// as it came, under an "untrusted" mark where it is outside text. It
+// as it came, in the warning colour and under "from outside" where a card
+// holds any. It
 // still escapes anything that does not print, and defangs a link left
 // live in outside text, so a mistake upstream cannot reach the terminal. It never writes a hyperlink and never
 // fetches anything.
@@ -122,23 +123,10 @@ func cardRight(b core.Board, c core.Card) string {
 }
 
 // cardFoot is what the bottom border of a card's panel says: that some
-// of its text came from outside, and, on the card that has the keys, that
-// t trusts it.
-func cardFoot(c core.Card, focus bool) string {
-	if !c.Labels.Contaminated {
-		return ""
-	}
-	f := styled(warnColour, "outside text")
-	if focus && c.SHA256 != "" {
-		f += styled(faint, " · t trust")
-	}
-	return f
-}
-
-// trustKey is the hint for t on card c, when t trusts it from here.
-func trustKey(c core.Card) string {
-	if c.Labels.Contaminated && c.SHA256 != "" {
-		return "t trust · "
+// of its text came from outside.
+func cardFoot(c core.Card) string {
+	if p := core.Provenance(c.Labels, nil); p != "" {
+		return styled(warnColour, p)
 	}
 	return ""
 }
@@ -341,7 +329,7 @@ func cardPanel(b core.Board, c core.Card, width int, full, focus bool) (out []st
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
-	out = panel(title, cardRight(b, c), cardFoot(c, focus), body, width, len(body)+2, focus)
+	out = panel(title, cardRight(b, c), cardFoot(c), body, width, len(body)+2, focus)
 	if full && focus {
 		if core.BoardLine(b, c) == 0 {
 			return out, 0, 1
@@ -418,24 +406,20 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)
 		pr.foot = append(pr.foot, hint("enter send · esc cancel")...)
 	case b.Confirm != 0:
-		// The question's review has the whole screen while it is open.
-		pr.foot = hint("archive " + cardName(b, b.Confirm) + ": its review is open")
-	case b.Trust != nil && b.Trust.Sent:
-		pr.foot = hint("trusting…")
-	case b.Trust != nil:
-		pr.foot = hint("trust " + cardName(b, b.Trust.Card) + ": its review is open")
+		pr.foot = hang("", styled(bold, "Archive "+cardName(b, b.Confirm)+"?"), width)
+		pr.foot = append(pr.foot, hint("y archive · any other key keeps it")...)
 	case b.Detail && sel >= 0:
 		pr.foot = cellLine(b, c, width)
 		switch c.Kind {
 		case core.CardChecklist:
-			pr.keys = "↑↓ select · x tick · a add · e edit · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
-			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back"
 		default:
-			pr.keys = "e retitle · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
+			pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
 		}
 	case len(b.Cards) > 0:
-		pr.keys = "↑↓ select · enter open · e retitle · " + trustKey(c) + "X archive · r reload · b workspace · esc back"
+		pr.keys = "↑↓ select · enter open · e retitle · X archive · r reload · b workspace · esc back"
 	case b.Unavailable:
 		// r would not ask again: the agent has no such method.
 		pr.keys = "b workspace · esc back"

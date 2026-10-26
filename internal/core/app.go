@@ -9,9 +9,8 @@ import (
 // The client's state comes in two parts. The app is one per connection:
 // what relay's own methods answer about the connection as a whole, such
 // as the board, and the workspace pane that shows it. A conversation's
-// State is one per conversation: its transcript, input, pastes,
-// permission requests and its own pane items (what it showed and
-// proposed, the docs it cited). The app is there before any conversation
+// State is one per conversation: its transcript, input, pastes and its
+// own pane items (what it showed, the docs it cited). The app is there before any conversation
 // opens and stays when they end, so the board shows with no conversation
 // open, and is the same board, with the same selection, whichever role is
 // in focus.
@@ -40,17 +39,10 @@ type App struct {
 	// role in focus all mean moving (see settleMode). Letters move and
 	// act while moving, and go into the input while typing.
 	Moving bool
-	// PasteSeq counts the pastes of this run, in every conversation, so
-	// the latest can be told by when it came (Paste.Seq).
-	PasteSeq int
-	// Shown is the review the shell last drew, while it still has the
-	// keys; Became is the surface that has the keys and when it got them;
-	// Pager is the review open, if one is, and what of it has been drawn;
+	// Became is the surface that has the keys and when it got them;
 	// KeyReplayed says the key being handled was held while connecting
-	// and is replayed (see authority.go and review.go).
-	Shown       Shown
-	Became      Shown
-	Pager       *Pager
+	// and is replayed (see authority.go).
+	Became      Since
 	KeyReplayed bool
 	// Pressed says the operator has pressed a key. Until then the start
 	// (the saved view, --open, the roster) may move the keys as it likes;
@@ -117,7 +109,7 @@ type Single struct {
 // surface does not take (see SingleSurface) is dropped whole.
 func ReduceSingle(x Single, e Event) (Single, []Effect) {
 	out, fx := reduceSingleTop(x, e)
-	out.App = settleSurface(out.App, SingleSurface(out), SingleSurfaceID(out), e.at())
+	out.App = settleSurface(out.App, SingleSurfaceID(out), e.at())
 	return out, fx
 }
 
@@ -127,32 +119,19 @@ func reduceSingleTop(x Single, e Event) (Single, []Effect) {
 	if !surf.takes(e) {
 		return x, nil
 	}
-	if need := authorityOf(e, surf, x.State); !x.App.mayTake(need, e, surf, id, x.State, e.at()) {
-		x.State.Message = Message{Text: x.App.refusal(need, surf, x.State, e.at()), At: e.at()}
+	if need := authorityOf(e, surf); !x.App.mayTake(need, id, e.at()) {
+		x.State.Message = Message{Text: x.App.refusal(need), At: e.at()}
 		return x, nil
 	}
 	switch e := e.(type) {
-	case Drawn:
-		x.App = x.App.shown(e, id).seeReview(e, ReviewSubject(surf, x.App, x.State), x.State.Pick)
-		return x, nil
 	case KeyPressed:
 		x.App.KeyReplayed, x.App.Pressed = e.Replayed, true
 	case Pasted:
 		if x.State.Phase == Exited || e.Text == "" {
 			return x, nil
 		}
-		p := x.Draft.paste(&x.App, e.Text)
+		p := x.Draft.paste(e.Text)
 		return x, []Effect{InsertInput{Text: p.Token()}}
-	case TrustPaste:
-		if x.State.Phase == Exited {
-			return x, nil
-		}
-		old, new, note := x.Draft.trust(e.Draft)
-		x.State.Message = Message{Text: note, At: e.At}
-		if note != "" {
-			return x, nil
-		}
-		return x, []Effect{ReplaceInput{Old: old, New: new}}
 	case Submit:
 		if strings.TrimSpace(e.Text) != "" {
 			e.Pastes = x.Draft.take(e.Text)
@@ -206,7 +185,6 @@ func reduce(a App, s State, e Event, shown bool) (App, State, []Effect) {
 		}
 	}
 	s.Queue = slices.Clone(s.Queue)
-	s.Asks = append([]Permission(nil), s.Asks...)
 	s.Pane.Server = append([]Item(nil), s.Pane.Server...)
 	s.Pane.Local = append([]Item(nil), s.Pane.Local...)
 	s.Pane.Cites = append([]Citation(nil), s.Pane.Cites...)

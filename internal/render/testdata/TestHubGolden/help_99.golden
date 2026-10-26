@@ -1,13 +1,13 @@
-␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;2mDev␛[m   ␛[0;1;7m?1␛[m                                                             ␛[0;2mThu Oct 15 · 09:01 ␛[m
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;2mDev␛[m                                                                  ␛[0;2mThu Oct 15 · 09:01 ␛[m
 ␛[0;2m╭─␛[m ␛[0;1mRoles␛[m ␛[0;2m──────────␛[m ␛[0;2m4␛[m ␛[0;2m─╮␛[m␛[m␛[0;36m╭─␛[m ␛[0;1mDev␛[m ␛[0;36m─────────────────────────────────────────────────────────␛[m ␛[0;2m3 turns␛[m ␛[0;36m─╮␛[m
-␛[0;2m│␛[m ␛[0;7m␛[0;1;7mDev␛[0;7m                ␛[0;1;7m●␛[0;7m␛[m␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+d              ␛[0;2mquit, from an empty input␛[m␛[0;2m                      ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m Mail       ␛[0;1;7m?1␛[m ␛[0;1m!2␛[m … ␛[0;1mp␛[m␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ?                   ␛[0;2mthese keys, from an empty input␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m ␛[0;2mGarden planner␛[m     ~␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m News               ▶␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m╰─────────────────────────────────────────────────────────────────────╯␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m ␛[0;7m␛[0;1;7mDev␛[0;7m                ␛[0;1;7m●␛[0;7m␛[m␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+o              ␛[0;2mshow or hide thinking␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m Mail               …␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+c              ␛[0;2mstop the turn, clear, or quit␛[m␛[0;2m                  ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m ␛[0;2mGarden planner␛[m     ~␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+d              ␛[0;2mquit, from an empty input␛[m␛[0;2m                      ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m News               ▶␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ?                   ␛[0;2mthese keys, from an empty input␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m╰─────────────────────────────────────────────────────────────────────╯␛[m␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m▶ replying   … waiting for scheduled work␛[m                              ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m~ scheduled work runs   ● unread␛[m                                       ␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m?N requests to answer   !N held calls␛[m                                  ␛[m ␛[0;36m│␛[m
-␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2mp private   c contaminated␛[m                                             ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m                                                                        ␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m───────────────────────────────────────────────────────────────────────␛[m␛[m ␛[0;36m│␛[m
 ␛[0;2m│␛[m                     ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;36m›␛[m                                                                      ␛[m ␛[0;36m│␛[m

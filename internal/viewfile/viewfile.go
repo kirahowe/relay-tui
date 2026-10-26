@@ -4,15 +4,12 @@
 //
 // The file is JSON in the strict dialect (package strictjson):
 //
-//	{"version": 1, "argv": [...], "sha256": "<hex>", "view": {...}}
+//	{"version": 2, "argv": [...], "sha256": "<hex>", "view": {...}}
 //
 // argv is the agent's command, as given after --, and the file is named
 // by a hash of it; a file whose argv is not this command's is not used.
 // sha256 is the digest of the view's bytes as written, so a file damaged
-// anywhere in the view is not used. A paste the operator trusted carries
-// "trust": a digest of its number and text; a paste without one, or with
-// one that does not match, comes back untrusted. So no damage to the
-// file can make a paste more trusted than it was saved.
+// anywhere in the view is not used.
 //
 // Encode and Decode are pure. Load, Write and Saver are the IO.
 package viewfile
@@ -26,14 +23,17 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
 
-// Version is the file format's version.
-const Version = 1
+// Version is the file format's version. Version 1 files have the same
+// wire format; their paste placeholders carried a trust word, which
+// Decode rewrites, so drafts survive the upgrade.
+const Version = 2
 
 // MaxSize is the largest file read or written. A view too large to save
 // whole is saved without its drafts.
@@ -80,20 +80,8 @@ type wireDraft struct {
 }
 
 type wirePaste struct {
-	ID    int    `json:"id"`
-	Text  string `json:"text"`
-	Trust string `json:"trust,omitempty"`
-}
-
-// trustSeal is what a trusted paste carries: it binds the trust to the
-// paste's number and its exact text.
-func trustSeal(id int, text string) string {
-	h := sha256.New()
-	h.Write([]byte("relay-tui trusted paste\x00"))
-	h.Write([]byte(strconv.Itoa(id)))
-	h.Write([]byte{0})
-	h.Write([]byte(text))
-	return hex.EncodeToString(h.Sum(nil))
+	ID   int    `json:"id"`
+	Text string `json:"text"`
 }
 
 func digest(b []byte) string {
@@ -122,11 +110,7 @@ func toWire(v core.View) wireView {
 	for _, d := range v.Drafts {
 		wd := wireDraft{Role: d.Role, Text: d.Text, NextPaste: d.NextPaste, Pastes: []wirePaste{}}
 		for _, p := range d.Pastes {
-			wp := wirePaste{ID: p.ID, Text: p.Text}
-			if p.Trusted {
-				wp.Trust = trustSeal(p.ID, p.Text)
-			}
-			wd.Pastes = append(wd.Pastes, wp)
+			wd.Pastes = append(wd.Pastes, wirePaste{ID: p.ID, Text: p.Text})
 		}
 		w.Drafts = append(w.Drafts, wd)
 	}
@@ -147,8 +131,7 @@ func Encode(argv []string, v core.View) (b []byte, dropped bool, err error) {
 
 func encode(argv []string, v core.View) ([]byte, error) {
 	// A paste's bytes need not be UTF-8. They are saved with the bad
-	// bytes replaced, so a trusted one no longer matches its seal and
-	// comes back untrusted.
+	// bytes replaced.
 	vb, err := json.Marshal(toWire(v), jsontext.AllowInvalidUTF8(true))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errUnencodable, err)
@@ -164,31 +147,59 @@ func encode(argv []string, v core.View) ([]byte, error) {
 }
 
 // Decode reads the file for an agent command. Any error means the
-// defaults. Untrusted says some paste had a trust that did not match it
-// and came back untrusted.
-func Decode(argv []string, b []byte) (v core.View, untrusted bool, err error) {
+// defaults.
+func Decode(argv []string, b []byte) (core.View, error) {
 	if len(b) > MaxSize {
-		return core.View{}, false, ErrTooLarge
+		return core.View{}, ErrTooLarge
 	}
 	var f file
 	if err := strictjson.Unmarshal(b, &f); err != nil {
-		return core.View{}, false, ErrDamaged
+		return core.View{}, ErrDamaged
 	}
-	if f.Version != Version {
-		return core.View{}, false, ErrVersion
+	if f.Version != Version && f.Version != 1 {
+		return core.View{}, ErrVersion
 	}
 	if !sameArgv(f.Argv, argv) {
-		return core.View{}, false, ErrOtherAgent
+		return core.View{}, ErrOtherAgent
 	}
 	if len(f.View) == 0 || digest(f.View) != f.SHA256 {
-		return core.View{}, false, ErrDamaged
+		return core.View{}, ErrDamaged
 	}
 	var w wireView
 	if err := strictjson.Unmarshal(f.View, &w); err != nil {
-		return core.View{}, false, ErrDamaged
+		return core.View{}, ErrDamaged
 	}
-	v, untrusted = fromWire(w)
-	return v, untrusted, nil
+	v := fromWire(w)
+	if f.Version == 1 {
+		v = upgradeV1(v)
+	}
+	return v, nil
+}
+
+var oldToken = regexp.MustCompile(`\[pasted \d+ lines? · (?:un)?trusted #(\d+)\]`)
+
+// upgradeV1 rewrites the placeholders of a version 1 view to the ones
+// the same pastes have now.
+func upgradeV1(v core.View) core.View {
+	for i, d := range v.Drafts {
+		byID := map[int]core.Paste{}
+		dup := map[int]bool{}
+		for _, p := range d.Pastes {
+			if _, ok := byID[p.ID]; ok {
+				dup[p.ID] = true
+			}
+			byID[p.ID] = p
+		}
+		v.Drafts[i].Text = oldToken.ReplaceAllStringFunc(d.Text, func(m string) string {
+			id, err := strconv.Atoi(oldToken.FindStringSubmatch(m)[1])
+			p, ok := byID[id]
+			if err != nil || !ok || dup[id] {
+				return m
+			}
+			return p.Token()
+		})
+	}
+	return v
 }
 
 func sameArgv(a, b []string) bool {
@@ -203,30 +214,20 @@ func sameArgv(a, b []string) bool {
 	return true
 }
 
-// fromWire is the view a file holds. A paste is trusted only when its
-// trust matches its number and text.
-func fromWire(w wireView) (core.View, bool) {
+// fromWire is the view a file holds.
+func fromWire(w wireView) core.View {
 	v := core.View{PaneFocus: w.PaneFocus, Items: w.Items, Card: w.Card, Detail: w.Detail, Line: w.Line, Col: w.Col}
 	if w.Hub != nil {
 		v.Hub = &core.HubView{Focus: w.Hub.Focus, Cursor: w.Hub.Cursor, List: w.Hub.List}
 	}
-	untrusted := false
 	for _, wd := range w.Drafts {
 		d := core.Draft{Role: wd.Role, Text: wd.Text, NextPaste: wd.NextPaste}
 		for _, wp := range wd.Pastes {
-			p := core.Paste{ID: wp.ID, Text: wp.Text}
-			switch {
-			case wp.Trust == "":
-			case wp.Trust == trustSeal(wp.ID, wp.Text):
-				p.Trusted = true
-			default:
-				untrusted = true
-			}
-			d.Pastes = append(d.Pastes, p)
+			d.Pastes = append(d.Pastes, core.Paste{ID: wp.ID, Text: wp.Text})
 		}
 		v.Drafts = append(v.Drafts, d)
 	}
-	return v, untrusted
+	return v
 }
 
 // equalBytes is bytes.Equal, named for the saver.

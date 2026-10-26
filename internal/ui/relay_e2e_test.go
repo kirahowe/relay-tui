@@ -3,10 +3,9 @@ package ui_test
 // End to end against the real relay, not the fake hub, so relay-tui's
 // fixtures cannot drift from relay's wire: relay's hub on a scratch data
 // directory (testdata/relay/setup.clj adds a role and its cards), and
-// every consent subject relay-tui reaches with no model: a card's trust
-// and a card's archive, each through the review. The relay checkout is
-// the -relay flag, by default the sibling ../relay; the tests skip
-// without it or without bb.
+// the one question relay-tui asks with no model: whether to archive a
+// card. The relay checkout is the -relay flag, by default the sibling
+// ../relay; the tests skip without it or without bb.
 
 import (
 	"flag"
@@ -27,8 +26,8 @@ import (
 
 var relayDir = flag.String("relay", filepath.Join("..", "..", "..", "relay"), "a relay checkout, for the end-to-end tests against it")
 
-// startRelay runs relay-tui against `relay acp --approvals` on a fresh
-// data directory, with no role in focus.
+// startRelay runs relay-tui against `relay acp` on a fresh data
+// directory, with no role in focus.
 func startRelay(t *testing.T, w, h int) (*harness, string) {
 	t.Helper()
 	bin, _ := filepath.Abs(filepath.Join(*relayDir, "bin", "relay"))
@@ -50,7 +49,7 @@ func startRelay(t *testing.T, w, h int) (*harness, string) {
 	}
 	h0 := &harness{t: t, emu: newTerminal(w, h), log: filepath.Join(dir, "relay.log"), done: make(chan struct{})}
 	started := make(chan struct{})
-	conn, err := agent.Start([]string{bin, "acp", "--approvals", "--data", data, "--run-dir", data}, dir, os.Stderr,
+	conn, err := agent.Start([]string{bin, "acp", "--data", data, "--run-dir", data}, dir, os.Stderr,
 		func(e core.Event) {
 			<-started
 			h0.p.Send(ui.EventMsg{Event: e})
@@ -86,32 +85,8 @@ func relayCards(t *testing.T, data string) string {
 	return string(out)
 }
 
-// A card with outside text is trusted from its review: relay's own
-// review text, read to the end, y, and relay takes the digest.
-func TestRealRelayTrustsACardFromItsReview(t *testing.T) {
-	h, data := startRelay(t, 140, 40)
-	h.waitScreen("the roles", func(s string) bool { return strings.Contains(s, "l board") })
-	h.keys("l")
-	h.waitScreen("the board", func(s string) bool {
-		return strings.Contains(s, "Read hxxps://evil[.]example") && strings.Contains(s, "t trust")
-	})
-	h.keys("t")
-	scr := h.waitScreen("the review", func(s string) bool { return strings.Contains(s, "Trust this card?") })
-	for _, want := range []string{`Read https\u{003a}//evil\u{002e}example/x?d=1`, "Characters to check:", "U+0430"} {
-		if !strings.Contains(scr, want) {
-			t.Errorf("%q not in relay's review:\n%s", want, scr)
-		}
-	}
-	h.readAll()
-	h.keys("y")
-	h.waitScreen("trusted", func(s string) bool { return strings.Contains(s, "Trusted.") })
-	if cards := relayCards(t, data); strings.Contains(cards, "contaminated") {
-		t.Errorf("relay still holds the card's outside text:\n%s", cards)
-	}
-}
-
-// A card is archived from its review, at the rev shown.
-func TestRealRelayArchivesACardFromItsReview(t *testing.T) {
+// A card is archived after asking, at the rev shown.
+func TestRealRelayArchivesACardAfterAsking(t *testing.T) {
 	h, data := startRelay(t, 140, 40)
 	h.waitScreen("the roles", func(s string) bool { return strings.Contains(s, "l board") })
 	h.keys("l")
@@ -121,10 +96,10 @@ func TestRealRelayArchivesACardFromItsReview(t *testing.T) {
 	h.keys("j")
 	time.Sleep(200 * time.Millisecond)
 	h.keys("X")
-	h.waitScreen("the review", func(s string) bool {
-		return strings.Contains(s, "Archive this card?") && strings.Contains(s, "Pack for the trip")
+	h.waitScreen("the question", func(s string) bool {
+		return strings.Contains(s, "Archive") && strings.Contains(s, "Pack for the trip") && strings.Contains(s, "y archive")
 	})
-	h.readAll()
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	h.keys("y")
 	h.wait("the archive", func() string { return relayCards(t, data) }, func(s string) bool { return !strings.Contains(s, "Pack for the trip") })
 }

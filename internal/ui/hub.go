@@ -35,12 +35,6 @@ func (m Model) updateHub(msg tea.Msg) (tea.Model, tea.Cmd) {
 		evs = m.hubWheel(msg, now)
 	case tea.PasteMsg:
 		evs = []core.Event{core.KeyPressed{At: now, Replayed: m.replaying}, pasted(core.HubSurface(m.hub), now, msg.Content)}
-	case drawnMsg:
-		if msg.gen != m.drawnGen {
-			return m, nil // a later frame replaced it
-		}
-		m.drawnPending = false
-		evs = []core.Event{core.Drawn{At: now, Surfaces: msg.set, Review: msg.review}}
 	case EventMsg:
 		evs = []core.Event{msg.Event}
 		if _, ok := msg.Event.(core.AgentExited); ok && !m.quitting {
@@ -132,32 +126,8 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 		return nil, nil
 	case core.SurfaceTranscript:
 		return one(m.transcriptKey(k, m.input.Value() == "", now))
-	case core.SurfaceRequest:
-		// The summary answers nothing: enter opens the review. Past that,
-		// in hub mode, the operator can still go to the list or another
-		// role and scroll; the request stays until answered, and the
-		// sidebar says so.
-		switch k.String() {
-		case "enter":
-			return one(core.OpenReview{At: now})
-		case "ctrl+c":
-			return one(core.Interrupt{At: now, InputEmpty: true})
-		case "ctrl+d":
-			return one(core.EOF{At: now})
-		}
-		if m.kind == kindHub {
-			switch a {
-			case MoveJump:
-				return one(core.FocusIndex{At: now, Index: index})
-			case MoveLeft:
-				return one(core.Move{At: now, Delta: -1})
-			case MovePageUp, MovePageDown:
-				return one(m.hubScroll(k, now))
-			}
-		}
-		return nil, nil
-	case core.SurfaceReview:
-		return one(m.reviewKey(surf, k, now))
+	case core.SurfaceArchive:
+		return one(m.archiveKey(k, now))
 	case core.SurfaceInput:
 		return m.typingKey(k, now)
 	case core.SurfaceEditor:
@@ -173,70 +143,17 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 	return one(m.singleConvKey(k, a, now))
 }
 
-// reviewKey is the event for a key pressed in the review (see
-// ClassifyReview): it scrolls, chooses among a request's options,
-// consents, refuses, cancels, or goes back.
-func (m *Model) reviewKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) core.Event {
-	request := surf.Subject == core.SubjectRequest
-	r := m.pagerFrame(now)
-	scroll := func(a core.ReviewAction) core.Event {
-		return core.ReviewKey{At: now, Action: a, Max: r.Max, Page: r.Page}
-	}
-	no := func() core.Event {
-		if request {
-			return core.PermissionCancel{At: now}
-		}
-		return core.PaneKey{At: now, Action: core.PaneEsc}
-	}
-	switch ClassifyReview(k) {
-	case ReviewUp:
-		return scroll(core.ReviewUp)
-	case ReviewDown:
-		return scroll(core.ReviewDown)
-	case ReviewPageUp:
-		return scroll(core.ReviewPageUp)
-	case ReviewPageDown:
-		return scroll(core.ReviewPageDown)
-	case ReviewTop:
-		return scroll(core.ReviewTop)
-	case ReviewBottom:
-		return scroll(core.ReviewBottom)
-	case ReviewNext, ReviewPrev:
-		if request {
-			d := 1
-			if ClassifyReview(k) == ReviewPrev {
-				d = -1
-			}
-			return core.PermissionMove{At: now, Delta: d}
-		}
-	case ReviewPick:
-		if request {
-			return core.PermissionConfirm{At: now}
-		}
-	case ReviewYes:
-		if request {
-			return core.PermissionQuick{At: now, Kind: core.AllowOnce}
-		}
+// archiveKey is the event for a key pressed while the pane asks whether
+// to archive a card: y says yes, Ctrl-C stops a running turn, and any
+// other key says no.
+func (m *Model) archiveKey(k tea.KeyPressMsg, now time.Time) core.Event {
+	switch k.String() {
+	case "y", "Y":
 		return core.PaneKey{At: now, Action: core.PaneYes}
-	case ReviewNo:
-		if request {
-			return core.PermissionQuick{At: now, Kind: core.RejectOnce}
-		}
-		return no()
-	case ReviewCancel:
-		return no()
-	case ReviewBack:
-		if request {
-			return scroll(core.ReviewBack)
-		}
-		return no()
-	case ReviewInterrupt:
-		if request || m.paneState().Phase == core.Busy {
-			return core.Interrupt{At: now, InputEmpty: true}
-		}
-		return no()
+	case "ctrl+c":
+		return m.paneCtrlC(now)
 	}
-	return nil
+	return core.PaneKey{At: now, Action: core.PaneEsc}
 }
 
 // hubConvKey is the event for a key pressed while moving in the
@@ -432,8 +349,6 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 		return one(core.ShowThinking{At: now})
 	case Help:
 		return one(core.ToggleHelp{At: now})
-	case TrustPaste:
-		return one(core.TrustPaste{At: now, Draft: m.input.Value()})
 	case StopTyping:
 		return one(core.StopTyping{At: now})
 	case Jump:
@@ -454,8 +369,8 @@ func (m *Model) typingKey(k tea.KeyPressMsg, now time.Time) ([]core.Event, tea.C
 
 // paneMoving turns a key pressed while moving in the pane into events:
 // the keys that move between columns and roles, then the pane's own. Its
-// editor and its questions are surfaces of their own (editorKey,
-// confirmKey).
+// editor and its question are surfaces of their own (editorKey,
+// archiveKey).
 func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, now time.Time) ([]core.Event, tea.Cmd) {
 	one := func(e core.Event) ([]core.Event, tea.Cmd) { return []core.Event{e}, nil }
 	app := m.app()
@@ -548,10 +463,6 @@ func (m *Model) hubTick(now time.Time) tea.Cmd {
 		if r := m.hub.RoleByID(m.hub.Focus); r != nil && r.Conv != nil && r.Conv.Turn == core.TurnRunning {
 			busy = true
 		}
-	}
-	// A review arms with no conversation open, too.
-	if reviewArming(m.hub.App, now) {
-		busy = true
 	}
 	if !busy {
 		return nil

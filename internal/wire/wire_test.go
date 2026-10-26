@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,45 +227,6 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
-func TestPermission(t *testing.T) {
-	var req acp.RequestPermissionRequest
-	if err := json.Unmarshal([]byte(`{"sessionId":"s","toolCall":{"toolCallId":"call_1","name":"web_fetch",
-		"title":"web_fetch {\"url\":\"https://x.test\"}","rawInput":{"url":"https://x.test"}},
-		"options":[{"optionId":"allow","name":"Allow once","kind":"allow_once"},
-		{"optionId":"reject","name":"Reject","kind":"reject_once"},{"optionId":"x","name":"Odd","kind":"future_kind"}]}`), &req); err != nil {
-		t.Fatal(err)
-	}
-	got := Permission(req, "", 7, t0)
-	want := core.PermissionAsked{At: t0, Permission: core.Permission{
-		ID: 7, Name: "web_fetch", Title: `web_fetch {"url":"https://x.test"}`, Input: `{"url":"https://x.test"}`, CallID: "call_1",
-		Options: []core.PermOption{{ID: "allow", Name: "Allow once", Kind: core.AllowOnce, N: 1}, {ID: "reject", Name: "Reject", Kind: core.RejectOnce, N: 2}, {ID: "x", Name: "Odd", Kind: "future_kind", N: 3}},
-	}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v\nwant %#v", got, want)
-	}
-	if k := got.Options[2].Kind; k.Allows() || k.Rejects() {
-		t.Errorf("an unknown kind %q counts as allow or reject", k)
-	}
-	// Bare request: no name, no title, no input.
-	bare := Permission(acp.RequestPermissionRequest{ToolCall: acp.ToolCallUpdate{ToolCallId: "c"}}, "", 1, t0)
-	if bare.Name != "" || bare.Title != "" || bare.Input != "" || len(bare.Options) != 0 {
-		t.Errorf("bare request %#v", bare)
-	}
-}
-
-func TestOutcome(t *testing.T) {
-	cases := map[string]core.AnswerPermission{
-		`{"optionId":"allow","outcome":"selected"}`: {OptionID: "allow"},
-		`{"outcome":"cancelled"}`:                   {Cancelled: true, OptionID: "ignored"},
-	}
-	for want, a := range cases {
-		b, err := json.Marshal(Outcome(a).Outcome)
-		if err != nil || string(b) != want {
-			t.Errorf("outcome %s (%v), want %s", b, err, want)
-		}
-	}
-}
-
 func TestLabels(t *testing.T) {
 	for name, c := range map[string]struct {
 		update string
@@ -312,76 +274,39 @@ func TestConnected(t *testing.T) {
 func TestPromptBlocks(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		text := rapid.String().Draw(t, "text")
-		var atts []core.Attachment
-		for i := range rapid.IntRange(0, 4).Draw(t, "n") {
-			atts = append(atts, core.Attachment{URI: fmt.Sprintf("paste:%d", i+1), Text: rapid.String().Draw(t, "paste")})
-		}
-		blocks := PromptBlocks(text, atts)
-		if len(blocks) != 1+len(atts) || blocks[0].Text == nil || blocks[0].Text.Text != text {
+		blocks := PromptBlocks(text)
+		if len(blocks) != 1 || blocks[0].Text == nil || blocks[0].Text.Text != text {
 			t.Fatalf("blocks %+v", blocks)
 		}
-		for i, a := range atts {
-			// As the agent receives it: through JSON.
-			b, err := json.Marshal(blocks[i+1])
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got acp.ContentBlock
-			if err := json.Unmarshal(b, &got); err != nil {
-				t.Fatalf("%s: %v", b, err)
-			}
-			r := got.Resource
-			if r == nil || r.Type != "resource" || r.Resource.TextResourceContents == nil {
-				t.Fatalf("not an embedded text resource: %s", b)
-			}
-			c := r.Resource.TextResourceContents
-			if c.Uri != a.URI || c.Text != a.Text || c.MimeType == nil || *c.MimeType != "text/plain" {
-				t.Fatalf("resource %+v for %+v", c, a)
-			}
-			if got.ResourceLink != nil {
-				t.Fatalf("a resource_link block: %s", b)
-			}
+		if blocks[0].Resource != nil || blocks[0].ResourceLink != nil {
+			t.Fatalf("not plain text: %+v", blocks[0])
 		}
 	})
 }
 
-func TestConnectedEmbedded(t *testing.T) {
-	init := acp.InitializeResponse{AgentCapabilities: acp.AgentCapabilities{PromptCapabilities: acp.PromptCapabilities{EmbeddedContext: true}}}
-	if c := Connected(init, acp.NewSessionResponse{}, t0).(core.Connected); !c.Embedded {
-		t.Error("embeddedContext not read")
+// relay-tui advertises no approvals: nothing under relay/review, nothing
+// else about permissions.
+func TestCapabilitiesAdvertiseNoApprovals(t *testing.T) {
+	c := Capabilities()
+	if len(c.Meta) != 0 {
+		t.Errorf("_meta %v", c.Meta)
 	}
-	if c := Connected(acp.InitializeResponse{}, acp.NewSessionResponse{}, t0).(core.Connected); c.Embedded {
-		t.Error("embedded without the capability")
+	b, _ := json.Marshal(c)
+	for _, w := range []string{"review", "approv", "permission", "trust"} {
+		if strings.Contains(string(b), w) {
+			t.Errorf("capabilities %s mention %q", b, w)
+		}
 	}
 }
 
-// relay#52: a permission request's input, read from its params, keeps
-// its numbers as written.
-func TestExactInput(t *testing.T) {
-	params := []byte(`{"sessionId":"s","toolCall":{"toolCallId":"c","rawInput":{"n":9007199254740993,"d":0.1000000000000000055511151231257827,"s":"<a>"}},"options":[]}`)
-	// In rawJSON's form, which escapes < and > as encoding/json does.
-	want := `{"d":0.1000000000000000055511151231257827,"n":9007199254740993,"s":"\u003ca\u003e"}`
-	if got := ExactInput(params); got != want {
-		t.Fatalf("input %s, want %s", got, want)
+// Every permission request is answered with a plain cancel.
+func TestCancelled(t *testing.T) {
+	r := Cancelled()
+	if r.Outcome.Cancelled == nil || r.Outcome.Selected != nil || len(r.Meta) != 0 {
+		t.Fatalf("%+v", r)
 	}
-	var req acp.RequestPermissionRequest
-	if err := json.Unmarshal(params, &req); err != nil {
-		t.Fatal(err)
-	}
-	if got := Permission(req, ExactInput(params), 1, t0).Input; got != want {
-		t.Errorf("Permission shows %s", got)
-	}
-	if got := Permission(req, "", 1, t0).Input; got != `{"d":0.1,"n":9007199254740992,"s":"\u003ca\u003e"}` {
-		t.Errorf("without it, Permission shows %s", got)
-	}
-	for _, other := range []string{
-		`{"sessionId":"s","toolCall":{"toolCallId":"c"},"options":[]}`,
-		`{"sessionId":"s","toolCall":{"toolCallId":"c","rawInput":null},"options":[]}`,
-		`{"toolCall":{"rawInput":{"n":1},"rawInput":{"n":2}}}`,
-		``,
-	} {
-		if got := ExactInput([]byte(other)); got != "" {
-			t.Errorf("read %s from %s", got, other)
-		}
+	b, _ := json.Marshal(r)
+	if string(b) != `{"outcome":{"outcome":"cancelled"}}` {
+		t.Fatalf("%s", b)
 	}
 }

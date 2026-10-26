@@ -25,10 +25,8 @@ import (
 // typed into the input as much as one that moves, so the shell sends
 // KeyPressed for each.
 //
-// Nothing saved has been sent, answered or confirmed. No permission
-// answer, trust of a card or doc, end question or queued message is
-// saved. A paste keeps its trust exactly as the operator left it, and
-// can only come back less trusted (see restoredDraft).
+// Nothing saved has been sent, answered or confirmed. No end or archive
+// question or queued message is saved.
 
 // View is a saved view.
 type View struct {
@@ -84,8 +82,7 @@ func (RestoreDraft) effect() {}
 // operator's.
 func fromOperator(e Event) bool {
 	switch e.(type) {
-	case KeyPressed, Submit, Interrupt, EOF, Pasted, TrustPaste, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
-		PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, OpenReview, ReviewKey,
+	case KeyPressed, Submit, Interrupt, EOF, Pasted, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
 		FocusIndex, Move, Type, StopTyping, Unbound, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd:
 		return true
 	}
@@ -297,17 +294,12 @@ func restoreSingle(x Single, at time.Time, fx []Effect) (Single, []Effect) {
 	return x, fx
 }
 
-// restoredDraft is the draft as it may be put back. A paste can only
-// come back as trusted as it was saved, or less, never more:
+// restoredDraft is the draft as it may be put back:
 //
 //   - a paste with no number, no text, or a number another paste has is
 //     dropped (its placeholder stays as plain text, matching nothing);
 //   - a paste whose placeholder is not in the text is dropped, since it
-//     could not be sent;
-//   - an untrusted paste whose placeholder reads "trusted" gets its
-//     untrusted placeholder back, and a trusted one whose placeholder
-//     reads "untrusted" becomes untrusted, since what the placeholder
-//     says is what is sent.
+//     could not be sent.
 //
 // next is the number the next paste takes, past every paste kept.
 func restoredDraft(d Draft) (text string, pastes []Paste, next int) {
@@ -322,31 +314,19 @@ func restoredDraft(d Draft) (text string, pastes []Paste, next int) {
 			continue
 		}
 		next = max(next, p.ID)
-		trusted := p
-		trusted.Trusted = true
-		switch {
-		case strings.Contains(text, p.untrustedToken()):
-			p.Trusted = false
-		case strings.Contains(text, trusted.Token()):
-			if !p.Trusted {
-				text = strings.ReplaceAll(text, trusted.Token(), p.untrustedToken())
-			}
-		default:
-			continue
+		if strings.Contains(text, p.Token()) {
+			pastes = append(pastes, Paste{ID: p.ID, Text: p.Text})
 		}
-		pastes = append(pastes, Paste{ID: p.ID, Text: p.Text, Trusted: p.Trusted})
 	}
 	return text, pastes, next
 }
 
-// referenced is the pastes whose placeholder, either way, is in text:
-// the ones a draft needs.
+// referenced is the pastes whose placeholder is in text: the ones a
+// draft needs.
 func referenced(ps []Paste, text string) []Paste {
 	var out []Paste
 	for _, p := range ps {
-		t := p
-		t.Trusted = true
-		if strings.Contains(text, p.untrustedToken()) || strings.Contains(text, t.Token()) {
+		if strings.Contains(text, p.Token()) {
 			out = append(out, p)
 		}
 	}
@@ -407,7 +387,7 @@ func aheadOf(saved, typed string) string {
 
 // afterPastes renumbers a saved draft's pastes to follow the ones made
 // since (have, numbered up to haveNext), placeholders and all, so the
-// two never share a number. Each paste keeps its trust.
+// two never share a number.
 func afterPastes(text string, pastes []Paste, next int, have []Paste, haveNext int) (string, []Paste, int) {
 	off := haveNext
 	for _, p := range have {
@@ -423,10 +403,7 @@ func afterPastes(text string, pastes []Paste, next int, have []Paste, haveNext i
 	for i, p := range out {
 		q := p
 		q.ID += off
-		for _, trusted := range []bool{false, true} {
-			p.Trusted, q.Trusted = trusted, trusted
-			text = strings.ReplaceAll(text, p.Token(), q.Token())
-		}
+		text = strings.ReplaceAll(text, p.Token(), q.Token())
 		out[i].ID = q.ID
 	}
 	slices.Reverse(out)

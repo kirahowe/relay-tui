@@ -104,16 +104,6 @@ func tinted() bool {
 	return ok
 }
 
-// pill is a label as the status line and a panel's title show it, when
-// tints show: its name in colour on a tint. ok is false otherwise, and the
-// caller shows the label its own way.
-func pill(name string, colour style) (string, bool) {
-	if !tinted() {
-		return "", false
-	}
-	return styled(colour|pillBg|bold, " "+name+" "), true
-}
-
 // block lays lines on a tint edge to edge, width wide, with a tinted row
 // above and below: the operator's own words in the conversation.
 func block(lines []string, width int) []string {

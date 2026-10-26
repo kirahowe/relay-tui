@@ -172,7 +172,7 @@ func TestTypingIsOnlyInAConversation(t *testing.T) {
 			if !h.App.Moving && (h.List || h.App.PaneFocus || h.Focus == "") {
 				t.Fatalf("typing in column %d with focus %q after %T", h.col(), h.Focus, e)
 			}
-			if _, pane := e.(PaneKey); pane && typing && len(effectsOf[SendCardOp](fx))+len(effectsOf[SendCardTrust](fx)) > 0 {
+			if _, pane := e.(PaneKey); pane && typing && len(effectsOf[SendCardOp](fx)) > 0 {
 				t.Fatalf("a pane key while typing reached the board: %v", fx)
 			}
 		}

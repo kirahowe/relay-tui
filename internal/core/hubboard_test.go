@@ -3,7 +3,6 @@ package core
 import (
 	"slices"
 	"testing"
-	"time"
 )
 
 // The board in hub mode is the app's: one copy for the connection, there
@@ -127,77 +126,6 @@ func TestHubCardOpWithNoConversationOpen(t *testing.T) {
 	_ = h
 }
 
-func TestHubCardTrustWithNoConversationOpen(t *testing.T) {
-	h := focusMail(t, boardHub(t, outsideCard(40, shaA)))
-	h, fx := apply(t, h, PaneKey{At: t0, Action: PaneTrust}, PaneKey{At: t0, Action: PaneYes})
-	if h.App.Board.Trust == nil || len(effectsOf[SendCardTrust](fx)) != 0 {
-		t.Fatalf("y before the delay: %+v %v", h.App.Board.Trust, fx)
-	}
-	h, fx = apply(t, h, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
-	want := SendCardTrust{Card: 30, Rev: 40, SHA256: outsideCard(40, shaA).Review.SHA256}
-	if got := effectsOf[SendCardTrust](fx); len(got) != 1 || got[0] != want || len(effectsOf[ForSession](fx)) != 0 {
-		t.Fatalf("effects %v", fx)
-	}
-	clean := checklist(30, 41, false)
-	h, _ = apply(t, h, CardTrustDone{At: t0, CardID: 30, Card: &clean})
-	if b := h.App.Board; b.Trust != nil || b.Message != "Trusted." || b.Cards[0].Labels.Contaminated {
-		t.Fatalf("after: %+v", b)
-	}
-	// relay's refusal is shown, and nothing is trusted.
-	h = focusMail(t, boardHub(t, outsideCard(40, shaA)))
-	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneTrust}, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes},
-		CardTrustDone{At: t0, CardID: 30, Err: "This conversation does not take trust from its client."})
-	if b := h.App.Board; b.Trust != nil || b.Message != "Trust failed." || !b.Cards[0].Labels.Contaminated {
-		t.Fatalf("refused: %+v", b)
-	}
-}
-
-// A trust of a card not yet sent is a question of its own (the
-// Confirm surface): nothing but a pane key reaches the core while it
-// asks, so no move covers it or moves it off screen, and the shell turns
-// any other key into one that cancels it. When the screen changes under
-// it by itself (its role leaves the roster), it goes, so a y typed for
-// something else cannot answer it; the operator asks again.
-func TestHubCardTrustGoesWhenTheScreenChanges(t *testing.T) {
-	for name, away := range map[string][]Event{
-		"another role": {FocusIndex{At: t0, Index: 0}, FocusIndex{At: t0, Index: 1}, PaneKey{At: t0, Action: PaneToggle}},
-		"the list":     {Move{At: t0, Delta: -1}, Move{At: t0, Delta: -1}, Move{At: t0, Delta: 1}, Move{At: t0, Delta: 1}},
-		"the help":     {ToggleHelp{At: t0}, ToggleHelp{At: t0}},
-		"h and l":      {Move{At: t0, Delta: -1}, Move{At: t0, Delta: 1}},
-		"typing":       {Type{At: t0}, StopTyping{At: t0}, Move{At: t0, Delta: 1}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := focusMail(t, boardHub(t, outsideCard(40, shaA)))
-			h, _ = apply(t, h, PaneKey{At: t0, Action: PaneTrust})
-			if HubSurface(h).Kind != SurfaceReview {
-				t.Fatalf("surface %+v", HubSurface(h))
-			}
-			g, fx := apply(t, h, away...)
-			if g.view() != h.view() || len(fx) != 0 || g.App.Board.Trust == nil {
-				t.Fatalf("a move reached the core past the question: %+v %v", g.view(), fx)
-			}
-			// The review takes no pane key but its own: esc cancels it.
-			g, fx = apply(t, g, PaneKey{At: t0, Action: PaneLeft}, PaneKey{At: t0, Action: PaneEsc}, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
-			if g.App.Board.Trust != nil || len(effectsOf[SendCardTrust](fx)) != 0 {
-				t.Fatalf("trust %+v, effects %v", g.App.Board.Trust, fx)
-			}
-		})
-	}
-	// The role leaves the roster under it: the screen changed, so it goes.
-	h := focusMail(t, boardHub(t, outsideCard(40, shaA)))
-	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneTrust}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}})
-	h, fx := apply(t, h, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes})
-	if h.App.Board.Trust != nil || len(effectsOf[SendCardTrust](fx)) != 0 {
-		t.Fatalf("roster: trust %+v, effects %v", h.App.Board.Trust, fx)
-	}
-	// One that is on its way is relay's to answer, whatever the screen.
-	h = focusMail(t, boardHub(t, outsideCard(40, shaA)))
-	h, _ = apply(t, h, PaneKey{At: t0, Action: PaneTrust}, PaneKey{At: t0.Add(ArmDelay), Action: PaneYes}, ToggleHelp{At: t0})
-	if t2 := h.App.Board.Trust; t2 == nil || !t2.Sent {
-		t.Fatalf("a sent trust was dropped: %+v", t2)
-	}
-}
-
 // What a conversation shows brings the workspace items into view only
 // when it is the conversation on screen: another's display does not take
 // the pane from the board.
@@ -273,39 +201,5 @@ func TestHubListKeepsTheKeysWithNoPaneToShow(t *testing.T) {
 	h, _ = apply(t, h, Move{At: t0, Delta: 1})
 	if !h.List || h.App.PaneFocus {
 		t.Fatalf("list %v pane %v", h.List, h.App.PaneFocus)
-	}
-}
-
-// A role in focus, the board with the keys: a permission request in the
-// focused conversation moves no keys. It waits, and the board keeps
-// working; h gives the keys to the conversation, where the request is
-// the surface, its delay starting then.
-func TestHubRequestLeavesTheBoardItsKeys(t *testing.T) {
-	h, _ := apply(t, boardHub(t), FocusIndex{At: t0, Index: 0}, Attached{At: t0, Role: "dev", Session: "s1"},
-		Move{At: t0, Delta: -1}, Move{At: t0, Delta: 1}, Move{At: t0, Delta: 1})
-	if h.List || !h.App.PaneFocus || h.Focus != "dev" {
-		t.Fatalf("list %v pane %v focus %q", h.List, h.App.PaneFocus, h.Focus)
-	}
-	ask := PermissionAsked{At: t0, Permission: Permission{ID: 1, CallID: "c", Name: "send",
-		Options: []PermOption{{ID: "a", Kind: AllowOnce}, {ID: "r", Kind: RejectOnce}}}}
-	h, _ = apply(t, h, routed("s1", ask))
-	if h.List || !h.App.PaneFocus || HubSurface(h).Kind != SurfacePane {
-		t.Fatalf("list %v pane %v surface %+v", h.List, h.App.PaneFocus, HubSurface(h))
-	}
-	h, fx := apply(t, h, PaneKey{At: t0, Action: PaneEnter}, PaneKey{At: t0, Action: PaneDown}, PaneKey{At: t0, Action: PaneMark})
-	if len(effectsOf[SendCardOp](fx)) != 1 {
-		t.Fatalf("the board stopped working under a request: %v", fx)
-	}
-	at := t0.Add(time.Hour)
-	h, _ = apply(t, h, PaneKey{At: at, Action: PaneEsc}, Move{At: at, Delta: -1})
-	if HubSurface(h).Kind != SurfaceRequest {
-		t.Fatalf("surface %+v", HubSurface(h))
-	}
-	h, _ = apply(t, h, OpenReview{At: at})
-	if _, fx = apply(t, h, PermissionQuick{At: at.Add(ArmDelay - time.Millisecond), Kind: AllowOnce}); answerCount(fx) != 0 {
-		t.Fatalf("answered before its delay from when it became the surface: %v", fx)
-	}
-	if _, fx = apply(t, h, PermissionQuick{At: at.Add(ArmDelay), Kind: AllowOnce}); answerCount(fx) != 1 {
-		t.Fatalf("not answered once armed: %v", fx)
 	}
 }

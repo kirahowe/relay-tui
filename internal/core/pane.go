@@ -1,78 +1,34 @@
 package core
 
 import (
-	"net/url"
 	"regexp"
 	"slices"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// The workspace pane shows work in progress that relay put there: what a
-// tool showed the operator (a display), the calls waiting for approval
-// (proposals) and what the latest reply cites. Everything in it comes from
-// data relay sent. Model text is only searched for reference strings.
-
-// ItemKind is what an item in the pane is.
-type ItemKind int
-
-const (
-	ShownItem ItemKind = iota
-	ProposalItem
-)
-
-// Proposal statuses.
-const (
-	StatusWaitingProposal = "waiting"
-	StatusAllowed         = "allowed"
-	StatusRejected        = "rejected"
-	StatusCancelledAsk    = "cancelled"
-)
+// The workspace pane shows what a tool showed the operator (a display) and
+// what the latest reply cites. Everything in it comes from data relay
+// sent. Model text is only searched for reference strings.
 
 // Source is a document a shown item draws on.
 type Source struct{ Title, Ref string }
 
-// Item is one thing in the pane.
+// Item is one thing the pane shows: what a tool showed the operator.
 type Item struct {
-	Kind    ItemKind
 	Ref     string // shown:2026-10-18/toolu_01abc, when relay knows it
 	Path    string // the doc's path in relay's data, when relay says
 	CallID  string
 	At      string
 	Title   string
-	Text    string // a shown item's text: what trusting it vouches for
+	Text    string
 	Sources []Source
-	Labels  Labels
-	// Version and SHA256 pin the text that was listed. Version is a JSON
-	// number kept as written. CanTrust and TrustCommand come from relay.
-	Version      string
-	SHA256       string
-	CanTrust     bool
-	TrustCommand string
-	// Review is relay's review text of a doc, which its trust is
-	// confirmed from; nil when relay sent none.
-	Review *Review
-	// A proposal's tool, arguments (JSON), relay's preview and status,
-	// and the arguments the operator set (Permission.FixedArgs).
-	Tool      string
-	Input     string
-	Preview   string
-	Status    string
-	FixedArgs []string
-	// AskID ties a proposal the client saw itself to its request.
-	AskID uint64
+	// Labels are where its text came from (see Provenance).
+	Labels Labels
 }
 
 // Key names an item so a selection can follow it when the list changes.
 func (it Item) Key() string {
-	if it.Kind == ProposalItem {
-		if it.CallID == "" {
-			return "p|ask|" + strconv.FormatUint(it.AskID, 10)
-		}
-		return "p|" + it.CallID
-	}
 	switch {
 	case it.Ref != "":
 		return "s|" + it.Ref
@@ -111,14 +67,6 @@ const (
 	CiteExternal = "external"
 )
 
-// TrustPrompt is a trust the operator is being asked to confirm, in its
-// review. It holds the item as it was listed, so what is confirmed is
-// what was shown.
-type TrustPrompt struct {
-	Item Item
-	Sent bool
-}
-
 // Pane is a conversation's part of the workspace pane: its items, and
 // where the operator is among them. The board, which view the pane shows
 // and whether it has the keys are the app's (App).
@@ -131,21 +79,11 @@ type Pane struct {
 	Server      []Item
 	Local       []Item // oldest first
 	Cites       []Citation
-	// Domains is the hosts that appeared in an item the operator approved
-	// or trusted in this run, sorted. It only grows.
-	Domains []string
 
 	Detail bool // the selected item fills the pane
 	Sel    int
 	SelKey string
 	Scroll int // first line shown of the detail view
-	Trust  *TrustPrompt
-	// Message is the outcome of the last action, and Command the
-	// trustCommand to show with it.
-	Message string
-	Command string
-	// Failure is an error relay gave, shown escaped.
-	Failure string
 }
 
 // PaneItems is the items the pane lists, newest first.
@@ -194,14 +132,6 @@ type (
 		Cite   Citation
 		Failed bool
 	}
-	// TrustDone is the outcome of _relay/trust for the doc at Path. Err
-	// is empty when it worked.
-	TrustDone struct {
-		At     time.Time
-		Path   string
-		Labels Labels
-		Err    string
-	}
 	// PaneKey is a key press for the pane. Max is, for scroll keys, the
 	// furthest the detail view can scroll, which the shell takes from the
 	// renderer.
@@ -215,14 +145,13 @@ type (
 
 func (e ItemsLoaded) at() time.Time      { return e.At }
 func (e CitationResolved) at() time.Time { return e.At }
-func (e TrustDone) at() time.Time        { return e.At }
 func (e PaneKey) at() time.Time          { return e.At }
 
 // PaneAction is what a key does in the pane.
 type PaneAction int
 
 const (
-	PaneOther  PaneAction = iota // any key without a meaning cancels a trust prompt
+	PaneOther  PaneAction = iota // any key without a meaning cancels the archive question
 	PaneToggle                   // h or l into or out of the pane (Move): focus it, or leave it
 	PaneUp
 	PaneDown
@@ -230,8 +159,7 @@ const (
 	PageNext
 	PaneEnter
 	PaneEsc
-	PaneTrust // t
-	PaneYes   // y
+	PaneYes // y
 	// The board's keys.
 	PaneBoard      // b: switch between the items and the board
 	PaneRefresh    // r: ask relay for the board again
@@ -254,12 +182,10 @@ const scrollPage = 10
 type (
 	RequestItems   struct{}
 	RequestResolve struct{ Ref string }
-	SendTrust      struct{ Path, Version, SHA256 string }
 )
 
 func (RequestItems) effect()   {}
 func (RequestResolve) effect() {}
-func (SendTrust) effect()      {}
 
 // refRE finds a reference in model text: [[kind:id]].
 var refRE = regexp.MustCompile(`\[\[(fact|doc|note|memo|journal|rem|file|web|shown|report):([^\[\]\n]+)\]\]`)
@@ -318,67 +244,6 @@ func (p Pane) Cite(ref string) Citation {
 	return Citation{Ref: ref}
 }
 
-var urlRE = regexp.MustCompile("(?i)(?:[a-z][a-z0-9+.\\-]*://|www\\.)[^\\s<>\"'`)\\]\\x1b]*")
-
-// Hosts is the distinct hosts of the URLs in s, lowercased, without port
-// or user, in order of appearance.
-func Hosts(s string) []string {
-	var out []string
-	for _, u := range urlRE.FindAllString(s, -1) {
-		if i := strings.Index(u, "://"); i >= 0 {
-			u = u[i+3:]
-		}
-		if i := strings.IndexAny(u, "/?#"); i >= 0 {
-			u = u[:i]
-		}
-		if i := strings.LastIndex(u, "@"); i >= 0 {
-			u = u[i+1:]
-		}
-		h := u
-		if x, err := url.Parse("//" + u); err == nil && x.Hostname() != "" {
-			h = x.Hostname()
-		}
-		h = strings.ToLower(strings.TrimRight(h, ".,;:!?"))
-		if h != "" && !slices.Contains(out, h) {
-			out = append(out, h)
-		}
-	}
-	return out
-}
-
-// NewHosts is the hosts of the URLs in texts that no approved or trusted
-// item has shown yet.
-func (p Pane) NewHosts(texts ...string) []string {
-	var out []string
-	for _, t := range texts {
-		for _, h := range Hosts(t) {
-			if !slices.Contains(p.Domains, h) && !slices.Contains(out, h) {
-				out = append(out, h)
-			}
-		}
-	}
-	return out
-}
-
-// addDomains adds the hosts of the URLs in texts to the approved set.
-func (r *reducer) addDomains(texts ...string) {
-	p := &r.s.Pane
-	var add []string
-	for _, t := range texts {
-		for _, h := range Hosts(t) {
-			if !slices.Contains(p.Domains, h) && !slices.Contains(add, h) {
-				add = append(add, h)
-			}
-		}
-	}
-	if len(add) == 0 {
-		return
-	}
-	d := append(append([]string(nil), p.Domains...), add...)
-	sort.Strings(d)
-	p.Domains = d
-}
-
 // refresh asks relay for the item list, unless it is known not to have one.
 func (r *reducer) refresh() {
 	if !r.s.Pane.Unavailable {
@@ -392,7 +257,7 @@ func (r *reducer) displays(callID string, ds []Display) {
 		return
 	}
 	for _, d := range ds {
-		it := Item{Kind: ShownItem, CallID: callID, Ref: d.Ref, Title: d.Title, Text: d.Body,
+		it := Item{CallID: callID, Ref: d.Ref, Title: d.Title, Text: d.Body,
 			Sources: d.Sources, Labels: d.Labels}
 		r.putLocal(it)
 	}
@@ -413,15 +278,6 @@ func (r *reducer) putLocal(it Item) {
 	p.Local = append(p.Local, it)
 }
 
-// proposalAsked records a permission request as a proposal.
-func (r *reducer) proposalAsked(pm Permission) {
-	r.putLocal(Item{Kind: ProposalItem, CallID: pm.CallID, Tool: pm.Name, Title: pm.Title, Input: pm.Input,
-		Preview: pm.Preview, Labels: pm.Shown().Union(r.s.Labels), Status: StatusWaitingProposal, AskID: pm.ID,
-		FixedArgs: pm.FixedArgs})
-	r.showItems()
-	r.refresh()
-}
-
 // showItems brings the workspace items into view for something relay
 // just put there, unless the operator is working in the pane.
 func (r *reducer) showItems() {
@@ -430,16 +286,6 @@ func (r *reducer) showItems() {
 		return
 	}
 	r.a.Board.Items, p.Detail, p.Scroll = true, false, 0
-}
-
-// proposalAnswered sets the status of the proposal for request id.
-func (r *reducer) proposalAnswered(id uint64, status string) {
-	p := &r.s.Pane
-	for i := range p.Local {
-		if p.Local[i].Kind == ProposalItem && p.Local[i].AskID == id {
-			p.Local[i].Status = status
-		}
-	}
 }
 
 // citeLatest asks relay about each reference in the latest reply that it
@@ -471,14 +317,6 @@ func (r *reducer) pane(e Event) {
 		default:
 			p.Relay = true
 			p.Server = append([]Item(nil), e.Items...)
-			// A trust asks about the doc as it was listed: a newer version
-			// of it cancels the question.
-			if t := p.Trust; t != nil && !t.Sent && !slices.ContainsFunc(p.Server, func(it Item) bool {
-				return it.Path == t.Item.Path && it.Version == t.Item.Version && it.SHA256 == t.Item.SHA256
-			}) {
-				p.Trust = nil
-				p.Message = "The doc changed, so nothing was trusted. Look at it again."
-			}
 		}
 		r.keepSelection()
 	case CitationResolved:
@@ -492,28 +330,9 @@ func (r *reducer) pane(e Event) {
 				p.Cites[i] = c
 			}
 		}
-	case TrustDone:
-		t := p.Trust
-		if t == nil || t.Item.Path != e.Path {
-			return
-		}
-		p.Trust = nil
-		if e.Err != "" {
-			p.Message = "Trust failed."
-			p.Failure = e.Err
-			p.Command = t.Item.TrustCommand
-			return
-		}
-		p.Message = "Trusted."
-		p.Failure, p.Command = "", ""
-		r.addDomains(t.Item.Text)
-		for _, src := range t.Item.Sources {
-			r.addDomains(src.Ref)
-		}
-		r.refresh()
 	case PaneKey:
 		r.paneKey(e)
-	case CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
+	case CardsLoaded, CardsChanged, CardOpDone:
 		r.board(e)
 	}
 }
@@ -548,19 +367,8 @@ func (r *reducer) paneKey(e PaneKey) {
 	s := &r.s
 	p := &s.Pane
 	if e.Action == PaneToggle {
-		if p.Trust != nil && p.Trust.Sent {
-			return // the pane waits on relay's answer, and keeps the keys
-		}
-		p.Trust, p.Message, p.Failure, p.Command = nil, "", "", ""
-		// An open input stays, so a request that takes the keys meanwhile
-		// leaves what was typed.
-		// A trust of a card not yet sent goes, as a doc's does: the operator
-		// asks again on purpose.
 		b := &r.a.Board
 		b.Confirm, b.Message, b.Failure = 0, "", ""
-		if b.Trust != nil && !b.Trust.Sent {
-			b.Trust = nil
-		}
 		r.a.PaneFocus = !r.a.PaneFocus
 		if r.a.PaneFocus {
 			r.a.Moving = true // the pane is never typed in
@@ -573,25 +381,10 @@ func (r *reducer) paneKey(e PaneKey) {
 	if !r.a.PaneFocus {
 		return
 	}
-	if t := p.Trust; t != nil {
-		switch {
-		case t.Sent:
-		case e.Action == PaneYes && t.Item.Review != nil:
-			// The review armed it (see review.go); relay checks the digest
-			// against the review it sent.
-			p.Trust = &TrustPrompt{Item: t.Item, Sent: true}
-			r.emit(SendTrust{Path: t.Item.Path, Version: t.Item.Version, SHA256: t.Item.Review.SHA256})
-		default:
-			p.Trust = nil
-			p.Message = "Trust cancelled."
-		}
-		return
-	}
 	if !r.a.Board.Items {
 		r.boardKey(e)
 		return
 	}
-	p.Message, p.Failure, p.Command = "", "", ""
 	if e.Action == PaneBoard {
 		r.toggleBoard()
 		return
@@ -626,30 +419,6 @@ func (r *reducer) paneKey(e PaneKey) {
 		} else {
 			r.a.PaneFocus = false
 		}
-	case PaneTrust:
-		r.startTrust(e.At, i)
-	}
-}
-
-// startTrust begins a trust of the selected item, or says why it cannot.
-func (r *reducer) startTrust(at time.Time, i int) {
-	p := &r.s.Pane
-	if i < 0 {
-		return
-	}
-	it := PaneItems(r.s)[i]
-	switch {
-	case it.Kind != ShownItem:
-		p.Message = "Only shown items can be trusted. A proposal is approved when it asks."
-	case !it.Labels.Contaminated:
-		p.Message = "Nothing to trust: this item is not marked contaminated."
-	case p.Relay && it.CanTrust && it.Path != "" && it.Version != "" && it.Review != nil:
-		p.Trust = &TrustPrompt{Item: it}
-	case it.TrustCommand != "":
-		p.Message = "Trust needs a terminal. Run this there:"
-		p.Command = it.TrustCommand
-	default:
-		p.Message = "Trust is not available here. It needs relay's dashboard: run relay."
 	}
 }
 

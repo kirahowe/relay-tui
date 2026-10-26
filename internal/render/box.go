@@ -76,3 +76,14 @@ func bannerLines(e core.Entry, width int) []string {
 	body = append(body, styled(faint, keyHints))
 	return box(e.Title, body, width)
 }
+
+// capLines is lines cut to n, with the last one ending in an ellipsis when
+// something was cut.
+func capLines(lines []string, n, width int) []string {
+	if len(lines) <= n {
+		return lines
+	}
+	out := append([]string(nil), lines[:n]...)
+	out[n-1] = truncate(out[n-1], max(width-2, 1)) + " …"
+	return out
+}

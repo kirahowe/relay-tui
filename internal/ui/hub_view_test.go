@@ -102,7 +102,7 @@ func (r *savedRun) quit() {
 }
 
 // Set a view, quit, and open again: the same role, list, pane, card and
-// draft, the paste in it as trusted or untrusted as it was.
+// draft, with the pastes in it.
 func TestHubSavedViewComesBack(t *testing.T) {
 	base, state := t.TempDir(), filepath.Join(t.TempDir(), "state")
 	r := startSaved(t, base, state, boardRoles(), 170, 40)
@@ -115,10 +115,7 @@ func TestHubSavedViewComesBack(t *testing.T) {
 	r.keys(bracketed("an email from outside"))
 	r.keys(" and ")
 	r.keys(bracketed("my own words"))
-	r.waitScreen("two placeholders", contains("untrusted #2]"))
-	time.Sleep(core.ArmDelay + 100*time.Millisecond) // trusting is armed a moment after the screen is drawn
-	r.keys("\x19")                                   // ctrl+y trusts the latest
-	r.waitScreen("trusted", contains("trusted #2]"))
+	r.waitScreen("two placeholders", contains("[pasted 1 line #2]"))
 	r.escape()
 	r.keys("l\rj") // the board, Trip prep, open, its first item
 	r.waitScreen("the item", func(string) bool { return r.emu.selected("Renew passport") })
@@ -138,27 +135,23 @@ func TestHubSavedViewComesBack(t *testing.T) {
 		return strings.Contains(s, "x tick") && r.emu.selected("Renew passport")
 	})
 	s := r.screen()
-	for _, want := range []string{"draft for news", "untrusted #1]", "trusted #2]"} {
+	for _, want := range []string{"draft for news", "[pasted 1 line #1]", "[pasted 1 line #2]"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("%q not on screen:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "untrusted #2]") {
-		t.Errorf("the trusted paste came back untrusted:\n%s", s)
-	}
-	// Sent, the untrusted paste goes as an attachment and the trusted one
-	// as text, as they would have before.
+	// Sent, both pastes go as text.
 	r.keys("hi")
 	r.waitScreen("the input has the keys", contains("enter send"))
 	r.keys("\r")
 	line := r.waitLog("prompt ")
-	if !strings.Contains(line, `[paste:1]`) || !strings.Contains(line, "my own words") || strings.Contains(line, "an email from outside") {
+	if !strings.Contains(line, "an email from outside") || !strings.Contains(line, "my own words") || strings.Contains(line, "[paste") {
 		t.Fatalf("prompt %s", line)
 	}
 	// A paste made now takes the next number.
 	r.waitScreen("the reply", contains("draft for news"))
 	r.keys(bracketed("third"))
-	r.waitScreen("the next number", contains("untrusted #3]"))
+	r.waitScreen("the next number", contains("[pasted 1 line #3]"))
 }
 
 // A role removed between runs: its focus falls back to the list, the

@@ -7,7 +7,6 @@
 package core
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
@@ -23,10 +22,6 @@ type (
 	Connected struct {
 		At                           time.Time
 		Agent, Title, Version, Model string
-		// Embedded says the agent takes embedded context in a prompt
-		// (promptCapabilities.embeddedContext), so a paste can go as a
-		// labelled resource.
-		Embedded bool
 	}
 	// Usage is the agent's context window use, and what the session has
 	// cost so far when the agent says. Size 0 means the window is unknown.
@@ -105,7 +100,7 @@ type (
 	// included. It changes nothing but what waits on the operator: a
 	// restore in flight gives way to it (see pending).
 	// Replayed says the key was held while connecting and is replayed: it
-	// may type and move, and authorizes nothing (see authority.go).
+	// may type and move, and answers nothing (see authority.go).
 	KeyPressed struct {
 		At       time.Time
 		Replayed bool
@@ -147,11 +142,8 @@ func (e Printed) at() time.Time       { return e.At }
 type Effect interface{ effect() }
 
 type (
-	// SendPrompt sends a prompt: the text, and the pastes as resources.
-	SendPrompt struct {
-		Text        string
-		Attachments []Attachment
-	}
+	// SendPrompt sends a prompt: the text, pastes in place.
+	SendPrompt struct{ Text string }
 	SendCancel struct{}
 	// RestoreInput puts text that was queued but never sent back into
 	// Role's input, ahead of whatever is there; Pastes are the pastes it
@@ -301,21 +293,13 @@ type State struct {
 	// Labels is everything the session has seen, as far as the agent has
 	// said. It only grows.
 	Labels Labels
-	// Asks is the permission requests waiting for the person, oldest
-	// first; the first is on offer and Pick is its highlighted option.
-	Asks []Permission
-	Pick int
-	// Embedded says the agent takes embedded context, so a paste goes as
-	// an attachment. The pastes themselves are the draft's (see Draft),
-	// and a queued message carries its own.
-	Embedded bool
+	// The pastes a message holds are the draft's (see Draft), and a
+	// queued message carries its own.
 	// Message is a word for the status line that shows for a few seconds.
 	Message Message
 	// Pane is the conversation's part of the workspace pane: its items.
 	// The board, and whether the pane has the keys, are the app's.
 	Pane Pane
-	// Reviewing is the request whose review is open (see review.go).
-	Reviewing *Reviewing
 	// Transcript is the full-screen view; Help says the list of keys
 	// shows.
 	Transcript Transcript
@@ -342,7 +326,6 @@ func (r *reducer) apply(e Event) {
 	case Connected:
 		if s.Phase == Starting {
 			s.Phase = Idle
-			s.Embedded = e.Embedded
 			s.Agent = e.Agent
 			r.add(banner(s.Title, e))
 			r.refresh()
@@ -363,20 +346,11 @@ func (r *reducer) apply(e Event) {
 				s.Spend = &c
 			}
 		}
-	case ItemsLoaded, CitationResolved, TrustDone, PaneKey, CardsLoaded, CardsChanged, CardOpDone, CardTrustDone:
+	case ItemsLoaded, CitationResolved, PaneKey, CardsLoaded, CardsChanged, CardOpDone:
 		r.pane(e)
-	case PermissionAsked:
-		r.closeTranscript()
-		r.permission(e)
-	case LabelsSeen, PermissionMove, PermissionConfirm, PermissionQuick, PermissionCancel, OpenReview:
-		r.permission(e)
-	case ReviewKey:
-		if e.Action == ReviewBack {
-			s.Reviewing = nil // the request waits on the dashboard
-		} else {
-			r.a.Pager = scrolled(r.a.Pager, e)
-		}
-	case UserChunk, ConvAttached, Settled, RemoteIdle, ReplayEnd, Blurred, Focused:
+	case LabelsSeen:
+		s.Labels = s.Labels.Union(e.Labels)
+	case UserChunk, ConvAttached, RemoteIdle, ReplayEnd:
 		r.shared(e)
 	case TextChunk, ThoughtChunk, ToolStarted, ToolUpdated, Ignored:
 		if s.Phase == Busy || (s.Shared && s.Phase != Exited) {
@@ -413,7 +387,6 @@ func (r *reducer) apply(e Event) {
 	case AgentExited:
 		r.a.Live = false
 		if s.Phase != Exited {
-			r.cancelAsks()
 			r.closeAll()
 			r.closeTranscript()
 			s.Phase = Exited
@@ -444,12 +417,10 @@ func (r *reducer) apply(e Event) {
 		switch {
 		case s.Phase == Busy && !s.Turn.Cancelling:
 			s.Turn.Cancelling = true
-			r.cancelAsks()
 			r.emit(SendCancel{})
 		case s.Phase == Idle && !e.InputEmpty:
 			// The shell clears the input box; there is nothing to stop.
 		default:
-			r.cancelAsks()
 			r.closeTranscript()
 			r.emit(Quit{})
 		}
@@ -462,7 +433,6 @@ func (r *reducer) apply(e Event) {
 	case ToggleHelp:
 		s.Help = !s.Help
 	case EOF:
-		r.cancelAsks()
 		r.closeTranscript() // what it held back from scrollback prints before the end
 		if s.Phase == Busy && !s.Turn.Cancelling {
 			s.Turn.Cancelling = true
@@ -639,7 +609,6 @@ func (r *reducer) closeAll() {
 }
 
 func (r *reducer) endTurn(at time.Time, sendNext bool, note string) {
-	r.cancelAsks()
 	r.closeAll()
 	if note != "" {
 		r.add(Entry{Kind: Note, Text: note, Final: true})
@@ -677,14 +646,7 @@ func (r *reducer) send(q Queued, at time.Time) {
 	r.add(Entry{Kind: User, Text: q.Text, Final: true})
 	r.s.Phase = Busy
 	r.s.Turn = Turn{Started: at, LastEvent: at}
-	sent, atts, inlined, trusted := resolve(q.Text, q.Pastes, r.s.Embedded)
-	if trusted > 0 {
-		r.add(Entry{Kind: Note, Text: fmt.Sprintf("! %d paste(s) went in as trusted text, not labelled", trusted), Final: true})
-	}
-	if inlined > 0 {
-		r.add(Entry{Kind: Note, Text: fmt.Sprintf("! %d paste(s) went in as plain text: the agent takes no attachments, so they were not labelled untrusted", inlined), Final: true})
-	}
-	r.emit(SendPrompt{Text: sent, Attachments: atts})
+	r.emit(SendPrompt{Text: resolve(q.Text, q.Pastes)})
 }
 
 // banner names the session: the shell's title, else the agent's title,

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +20,8 @@ import (
 
 // call is something the model asked the agent to do, and when.
 type call struct {
-	what string // answer, card-op, card-trust, trust, end, prompt
-	// option is the answer's option, "" for cancelled.
+	what string // card-op, end, prompt, cancel
+	// option is the card op, "" for the others.
 	option string
 	at     time.Time
 }
@@ -37,28 +36,16 @@ type callConn struct {
 func (c callConn) add(what, option string) {
 	*c.calls = append(*c.calls, call{what: what, option: option, at: *c.clock})
 }
-func (c callConn) Answer(a core.AnswerPermission)           { c.add("answer", a.OptionID) }
-func (c callConn) CardOp(_ int64, op core.CardOp)           { c.add("card-op", op.Op) }
-func (c callConn) CardTrust(int64, int64, string)           { c.add("card-trust", "") }
-func (c callConn) Trust(string, string, string, string)     { c.add("trust", "") }
-func (c callConn) End(string)                               { c.add("end", "") }
-func (c callConn) Prompt(string, string, []core.Attachment) { c.add("prompt", "") }
-func (c callConn) Cancel(string)                            { c.add("cancel", "") }
-func (c callConn) Attach(string, string)                    {}
-func (c callConn) Items(string)                             {}
-func (c callConn) Seen(string, int)                         {}
-func (c callConn) Resolve(string, string)                   {}
-func (c callConn) Cards()                                   {}
-func (c callConn) Shutdown()                                {}
-
-var surfaceAsk = core.Permission{Name: "send_mail", Options: []core.PermOption{
-	{ID: "allow", Name: "Allow", Kind: core.AllowOnce}, {ID: "reject", Name: "Reject", Kind: core.RejectOnce}}}
-
-func askEvent(at time.Time, id uint64) core.PermissionAsked {
-	p := surfaceAsk
-	p.ID, p.CallID = id, fmt.Sprintf("c%d", id)
-	return core.PermissionAsked{At: at, Permission: p}
-}
+func (c callConn) CardOp(_ int64, op core.CardOp) { c.add("card-op", op.Op) }
+func (c callConn) End(string)                     { c.add("end", "") }
+func (c callConn) Prompt(string, string)          { c.add("prompt", "") }
+func (c callConn) Cancel(string)                  { c.add("cancel", "") }
+func (c callConn) Attach(string, string)          {}
+func (c callConn) Items(string)                   {}
+func (c callConn) Seen(string, int)               {}
+func (c callConn) Resolve(string, string)         {}
+func (c callConn) Cards()                         {}
+func (c callConn) Shutdown()                      {}
 
 // surfaceHub is a hub model typing on Dev at the test's clock, with the
 // board loaded (a checklist and a note) and Mail's conversation attached.
@@ -80,15 +67,14 @@ func surfaceHub(calls *[]call, clock *time.Time) Model {
 func surfaceSingle(calls *[]call, clock *time.Time) Model {
 	m := New(callConn{calls: calls, clock: clock}, "")
 	m.clock = func() time.Time { return *clock }
-	return update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, ev(core.Connected{At: *clock, Embedded: true}),
+	return update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, ev(core.Connected{At: *clock}),
 		ev(core.CardsLoaded{At: *clock, Rev: 2, Cards: outsideNavCards()}))
 }
 
-// outsideNavCards is navCards with outside text in the first, so it can
-// be trusted.
+// outsideNavCards is navCards with outside text in the first.
 func outsideNavCards() []core.Card {
 	cards := navCards()
-	cards[0].Labels, cards[0].SHA256 = core.Labels{Contaminated: true}, "abc"
+	cards[0].Labels = core.Labels{Contaminated: true}
 	return cards
 }
 
@@ -118,9 +104,17 @@ func key(s string) tea.KeyPressMsg {
 }
 
 // surfaceKeys are the keys that mean something somewhere: every column
-// move, every pane key, the request's keys, and plain letters.
+// move, every pane key, and plain letters.
 var surfaceKeys = []string{"enter", "esc", "backspace", "tab", "up", "down", "pgup", "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y", "ctrl+j",
 	"alt+1", "alt+2", "h", "j", "k", "l", "i", "e", "E", "a", "x", "X", "y", "Y", "n", "t", "b", "v", "q", "?", " ", "1", "2", "z"}
+
+// surfaceID names what has the keys, in either mode.
+func (m Model) surfaceID() string {
+	if m.kind == kindHub {
+		return core.HubSurfaceID(m.hub)
+	}
+	return core.SingleSurfaceID(m.one)
+}
 
 // editorText is the board's editor, or "" with none open.
 func editorText(m Model) (string, bool) {
@@ -141,11 +135,9 @@ func keptAll(before, after map[string]string, except string) bool {
 	return true
 }
 
-// onScreen says the screen shows what id names: a review by its
-// heading (that every page of its text was drawn is for
-// TestConsentOnlyFromAReviewReadWhole to check), the end question with
-// its yes. Spaces and frame lines are ignored, so a wrapped line still
-// counts.
+// onScreen says the screen shows what id names: the end or archive
+// question with its yes. Spaces and frame lines are ignored, so a
+// wrapped line still counts.
 func onScreen(m Model, id string) bool {
 	var content string
 	if m.kind == kindHub {
@@ -168,28 +160,23 @@ func onScreen(m Model, id string) bool {
 		return true
 	}
 	switch {
-	case strings.HasPrefix(id, "request/"):
-		return has("Allow this tool call?")
 	case strings.HasPrefix(id, "archive/"):
-		return has("Archive this card?")
-	case strings.HasPrefix(id, "cardtrust/"):
-		return has("Trust this card?")
+		return has("Archive", "y archive")
 	case strings.HasPrefix(id, "end/"):
 		return has("End the conversation with", "y to end it")
 	}
 	return true
 }
 
-// surfaceRun drives a model with random keys, pastes, requests arriving
-// in the conversation on screen and off it, and the clock moving, and
-// checks the four rules after every step:
+// surfaceRun drives a model with random keys, pastes and board changes,
+// and the clock moving, and checks the rules after every step:
 //
 //	(a) the surface that receives a key is the one the renderer draws as
 //	    active;
-//	(b) no key received by a typing surface answers a request, sends a
-//	    card op (but the editor's own enter), trusts or confirms anything;
-//	(c) no request is allowed within ArmDelay of its review becoming the
-//	    surface (refusing and cancelling work at once);
+//	(b) no key received by a typing surface ends a conversation, archives
+//	    a card or sends a card op (but the editor's own enter);
+//	(c) no question (end, archive) is answered yes within ArmDelay of
+//	    being drawn in full (declining and cancelling work at once);
 //	(d) no draft or editor text is lost but by sending it, or by the
 //	    keys that clear it on purpose (ctrl+c in an idle input, esc or
 //	    ctrl+c in the editor).
@@ -206,23 +193,7 @@ func surfaceRun(rt *rapid.T, hub bool) {
 	} else {
 		m = surfaceSingle(&calls, &clock)
 	}
-	nextAsk := uint64(1)
-	// offer is the request that is the surface, and since when.
-	offer, since := "", time.Time{}
-	track := func() {
-		o := ""
-		if s := surface(m); s.Kind == core.SurfaceReview && s.Subject == core.SubjectRequest {
-			if hub {
-				c := m.hub.Focused()
-				o = fmt.Sprintf("%s/%d", c.Session, c.State.Asks[0].ID)
-			} else {
-				o = fmt.Sprint(m.one.State.Asks[0].ID)
-			}
-		}
-		if o != offer {
-			offer, since = o, clock
-		}
-	}
+	track := func() {}
 	// present is, for the thing a key could authorize, since when the
 	// screen has shown it in full without a break, read off the screen
 	// itself, not off what the renderer says it drew.
@@ -266,17 +237,12 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			if surf.Typing() {
 				ok := c.what == "prompt" && surf.Kind == core.SurfaceInput && name == "enter" ||
 					c.what == "card-op" && surf.Kind == core.SurfaceEditor && name == "enter" ||
-					c.what == "cancel" && name == "ctrl+c" ||
-					c.what == "answer" && c.option == "" && name == "ctrl+c" // stopping a turn cancels its requests
+					c.what == "cancel" && name == "ctrl+c"
 				if !ok {
 					rt.Fatalf("step %d: key %q while typing (%v) made a %s %q", step, name, surf.Kind, c.what, c.option)
 				}
 			}
-			// (c)
-			if c.what == "answer" && c.option == "allow" && c.at.Sub(since) < core.ArmDelay {
-				rt.Fatalf("step %d: key %q answered %q %v after the request became the surface", step, name, c.option, c.at.Sub(since))
-			}
-			// (e) what it authorized was drawn in full for the whole delay.
+			// (c) what it authorized was drawn in full for the whole delay.
 			if authorized(c) {
 				if t0, ok := present[target]; !ok || c.at.Sub(t0) < core.ArmDelay {
 					rt.Fatalf("step %d: key %q made %+v on %q, drawn in full since %v (%v)", step, name, c, target, t0, ok)
@@ -313,21 +279,34 @@ func surfaceRun(rt *rapid.T, hub bool) {
 	event := func(msg tea.Msg) {
 		was, before := surface(m), drafts(m)
 		edText, edOpen := editorText(m)
-		n := len(calls)
+		// A conversation that goes (its role leaves the roster) gives back
+		// what it still had queued: that text returns to its role's draft.
+		queued := map[string]bool{}
+		if hub {
+			for _, c := range m.hub.Convs {
+				if len(c.State.Queue) > 0 {
+					queued[c.Role] = true
+				}
+			}
+		}
 		m = update(m, msg)
 		if was.Typing() && surface(m) != was {
 			rt.Fatalf("step %d: %T took the keys from %+v to %+v", step, msg, was, surface(m))
 		}
-		if after := drafts(m); !keptAll(before, after, m.inputRole) || (was.Kind != core.SurfaceInput && !maps.Equal(before, after)) {
+		after := drafts(m)
+		grew := func() bool { // only a given-back queue may add to a draft
+			for role, text := range after {
+				if text != before[role] && !queued[role] {
+					return false
+				}
+			}
+			return true
+		}
+		if !keptAll(before, after, m.inputRole) || (was.Kind != core.SurfaceInput && !grew()) {
 			rt.Fatalf("step %d: %T changed the drafts from %q to %q", step, msg, before, after)
 		}
 		if now, open := editorText(m); edOpen && (!open || now != edText) {
 			rt.Fatalf("step %d: %T changed the editor from %q to %q", step, msg, edText, now)
-		}
-		for _, c := range calls[n:] {
-			if c.what == "answer" && c.option != "" {
-				rt.Fatalf("step %d: %T answered a request", step, msg)
-			}
 		}
 		track()
 		frames()
@@ -338,35 +317,26 @@ func surfaceRun(rt *rapid.T, hub bool) {
 		{"esc", "l", "e"},                // a card's title in the editor
 		{"esc", "l", "enter", "j", "e"},  // an item's text in the editor
 		{"esc", "l", "X"},                // the archive question
+		{"esc", "l", "X", "y"},           // archived
 		{"esc", "l", "enter", "j", "x"},  // a tick
 		{"esc", "h"},                     // the list
 		{"esc", "?"},                     // the help
 		{"esc", "X"},                     // the end question
 		{"i", "w", "o", "r", "d", "s"},   // typing
 		{"esc", "l", "e", "a", "b", "c"}, // typing in the editor
-		{"esc", "l", "t"},                // the card's trust
-		{"esc", "enter"},                 // a request's review
 		{"i", "a", "ctrl+j", "b", "ctrl+j", "c", "ctrl+j", "d", "ctrl+j", "e"}, // a tall draft
 	}
 	for range rapid.IntRange(1, 60).Draw(rt, "steps") {
 		step++
 		clock = clock.Add(time.Duration(rapid.IntRange(0, 900).Draw(rt, "ms")) * time.Millisecond)
 		switch rapid.IntRange(0, 11).Draw(rt, "what") {
-		case 0: // a request in the conversation on screen
-			e := askEvent(clock, nextAsk)
-			nextAsk++
+		case 0, 1: // the roster changes under the keys
+			roles := []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}
 			if hub {
-				event(ev(core.Routed{Session: "s1", Event: e}))
-			} else {
-				event(ev(e))
-			}
-		case 1: // a request off screen in hub mode; a second one in single
-			e := askEvent(clock, nextAsk)
-			nextAsk++
-			if hub {
-				event(ev(core.Routed{Session: "s2", Event: e}))
-			} else {
-				event(ev(e))
+				if rapid.Bool().Draw(rt, "mail stays") {
+					roles = append(roles, core.Role{ID: "mail", Title: "Mail", Conv: &core.RosterConv{Session: "s2", Turn: core.TurnIdle}})
+				}
+				event(ev(core.RosterUpdate{At: clock, Roles: roles}))
 			}
 		case 2: // the board changes: a card gets a new rev, or one is archived
 			cards := navCards()
@@ -404,108 +374,22 @@ func TestSurfaceRulesSingle(t *testing.T) {
 	t.Log(surfaceSeen)
 }
 
-// Codex round 2, finding 1: typing in a card's editor with the board's
-// keys, a request from the conversation on screen arrives. It takes no
-// keys and closes nothing: a y typed long after goes into the editor,
-// and enter sends the edit, not an answer.
-func TestARequestNeverTakesTheEditorsKeys(t *testing.T) {
-	for _, hub := range []bool{true, false} {
-		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
-			clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
-			var calls []call
-			var m Model
-			if hub {
-				m = surfaceHub(&calls, &clock)
-			} else {
-				m = surfaceSingle(&calls, &clock)
-			}
-			// esc, l to the board, enter on the first card, e on its title.
-			m = update(m, key("esc"), key("l"), key("enter"), key("e"), key("backspace"), key("backspace"), key("backspace"), key("backspace"))
-			if hub && m.hub.Focus != "dev" {
-				t.Fatalf("focus %q", m.hub.Focus)
-			}
-			m = update(m, key("a"), key("b"))
-			if text, open := editorText(m); !open || text != "ab" {
-				t.Fatalf("editor %q open %v", text, open)
-			}
-			if hub {
-				m = update(m, ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)}))
-			} else {
-				m = update(m, ev(askEvent(clock, 1)))
-			}
-			clock = clock.Add(2 * time.Second)
-			m = update(m, key("y"))
-			surf := core.SingleSurface(m.one)
-			if hub {
-				surf = core.HubSurface(m.hub)
-			}
-			if text, _ := editorText(m); text != "aby" || surf.Kind != core.SurfaceEditor {
-				t.Fatalf("editor %q surface %+v", text, surf)
-			}
-			m = update(m, key("enter"))
-			if len(calls) != 1 || calls[0].what != "card-op" {
-				t.Fatalf("calls %+v", calls)
-			}
-			// esc leaves the editor closed and the pane with the keys; the
-			// request waits for h and enter, and its review arms then.
-			m = update(m, key("esc"), key("h"), key("enter"))
-			clock = clock.Add(core.ArmDelay / 2)
-			m = update(m, key("y"))
-			if len(calls) != 1 {
-				t.Fatalf("answered within the delay: %+v", calls)
-			}
-			clock = clock.Add(core.ArmDelay)
-			m = update(m, key("y"))
-			if len(calls) != 2 || calls[1].what != "answer" || calls[1].option != "allow" {
-				t.Fatalf("calls %+v", calls)
-			}
-		})
-	}
-}
-
-// Codex round 2, finding 5: against a plain agent, typing with a
-// request waiting, ctrl+t and ctrl+o do not open a transcript that
-// could not be drawn: the letters keep typing, a paste lands in the
-// input, and esc moves to the request.
-func TestTheTranscriptDoesNotOpenUnderARequest(t *testing.T) {
-	clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
-	var calls []call
-	m := surfaceSingle(&calls, &clock)
-	m = update(m, ev(askEvent(clock, 1)))
-	m = update(m, key("ctrl+t"), key("ctrl+o"))
-	if m.one.State.Transcript.Open || core.SingleSurface(m.one).Kind != core.SurfaceInput {
-		t.Fatalf("transcript %v surface %+v", m.one.State.Transcript.Open, core.SingleSurface(m.one))
-	}
-	m = typeText(m, "abc")
-	m = update(m, tea.PasteMsg{Content: "pasted words"})
-	if v := m.input.Value(); !strings.HasPrefix(v, "abc[pasted 1 line") {
-		t.Fatalf("input %q", v)
-	}
-	m = update(m, key("esc"))
-	if s := core.SingleSurface(m.one); s.Kind != core.SurfaceRequest || !strings.HasPrefix(m.input.Value(), "abc") {
-		t.Fatalf("surface %+v input %q", s, m.input.Value())
-	}
-}
-
-// Codex round 3, finding 2: typing in a card's editor, the card is
-// archived from outside. The editor stays open with its text and says
-// so; the next letters go on into it, not to the board, so no h moves
-// and no y answers the request waiting; enter sends nothing; esc
-// discards it.
+// Typing in a card's editor, the card is archived from outside. The
+// editor stays open with its text and says so; the next letters go on
+// into it, not to the board, so no h moves and no y archives; enter sends
+// nothing; esc discards it.
 func TestAnArchivedCardLeavesItsEditorTyping(t *testing.T) {
 	for _, hub := range []bool{true, false} {
 		t.Run(fmt.Sprint("hub=", hub), func(t *testing.T) {
 			clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
 			var calls []call
 			var m Model
-			ask := tea.Msg(ev(askEvent(clock, 1)))
 			if hub {
 				m = surfaceHub(&calls, &clock)
-				ask = ev(core.Routed{Session: "s1", Event: askEvent(clock, 1)})
 			} else {
 				m = surfaceSingle(&calls, &clock)
 			}
-			m = update(m, key("esc"), key("l"), key("e"), key("x"), ask)
+			m = update(m, key("esc"), key("l"), key("e"), key("x"))
 			gone := navCards()[0]
 			gone.Rev, gone.Status = 9, core.CardArchived
 			m = update(m, ev(core.CardsChanged{At: clock, Rev: 9, Cards: []core.Card{gone}}))
@@ -537,3 +421,70 @@ func flatText(s string) string {
 }
 
 func flatScreen(content string) string { return flatText(ansi.Strip(content)) }
+
+// A tall draft on a short screen gives up rows to the archive question:
+// the question and the key that answers it are drawn in full before a y
+// can archive.
+func TestArchiveQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
+	surfaces := map[string]func(*[]call, *time.Time) Model{
+		"single": func(c *[]call, t *time.Time) Model { return surfaceSingle(c, t) },
+		"hub":    func(c *[]call, t *time.Time) Model { return surfaceHub(c, t) },
+	}
+	for name, build := range surfaces {
+		for _, height := range []int{8, 9, 10} {
+			t.Run(fmt.Sprint(name, "/height=", height), func(t *testing.T) {
+				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+				var calls []call
+				m := build(&calls, &clock)
+				m = update(m, key("i"))
+				for _, k := range []string{"a", "ctrl+j", "b", "ctrl+j", "c", "ctrl+j", "d", "ctrl+j", "e"} {
+					m = update(m, key(k))
+				}
+				m = update(m, tea.WindowSizeMsg{Width: 60, Height: height})
+				m = update(m, key("esc"), key("l"), key("X"))
+				id := m.surfaceID()
+				if !strings.HasPrefix(id, "archive/") || !onScreen(m, id) {
+					t.Fatalf("surface %q, drawn in full: %v", id, onScreen(m, id))
+				}
+			})
+		}
+	}
+}
+
+// A message queued for a role that then leaves the roster is given back:
+// its text returns to that role's draft, once, and the draft of the other
+// role is untouched.
+func TestAQueuedMessageIsGivenBackWhenItsRoleLeaves(t *testing.T) {
+	clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+	var calls []call
+	m := surfaceHub(&calls, &clock)
+	m = update(m, key("i"))
+	m = typeText(m, "first")
+	m = update(m, key("enter")) // sent: the conversation is busy now
+	m = typeText(m, "words")
+	m = update(m, key("enter")) // queued behind it
+	if got := drafts(m)["dev"]; got != "" {
+		t.Fatalf("after enter the draft is %q", got)
+	}
+	queued := false
+	for _, c := range m.hub.Convs {
+		queued = queued || len(c.State.Queue) > 0
+	}
+	if !queued {
+		t.Fatal("nothing was queued")
+	}
+	only := func(ids ...string) core.RosterUpdate {
+		var rs []core.Role
+		for _, id := range ids {
+			rs = append(rs, core.Role{ID: id, Title: id, Conv: &core.RosterConv{Session: "s-" + id, Turn: core.TurnIdle}})
+		}
+		return core.RosterUpdate{At: clock, Roles: rs}
+	}
+	m = update(m, ev(only("mail")), ev(only("dev", "mail")))
+	if got := drafts(m)["dev"]; got != "words" {
+		t.Fatalf("the draft is %q", got)
+	}
+	if got := drafts(m)["mail"]; got != "" {
+		t.Fatalf("mail's draft is %q", got)
+	}
+}
