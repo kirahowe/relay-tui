@@ -112,6 +112,8 @@ type Hub struct {
 	// Notice is a note for the status line, cleared by the next key.
 	Notice string
 	Help   bool
+	// Ready is the view of what is ready for the operator (see ready.go).
+	Ready Ready
 	// Drafts are what the operator is writing to each role: the text, as
 	// the shell last wrote it back, and the pastes it names. A role owns
 	// its draft; its conversations come and go without touching it.
@@ -324,7 +326,7 @@ func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
 	h.Drafts = slices.Clone(h.Drafts)
 	h.Restore = pending(h.Restore, e)
 	r := &hubReducer{h: h}
-	if _, ok := e.(Unbound); ok && surf.Kind == SurfaceEditor {
+	if _, ok := e.(Unbound); ok && (surf.Kind == SurfaceEditor || surf.Kind == SurfaceReadyInput) {
 		r.h.Notice = EditorPasteNote // only a paste reaches the editor as Unbound
 	} else {
 		r.apply(e)
@@ -374,7 +376,7 @@ func SetDraftText(h Hub, role, text string) Hub {
 // question. It is "" when there is none.
 func (h Hub) onScreen() string {
 	c := h.Focused()
-	if c == nil || h.List || h.EndAsk || h.Help {
+	if c == nil || h.List || h.EndAsk || h.Help || h.Ready.Open {
 		return ""
 	}
 	return c.Session
@@ -425,7 +427,8 @@ func (r *hubReducer) apply(e Event) {
 	h := &r.h
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, Replayed,
-		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited:
+		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited,
+		ReadyLoaded, ReadyChanged, ReplyDone:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -438,6 +441,7 @@ func (r *hubReducer) apply(e Event) {
 		// conversation opens.
 		h.App.Live = true
 		r.withApp(func(rd *reducer) { rd.askCards() })
+		r.askReady()
 		if h.Open != "" {
 			r.focus(h.Open, true, e.At)
 			h.App.Moving = false // opened to talk to it
@@ -448,6 +452,8 @@ func (r *hubReducer) apply(e Event) {
 		r.routed(e)
 	case CardsLoaded, CardsChanged, CardOpDone:
 		r.toApp(e, false)
+	case ReadyLoaded, ReadyChanged, ReplyDone, ReadyOpen, ReadyKey:
+		r.ready(e)
 	case PaneKey:
 		if h.List {
 			return // the pane does not have the keys
@@ -712,8 +718,9 @@ func (r *hubReducer) withApp(f func(*reducer)) {
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
-	case RequestCards, SendCardOp:
-		// The board's calls are the connection's, about no conversation.
+	case RequestCards, SendCardOp, RequestReady, SendReply:
+		// The board's and the ready view's calls are the connection's,
+		// about no conversation.
 		r.emit(f)
 	case RestoreInput:
 		r.giveBack(c.Role, f)

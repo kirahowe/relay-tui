@@ -272,6 +272,25 @@ func (a *Agent) CardOp(card int64, op core.CardOp) {
 	})
 }
 
+// Ready asks relay for what is ready for the operator and emits
+// ReadyLoaded. It is the connection's, about no conversation. It does not
+// block.
+func (a *Agent) Ready() {
+	a.enqueue(func() {
+		raw, err := a.call(wire.MethodReady, wire.ReadyParams())
+		a.emit(wire.Ready(raw, err, time.Now()))
+	})
+}
+
+// Reply sends relay the operator's answer to a message and emits
+// ReplyDone. It does not block.
+func (a *Agent) Reply(message int64, text string) {
+	a.enqueue(func() {
+		_, err := a.call(wire.MethodReply, wire.ReplyParams(message, text))
+		a.emit(wire.ReplyOutcome(message, err, time.Now()))
+	})
+}
+
 // HandleExtensionMethod takes relay's notifications about the board, the
 // roster and replays. It ignores _relay/permission/settled, which a relay
 // that still holds calls sends: this client was never asked. The client
@@ -280,6 +299,11 @@ func (c client) HandleExtensionMethod(_ context.Context, method string, params j
 	switch method {
 	case wire.MethodCardsChanged:
 		if e, ok := wire.CardsChanged(params, time.Now()); ok {
+			c.a.emit(e)
+		}
+		return nil, nil
+	case wire.MethodReadyChanged:
+		if e, ok := wire.ReadyChanged(params, time.Now()); ok {
 			c.a.emit(e)
 		}
 		return nil, nil

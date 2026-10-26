@@ -40,6 +40,11 @@ const (
 	// (against a single agent; in hub mode the conversation is always
 	// drawn whole).
 	SurfaceTranscript
+	// SurfaceReady is the view of what is ready for the operator, over the
+	// whole screen (hub mode only), moving.
+	SurfaceReady
+	// SurfaceReadyInput is the reply being written in that view, typing.
+	SurfaceReadyInput
 )
 
 // Column is the column of the screen the keys are in: the list of
@@ -68,7 +73,9 @@ func (s Surface) Covered() Surface {
 
 // Typing says the keys type text: into the conversation's input or the
 // board's editor. Nothing typed answers anything.
-func (s Surface) Typing() bool { return s.Kind == SurfaceInput || s.Kind == SurfaceEditor }
+func (s Surface) Typing() bool {
+	return s.Kind == SurfaceInput || s.Kind == SurfaceEditor || s.Kind == SurfaceReadyInput
+}
 
 // HubSurface is what has the keys in hub mode.
 func HubSurface(h Hub) Surface {
@@ -83,6 +90,15 @@ func HubSurface(h Hub) Surface {
 		under = SurfaceInput
 	}
 	s := Surface{Kind: under, Under: under, Column: col}
+	if h.Ready.Open {
+		// The view covers the screen, and has the keys whichever column
+		// had them: it asks nothing and answers nothing but its reply.
+		s.Kind, s.Under = SurfaceReady, SurfaceReady
+		if h.Ready.Input != nil {
+			s.Kind, s.Under = SurfaceReadyInput, SurfaceReadyInput
+		}
+		return s
+	}
 	switch {
 	case h.Help:
 		s.Kind = SurfaceHelp
@@ -166,6 +182,10 @@ func (s Surface) takes(e Event) bool {
 		return k == SurfaceConversation
 	case ConfirmEnd:
 		return k == SurfaceEnd
+	case ReadyOpen:
+		return in(SurfaceConversation, SurfaceList, SurfacePane, SurfaceReady)
+	case ReadyKey:
+		return in(SurfaceReady, SurfaceReadyInput)
 	case Move:
 		return in(SurfaceConversation, SurfaceList, SurfacePane)
 	case Type:
@@ -180,11 +200,11 @@ func (s Surface) takes(e Event) bool {
 		}
 		// The wheel scrolls the conversation wherever the keys are, but
 		// under the questions and the editor, which have the keys.
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceReady, SurfaceReadyInput)
 	case Interrupt:
-		return !in(SurfaceHelp, SurfaceEnd)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceReady, SurfaceReadyInput)
 	case EOF:
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceReady, SurfaceReadyInput)
 	}
 	return true
 }

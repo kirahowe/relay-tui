@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 type testClient struct {
 	mu       sync.Mutex
 	replayed chan json.RawMessage
+	notes    chan json.RawMessage // _relay/ready/changed, when a test wants them
 }
 
 func (c *testClient) RequestPermission(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
@@ -23,6 +25,9 @@ func (c *testClient) SessionUpdate(context.Context, acp.SessionNotification) err
 func (c *testClient) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {
 	if method == "_relay/replayed" {
 		c.replayed <- params
+	}
+	if method == "_relay/ready/changed" && c.notes != nil {
+		c.notes <- params
 	}
 	return nil, nil
 }
@@ -172,5 +177,40 @@ func TestRosterTurnEndsAfterThePromptAnswer(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if got := turn(); got != "idle" {
 		t.Fatalf("later it says %q", got)
+	}
+}
+
+func TestReadyViewAnswersRepliesAndNotifies(t *testing.T) {
+	item := json.RawMessage(`{"id":"message:4","kind":"message","message":4,"replyTo":4,"title":"T","replies":[]}`)
+	h := New(Config{Ready: []json.RawMessage{item}}, io.Discard)
+	conn, tc := connectHub(t, h)
+	notes := make(chan json.RawMessage, 2)
+	tc.notes = notes
+	ctx := context.Background()
+	raw, err := conn.CallExtension(ctx, "_relay/ready", map[string]any{})
+	if err != nil || !json.Valid(raw) {
+		t.Fatalf("%s %v", raw, err)
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/ready", map[string]any{"sessionId": "s"}); err == nil {
+		t.Errorf("a sessionId was taken")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/reply", map[string]any{"inReplyTo": 9, "text": "x"}); err == nil {
+		t.Errorf("a reply to nothing was taken")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/reply", map[string]any{"inReplyTo": 4, "text": "Thanks"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case n := <-notes:
+		if !strings.Contains(string(n), `"Thanks"`) {
+			t.Errorf("%s", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification")
+	}
+	// A hub with no view says so, as a plain agent does.
+	conn2, _ := connect(t, Config{})
+	if _, err := conn2.CallExtension(ctx, "_relay/ready", map[string]any{}); err == nil {
+		t.Errorf("a hub without the view answered")
 	}
 }

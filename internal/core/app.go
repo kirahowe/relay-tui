@@ -80,7 +80,7 @@ const UnboundNote = "i to type"
 // EditorPasteNote is what the status line says for a paste while the
 // board's editor is open. A card's text is the operator's own words, so
 // a paste, which may be anyone's, does not go into it.
-const EditorPasteNote = "a card's editor takes no paste: type the text"
+const EditorPasteNote = "this input takes no paste: type the text"
 
 // settleMode keeps the mode true to the column: anywhere but the
 // conversation is moving.

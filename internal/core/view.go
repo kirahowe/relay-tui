@@ -83,7 +83,8 @@ func (RestoreDraft) effect() {}
 func fromOperator(e Event) bool {
 	switch e.(type) {
 	case KeyPressed, Submit, Interrupt, EOF, Pasted, PaneKey, ShowTools, ShowThinking, TranscriptKey, ToggleHelp,
-		FocusIndex, Move, Type, StopTyping, Unbound, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd:
+		FocusIndex, Move, Type, StopTyping, Unbound, ListMove, ListOpen, StartConversation, AskEnd, ConfirmEnd,
+		ReadyOpen, ReadyKey:
 		return true
 	}
 	return false

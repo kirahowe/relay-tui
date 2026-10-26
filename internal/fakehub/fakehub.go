@@ -67,6 +67,9 @@ type Config struct {
 	// Cards is the board, as wire forms (see board.go). Without it the
 	// board's methods are not found.
 	Cards []json.RawMessage `json:"cards"`
+	// Ready is what is ready for the operator, as wire items (see
+	// ready.go). Without it the view's methods are not found.
+	Ready []json.RawMessage `json:"ready"`
 }
 
 // RoleConfig is one role.
@@ -143,8 +146,10 @@ type Hub struct {
 	// lag is how long after a prompt's answer the roster says the turn
 	// ended, as relay's does.
 	lag time.Duration
-	// board is relay's board, or nil for none.
+	// board is relay's board, or nil for none; ready is the view of what
+	// is ready, or nil for none.
 	board *board
+	ready *readyView
 }
 
 // New returns a hub with the config's roles. log receives one line per
@@ -156,6 +161,11 @@ func New(cfg Config, log io.Writer) *Hub {
 		fmt.Fprintf(log, "config: cards: %v\n", err)
 	}
 	h.board = b
+	rv, err := newReady(cfg.Ready)
+	if err != nil {
+		fmt.Fprintf(log, "config: ready: %v\n", err)
+	}
+	h.ready = rv
 	for _, rc := range cfg.Roles {
 		r := &role{RoleConfig: rc}
 		if rc.Live != nil {
@@ -514,9 +524,12 @@ func (h *Hub) askPermission(ctx context.Context, c *conv, name string) (string, 
 }
 
 // HandleExtensionMethod answers the hub's extension methods.
-func (h *Hub) HandleExtensionMethod(_ context.Context, method string, params json.RawMessage) (any, error) {
+func (h *Hub) HandleExtensionMethod(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	if slices.Contains(boardMethods, method) {
 		return h.boardMethod(method, params)
+	}
+	if slices.Contains(readyMethods, method) {
+		return h.readyMethod(ctx, method, params)
 	}
 	var p struct {
 		SessionID string `json:"sessionId"`
