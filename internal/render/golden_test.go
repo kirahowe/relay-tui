@@ -77,14 +77,16 @@ func TestStatusGolden(t *testing.T) {
 		{Kind: core.StatusStarting},
 		{Kind: core.StatusIdle},
 		{Kind: core.StatusIdle, Queued: 2},
-		{Kind: core.StatusIdle, Context: 12, HasContext: true},
-		{Kind: core.StatusIdle, Context: 12, HasContext: true, Spend: &core.Cost{Amount: 1.234, Currency: "USD"}},
-		{Kind: core.StatusWriting, Elapsed: 3 * time.Second, Spend: &core.Cost{Amount: 0.5, Currency: "EUR"}},
+		{Kind: core.StatusIdle, Context: 12, HasContext: true, Detail: true},
+		{Kind: core.StatusIdle, Context: 12, HasContext: true, Detail: true, Spend: &core.Cost{Amount: 1.234, Currency: "USD"}},
+		{Kind: core.StatusIdle, Context: 12, HasContext: true, Spend: &core.Cost{Amount: 1.234, Currency: "USD"}}, // no detail: neither shows
+		{Kind: core.StatusWriting, Elapsed: 3 * time.Second, Detail: true, Spend: &core.Cost{Amount: 0.5, Currency: "EUR"}},
 		{Kind: core.StatusWaiting, Elapsed: 2*time.Minute + 10*time.Second, Quiet: 45 * time.Second},
 		{Kind: core.StatusThinking, Elapsed: 14 * time.Second},
 		{Kind: core.StatusWriting, Elapsed: 3 * time.Second, Queued: 1},
+		{Kind: core.StatusRunning, Tool: `echo {"text":"hi"}`, Tools: 1, Elapsed: 62 * time.Second, Detail: true},
 		{Kind: core.StatusRunning, Tool: `echo {"text":"hi"}`, Tools: 1, Elapsed: 62 * time.Second},
-		{Kind: core.StatusRunning, Tools: 3, Elapsed: time.Hour + 4*time.Minute},
+		{Kind: core.StatusRunning, Tools: 3, Elapsed: time.Hour + 4*time.Minute, Detail: true},
 		{Kind: core.StatusRetrying, RetryIn: 8500 * time.Millisecond, Reason: "rate limit exceeded", Elapsed: 41 * time.Second},
 		{Kind: core.StatusCancelling, Elapsed: 3 * time.Second},
 		{Kind: core.StatusExited},
@@ -93,11 +95,11 @@ func TestStatusGolden(t *testing.T) {
 	for _, l := range lines {
 		out = append(out, StatusText(l, "shift+enter for a new line", t0, 80))
 	}
-	out = append(out, StatusText(lines[6], "", t0, 20))
+	out = append(out, StatusText(lines[7], "", t0, 20))
 	// At 40 columns the parts that do not fit whole are left out.
-	busy := core.StatusLine{Kind: core.StatusWaiting, Elapsed: 130 * time.Second, Quiet: 45 * time.Second, Queued: 2, Context: 12, HasContext: true}
+	busy := core.StatusLine{Kind: core.StatusWaiting, Elapsed: 130 * time.Second, Quiet: 45 * time.Second, Queued: 2, Context: 12, HasContext: true, Detail: true}
 	out = append(out, StatusText(busy, "", t0, 80), StatusText(busy, "", t0, 40))
-	out = append(out, StatusText(core.StatusLine{Kind: core.StatusIdle, Context: 12, HasContext: true}, "shift+enter for a new line", t0, 40))
+	out = append(out, StatusText(core.StatusLine{Kind: core.StatusIdle, Context: 12, HasContext: true, Detail: true}, "shift+enter for a new line", t0, 40))
 	requireGolden(t, strings.Join(out, "\n"))
 }
 

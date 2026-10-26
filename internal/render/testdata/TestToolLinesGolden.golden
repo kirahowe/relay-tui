@@ -1,18 +1,18 @@
-␛[0;2m  ○ bash␛[m
+␛[0;2m  ○ waiting␛[m
 
-␛[0;2m  ⠋ bash␛[m
+␛[0;2m  ⠋ working␛[m
 
-␛[0;2m  ✓ roles␛[m
+␛[0;2m  ✓ worked␛[m
 
-  ✗ read_file · no such file
+  ✗ failed · no such file
 
-␛[0;2m  ✓ echo · stopped␛[m
+␛[0;2m  ✓ stopped␛[m
 
-  ✗ roles · read_file · fact_add ×3 · role_add ×… · 1 failed
+  ✗ failed · 1 failed
 
-␛[0;2m  ✓ tool · 検索 東京の天気を調べて、明日の予報を教えてくだ…␛[m
+␛[0;2m  ✓ worked␛[m
 
-␛[0;2m  ✓ multi line[31m title␛[m
+␛[0;2m  ✓ worked␛[m
 
   ✓ roles
   ✗ read_file

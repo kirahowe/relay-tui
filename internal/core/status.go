@@ -55,12 +55,18 @@ type StatusLine struct {
 	// status line names the mode; the panels name it elsewhere. The
 	// renderer sets Moving from the surface (see Surface).
 	Moving, ShowMode bool
+	// Detail says the operator turned on the detail toggle (Ctrl-T shows
+	// tool calls in full): only then do the tool's name, the context
+	// share and the spend show. By default the line says what the agent
+	// is doing and nothing about how.
+	Detail bool
 }
 
 // Status describes conversation s, in app a, at time now.
 func Status(a App, s State, now time.Time) StatusLine {
 	l := StatusLine{Queued: len(s.Queue), Spend: s.Spend,
-		PaneView: "workspace", PaneItems: len(PaneItems(s)), Moving: a.Moving || a.PaneFocus, ShowMode: true}
+		PaneView: "workspace", PaneItems: len(PaneItems(s)), Moving: a.Moving || a.PaneFocus, ShowMode: true,
+		Detail: s.Transcript.Tools}
 	if !a.Board.Items {
 		l.PaneView, l.PaneItems = "board", len(a.Board.Cards)
 	}

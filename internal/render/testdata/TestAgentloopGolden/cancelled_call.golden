@@ -16,10 +16,10 @@
 
 Running it.
 
-  ✗ echo · The run stopped while this call was running, so it may or may not ha…
+  ✗ failed · The run stopped while this call was running, so it may or may not …
 ␛[0;2m[cancelled]␛[m
 
 ␛[0;2m╭──────────────────────────────────────────────────────────────────────────────╮␛[m
 ␛[0;2m│␛[m › ␛[0;2m                                                                          ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰──────────────────────────────────────────────────────────────────────────────╯␛[m
-␛[0;2m  ready · 0% context · ␛[0;1mTYPING␛[0;2m · ? keys␛[m
+␛[0;2m  ready · ␛[0;1mTYPING␛[0;2m · ? keys␛[m

@@ -268,17 +268,19 @@ func TestSimpleReply(t *testing.T) {
 	}
 }
 
-// toolRun is how tool_loop.jsonl's run of two calls shows, as chips.
-const toolRun = `✓  echo {"text":"hi"}   ls -la`
+// toolRun is how tool_loop.jsonl's run of two calls shows: one plain word,
+// no tool names (they are in the transcript).
+const toolRun = `✓  worked`
 
 // Tool calls show as one line each, apart from the prose, and the status
-// line names the running tool.
+// line says only that the agent is working. The tool names, the context
+// use and the spend show once the detail toggle (ctrl+t) has been used.
 func TestToolLoop(t *testing.T) { bothSizes(t, testToolLoop) }
 
 func testToolLoop(t *testing.T, cols, rows int) {
 	h := start(t, "tool_loop.jsonl", cols, rows)
 	h.keys("look\r")
-	mid := h.waitScreen("a running tool", func(s string) bool { return strings.Contains(s, `running echo {"text":"hi"}`) })
+	mid := h.waitScreen("a running tool", func(s string) bool { return strings.Contains(s, "working") && !strings.Contains(s, "echo") })
 	_ = mid
 	time.Sleep(300 * time.Millisecond) // let the prints in flight land
 	t.Logf("screen mid-turn:\n%s", strings.TrimRight(h.screen(), "\n "))
@@ -287,9 +289,18 @@ func testToolLoop(t *testing.T, cols, rows int) {
 	all := h.all()
 	// With the terminal's colours known each tool is a chip.
 	orderedIn(t, all, "› look", "Let me look.", toolRun, "It said hi, and the directory is fine.")
-	if st := statusLine(h.screen()); !strings.Contains(st, "12% context · $0.03") {
-		t.Fatalf("status %q, want the context use and the spend", st)
+	if st := statusLine(h.screen()); strings.Contains(st, "context") || strings.Contains(st, "$") {
+		t.Fatalf("status %q, want no context use or spend by default", st)
 	}
+	if strings.Contains(all, "echo") || strings.Contains(all, "ls -la") {
+		t.Fatalf("a tool name reached the chat:\n%s", all)
+	}
+	h.keys("\x14")
+	h.waitScreen("the tools in full", func(s string) bool { return strings.Contains(s, "echo") && strings.Contains(s, "transcript") })
+	h.keys("\x1b")
+	h.waitScreen("the detail status", func(s string) bool {
+		return strings.Contains(statusLine(s), "12% context · $0.03")
+	})
 	if n := count(all, toolRun); n != 1 {
 		t.Fatalf("the run appears %d times:\n%s", n, all)
 	}
@@ -316,7 +327,7 @@ func testToolBurstDoesNotRedraw(t *testing.T, cols, rows int) {
 	if out := h.emu.written()[before:]; strings.Contains(out, ansi.EraseScreenBelow) || strings.Contains(out, ansi.EraseEntireScreen) {
 		t.Fatalf("the frame was erased and redrawn during the turn")
 	}
-	if n := count(h.all(), "✓  read file1.go   read file2.go"); n != 1 {
+	if n := count(h.all(), toolRun); n != 1 {
 		t.Fatalf("the run shows %d times:\n%s", n, h.all())
 	}
 	// ctrl+t shows the calls in full in the transcript view, and
@@ -396,7 +407,7 @@ func TestCtrlCCancelsAndAgentSurvives(t *testing.T) { bothSizes(t, testCtrlCCanc
 func testCtrlCCancelsAndAgentSurvives(t *testing.T, cols, rows int) {
 	h := start(t, "cancel.jsonl", cols, rows)
 	h.keys("go\r")
-	h.waitScreen("running", func(s string) bool { return strings.Contains(s, "running sleep 60") })
+	h.waitScreen("running", func(s string) bool { return strings.Contains(s, "working") })
 	h.keys("later\r")
 	h.waitScreen("queued", func(s string) bool { return strings.Contains(s, "queued › later") })
 	h.keys("\x03")
@@ -406,7 +417,7 @@ func testCtrlCCancelsAndAgentSurvives(t *testing.T, cols, rows int) {
 		t.Fatalf("the agent never saw session/cancel:\n%s", h.agentLog())
 	}
 	all := h.all()
-	orderedIn(t, all, "Working on it.", "sleep 60 · stopped", "[cancelled]")
+	orderedIn(t, all, "Working on it.", "✓ stopped", "[cancelled]")
 	if !strings.Contains(h.screen(), "› later") {
 		t.Fatalf("queued text not restored to the input:\n%s", h.screen())
 	}
@@ -420,7 +431,7 @@ func testCtrlCCancelsAndAgentSurvives(t *testing.T, cols, rows int) {
 func TestCtrlCTwiceQuits(t *testing.T) {
 	h := start(t, "cancel.jsonl", 80, 24)
 	h.keys("go\r")
-	h.waitScreen("running", func(s string) bool { return strings.Contains(s, "running sleep 60") })
+	h.waitScreen("running", func(s string) bool { return strings.Contains(s, "working") })
 	h.keys("\x03")
 	h.waitIdle()
 	h.keys("\x03")

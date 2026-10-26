@@ -180,7 +180,7 @@ func TestPTYCtrlCCancels(t *testing.T) {
 	s := runPTY(t, "--", fakeAgent, "-log", log, script("cancel.jsonl"))
 	s.waitScreen("ready")
 	s.keys("go\r")
-	s.waitScreen("running sleep 60")
+	s.waitScreen("working")
 	s.keys("\x03")
 	s.waitScreen("[cancelled]")
 	s.keys("again\r")

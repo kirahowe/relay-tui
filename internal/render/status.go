@@ -13,8 +13,9 @@ import (
 // StatusText formats the status line: faint, one row, at most width wide.
 // While the agent works it starts with a spinner, so a moving spinner
 // means the TUI is alive, and "no output for" means the agent is quiet.
-// hint says how to type a new line; it is shown when idle. Context use
-// and spend show once the agent has reported them.
+// hint says how to type a new line; it is shown when idle. The tool
+// running, context use and spend show only with the detail toggle on
+// (StatusLine.Detail), and once the agent has reported them.
 func StatusText(l core.StatusLine, hint string, now time.Time, width int) string {
 	var parts []string
 	add := func(s string) {
@@ -43,9 +44,12 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	case core.StatusWriting:
 		add("writing")
 	case core.StatusRunning:
-		if l.Tools == 1 {
+		switch {
+		case !l.Detail:
+			add("working")
+		case l.Tools == 1:
 			add("running " + oneLine(l.Tool))
-		} else {
+		default:
 			add(fmt.Sprintf("running %d tools", l.Tools))
 		}
 	case core.StatusRetrying:
@@ -71,10 +75,10 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 	if l.Queued > 0 {
 		add(strconv.Itoa(l.Queued) + " queued")
 	}
-	if l.HasContext {
+	if l.Detail && l.HasContext {
 		add(strconv.Itoa(l.Context) + "% context")
 	}
-	if l.Spend != nil {
+	if l.Detail && l.Spend != nil {
 		add(Money(*l.Spend))
 	}
 	idle := l.Kind == core.StatusIdle && l.Remote != core.TurnRunning

@@ -111,20 +111,13 @@ func thoughtLines(e core.Entry, full bool, width int) []string {
 	return indent(out, styled(faint, "  ∴ "), "    ", width)
 }
 
-// runLine is a run of tool calls on one line: a glyph for the run, then
-// the tools by name, in order, with a count when one was called more
-// than once. A failure shows, and is not faint: a lone failed call says
-// why, else how many failed.
+// runLine is a run of tool calls on one line: a glyph for the run and one
+// plain word for how it stands. It names no tool: the names, arguments
+// and output are in the transcript (Ctrl-T). A failure shows, and is not
+// faint: a lone failed call says why, else how many failed.
 func runLine(calls []core.Call, width int, now time.Time) string {
-	var names []string
-	count := map[string]int{}
 	failed, stopped, running, pending := 0, 0, 0, 0
 	for _, c := range calls {
-		name := label(c)
-		if count[name] == 0 {
-			names = append(names, name)
-		}
-		count[name]++
 		switch c.Status {
 		case core.Failed:
 			failed++
@@ -136,13 +129,18 @@ func runLine(calls []core.Call, width int, now time.Time) string {
 			pending++
 		}
 	}
-	parts := make([]string, len(names))
-	for i, n := range names {
-		parts[i] = n
-		if count[n] > 1 {
-			parts[i] += fmt.Sprintf(" ×%d", count[n])
-		}
+	word := "worked"
+	switch {
+	case running > 0:
+		word = "working"
+	case pending > 0:
+		word = "waiting"
+	case failed > 0:
+		word = "failed"
+	case stopped > 0:
+		word = "stopped"
 	}
+	parts := []string{word}
 	glyph, st := "✓", faint
 	switch {
 	case running > 0:
@@ -176,7 +174,7 @@ func runLine(calls []core.Call, width int, now time.Time) string {
 	case failed > 0:
 		tail = fmt.Sprintf(" · %d failed", failed)
 	}
-	if stopped > 0 {
+	if stopped > 0 && failed > 0 {
 		tail += " · stopped"
 	}
 	if room := width - Method.StringWidth(tail); room >= minInner {
