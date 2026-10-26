@@ -22,6 +22,8 @@ func (nopConn) CardOp(int64, core.CardOp) {}
 func (nopConn) Attach(string, string)     {}
 func (nopConn) End(string)                {}
 func (nopConn) Seen(string, int)          {}
+func (nopConn) Ready()                    {}
+func (nopConn) Reply(int64, string)       {}
 func (nopConn) Shutdown()                 {}
 
 func genKey(t *rapid.T) tea.KeyPressMsg {

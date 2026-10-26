@@ -63,7 +63,7 @@ func TestHelpRowsAgreeWithTheClassifiers(t *testing.T) {
 	moving := func(name string) bool { a, _ := ClassifyMoving(press(t, name)); return a != MoveNone }
 	single := func(name string) bool { // no roles to jump to
 		a, _ := ClassifyMoving(press(t, name))
-		return a != MoveNone && a != MoveJump && a != MoveEnd && a != MoveUp && a != MoveDown &&
+		return a != MoveNone && a != MoveJump && a != MoveEnd && a != MoveReady && a != MoveUp && a != MoveDown &&
 			a != MovePageUp && a != MovePageDown && a != MoveTop && a != MoveBottom && a != MoveEsc
 	}
 	singleTyping := func(name string) bool {

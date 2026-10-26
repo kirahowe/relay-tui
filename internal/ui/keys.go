@@ -94,6 +94,7 @@ const (
 	MoveTools                       // ctrl+t
 	MoveThinking                    // ctrl+o
 	MoveHelp                        // ?
+	MoveReady                       // R: what is ready for you (hub)
 	MoveInterrupt                   // ctrl+c: stop the turn, or quit
 	MoveEOF                         // ctrl+d: quit
 )
@@ -103,7 +104,7 @@ const (
 // pane's own keys when the pane has them.
 func (a MoveAction) Global() bool {
 	switch a {
-	case MoveLeft, MoveRight, MoveType, MoveJump, MoveHelp, MoveInterrupt, MoveEOF:
+	case MoveLeft, MoveRight, MoveType, MoveJump, MoveHelp, MoveReady, MoveInterrupt, MoveEOF:
 		return true
 	}
 	return false
@@ -137,6 +138,8 @@ func ClassifyMoving(k tea.KeyPressMsg) (MoveAction, int) {
 		return MoveEsc, 0
 	case "X":
 		return MoveEnd, 0
+	case "R":
+		return MoveReady, 0
 	case "ctrl+t":
 		return MoveTools, 0
 	case "ctrl+o":
@@ -300,4 +303,47 @@ func ClassifyEnd(k tea.KeyPressMsg) (answered, yes bool) {
 		return true, false
 	}
 	return false, false
+}
+
+// ClassifyReady decides what a key press does in the ready view while no
+// reply is being written. R opens and closes the view, so it is handled
+// by the caller. It is pure.
+func ClassifyReady(k tea.KeyPressMsg) core.ReadyAction {
+	switch k.String() {
+	case "up", "k", "shift+tab":
+		return core.ReadyUp
+	case "down", "j", "tab":
+		return core.ReadyDown
+	case "g", "home":
+		return core.ReadyTop
+	case "G", "end":
+		return core.ReadyBottom
+	case "a":
+		return core.ReadyReplyKey
+	case "enter":
+		return core.ReadyEnter
+	case "esc", "q", "h", "left", "ctrl+c":
+		return core.ReadyEsc
+	case "r":
+		return core.ReadyRefresh
+	}
+	return core.ReadyOther
+}
+
+// ClassifyReadyInput decides what a key press does while a reply is being
+// written: enter sends, esc cancels, backspace deletes, and a key that
+// types text types it. It is pure.
+func ClassifyReadyInput(k tea.KeyPressMsg) (core.ReadyAction, string) {
+	switch k.String() {
+	case "enter":
+		return core.ReadyEnter, ""
+	case "esc", "ctrl+c":
+		return core.ReadyEsc, ""
+	case "backspace", "ctrl+h":
+		return core.ReadyBackspace, ""
+	}
+	if printable(k) {
+		return core.ReadyChar, k.Text
+	}
+	return core.ReadyOther, ""
 }

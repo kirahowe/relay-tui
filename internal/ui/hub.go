@@ -87,6 +87,10 @@ func (m *Model) hubEffect(f core.Effect) {
 		m.conn.End(f.Session)
 	case core.SendSeen:
 		m.conn.Seen(f.Session, f.Turn)
+	case core.RequestReady:
+		m.conn.Ready()
+	case core.SendReply:
+		m.conn.Reply(f.Message, f.Text)
 	default:
 		m.effect(f, m.now())
 	}
@@ -128,6 +132,14 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 		return one(m.transcriptKey(k, m.input.Value() == "", now))
 	case core.SurfaceArchive:
 		return one(m.archiveKey(k, now))
+	case core.SurfaceReady:
+		if k.String() == "R" {
+			return one(core.ReadyOpen{At: now})
+		}
+		return one(core.ReadyKey{At: now, Action: ClassifyReady(k)})
+	case core.SurfaceReadyInput:
+		a, text := ClassifyReadyInput(k)
+		return one(core.ReadyKey{At: now, Action: a, Text: text})
 	case core.SurfaceInput:
 		return m.typingKey(k, now)
 	case core.SurfaceEditor:
@@ -188,6 +200,8 @@ func (m *Model) hubConvKey(k tea.KeyPressMsg, a MoveAction, index int, now time.
 		return core.ShowThinking{At: now}
 	case MoveHelp:
 		return core.ToggleHelp{At: now}
+	case MoveReady:
+		return core.ReadyOpen{At: now}
 	case MoveInterrupt:
 		return core.Interrupt{At: now, InputEmpty: true}
 	case MoveEOF:
@@ -287,6 +301,8 @@ func (m *Model) listKey(k tea.KeyPressMsg, a MoveAction, index int, now time.Tim
 		return core.FocusIndex{At: now, Index: index}
 	case MoveHelp:
 		return core.ToggleHelp{At: now}
+	case MoveReady:
+		return core.ReadyOpen{At: now}
 	case MoveInterrupt:
 		return core.Interrupt{At: now, InputEmpty: true}
 	case MoveEOF:
@@ -389,6 +405,11 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, now time.
 			return nil, nil
 		case MoveHelp:
 			return one(core.ToggleHelp{At: now})
+		case MoveReady:
+			if m.kind == kindHub {
+				return one(core.ReadyOpen{At: now})
+			}
+			return nil, nil
 		case MoveInterrupt:
 			return one(core.Interrupt{At: now, InputEmpty: true})
 		case MoveEOF:

@@ -126,6 +126,7 @@ Moving:
 | `i` | type in the conversation in focus |
 | `1` to `9`, `alt+1` to `alt+9` | that role, still moving (hub) |
 | `X` | end this conversation, after asking (hub) |
+| `R` | what is ready for you: open the view, or close it (hub) |
 | `esc` | in the pane, close what is open, then go back to the conversation; on the list, back to the conversation |
 | `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
 | `ctrl+c` | stop the turn, or quit |
@@ -280,6 +281,39 @@ characters visible and defanged links in text from outside, which it
 marks as such. relay-tui shows that text in the warning colour, and the
 bottom border of a card that holds any says `from outside`. Links are
 never clickable, and relay-tui fetches nothing.
+
+## What is ready for you
+
+`R`, while you are moving, opens a view of what is ready for you: what
+relay told you, drafts it prepared in your own accounts, entries on the
+agent's calendar and findings it put on the board, newest first. `R`
+again, Esc, `q` or `h` closes it. It covers the whole screen, so it reads
+the same on a phone-width terminal (about 60 columns) as on a wide one,
+and the keys row names it everywhere as `R ready`, with how many things
+are in it.
+
+Each thing is a panel of its own. Its kind and title sit in the top
+border and how long ago at the right. The bottom border says where it
+came from, in words relay chose, such as "from a mail by
+booker@example.org" or "from the web", in the warning colour. Things of
+your own say nothing. The words "contaminated", "untrusted" and "private"
+never appear, whatever relay sends.
+
+Keys: up and down, or k and j, select; g and G go to the top and bottom;
+r asks relay again. The connection asks for the view once it is up
+(`_relay/ready`), and after that relay sends what changes
+(`_relay/ready/changed`), so a draft prepared while you look appears
+without a key. Against an agent that is not relay the view says it has
+nothing to show.
+
+To answer a message, select it and press `a` or Enter, type, and press
+Enter. The reply goes to relay as yours (`_relay/reply`), and relay wakes
+the role that wrote the message. Esc cancels a reply you are writing. The
+reply is a one-line input that takes no paste, as a card's editor takes
+none. While it is on its way a second one waits, and a refusal gives your
+words back. A message relay wrote itself, or any draft, calendar entry or
+finding, has nobody to answer, and `a` says so. Once relay has the reply,
+the message shows "you replied" with the start of it.
 
 ## Several conversations (relay's hub)
 

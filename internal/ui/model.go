@@ -32,6 +32,11 @@ type Conn interface {
 	// notifications of changed cards, come back as events.
 	Cards()
 	CardOp(card int64, op core.CardOp)
+	// Ready and Reply are relay's ready view, also the connection's: what
+	// is ready for the operator, and an answer to one of the messages in
+	// it.
+	Ready()
+	Reply(message int64, text string)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as

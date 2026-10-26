@@ -314,3 +314,41 @@ func TestPTYConnectingLeavesNothingBehind(t *testing.T) {
 	}
 	left(s)
 }
+
+// The ready view end to end: R opens it, a reply is written and sent
+// through the hub as the operator's, the hub says the message changed,
+// and the view shows it answered. At 80 columns nothing is cut off.
+func TestPTYReadyViewAndReply(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "hub.json")
+	logFile := filepath.Join(dir, "hub.log")
+	hub := `{"roles":[{"id":"dev","title":"Dev"}],"ready":[
+	 {"id":"prepared:5","kind":"draft","at":"2026-10-15T08:50:00Z","title":"Concert in May",
+	  "lines":["Saved draft c1, version 1, to the group Subscribers."],"from":"from a mail by booker@example.org","outsider":true},
+	 {"id":"message:4","kind":"message","at":"2026-10-15T08:00:00Z","title":"Concert email is drafted",
+	  "lines":["It is in your drafts, ready to read."],"from":null,"outsider":false,"message":4,"messageKind":"note",
+	  "urgency":"normal","thread":4,"replyTo":4,"replies":[]}]}`
+	if err := os.WriteFile(cfg, []byte(hub), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := runPTY(t, "--", fakeHub, "-log", logFile, cfg)
+	s.waitScreen("Dev")
+	s.keys("R")
+	s.waitScreen("Concert email is drafted")
+	s.waitScreen("from a mail by booker@example.org")
+	s.keys("j") // to the message
+	s.keys("a")
+	s.waitScreen("Reply to")
+	s.keys("Thanks, make it shorter")
+	s.keys("\r")
+	s.waitScreen("you replied: Thanks, make it shorter")
+	logged, _ := os.ReadFile(logFile)
+	if !strings.Contains(string(logged), `reply {"inReplyTo":4,"text":"Thanks, make it shorter"}`) {
+		t.Fatalf("the hub was never sent the reply:\n%s", logged)
+	}
+	if strings.Contains(strings.ToLower(s.screen()), "contaminated") {
+		t.Fatalf("a label on the screen:\n%s", s.screen())
+	}
+	s.keys("R") // close
+	s.waitScreen("Dev")
+}
