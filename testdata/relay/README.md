@@ -20,3 +20,8 @@ To refresh them, from a relay checkout:
 
 Card ids and revs are log seqs, so they stay the same from run to run;
 `addedAt` changes.
+
+They were recorded from a relay that still held calls and let the
+operator trust a card, so `cards.json` carries members relay-tui no
+longer reads (`review`, `sha256`). The reader ignores members it does not
+know, and the test shows the board without them.

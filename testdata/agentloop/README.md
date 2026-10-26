@@ -5,3 +5,6 @@ response to `session/prompt`. The `.replay` files were left out.
 
 To refresh them, copy the files again and update the commit above. Nothing
 here imports agentloop.
+
+`held_call` and `denied_call` were left out: they recorded a call held for
+a decision and a call denied by policy, which agentloop no longer does.
