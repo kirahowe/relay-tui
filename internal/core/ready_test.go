@@ -662,3 +662,73 @@ func TestAnUndoThatLeftFilesSaysWhichAndWhy(t *testing.T) {
 		t.Errorf("%+v", h.Ready)
 	}
 }
+
+// Items that arrive while the view is open and sit above the selection
+// are counted as new until the selection reaches them.
+func TestReadyCountsNewItemsAboveTheSelection(t *testing.T) {
+	h := readyHub(t, msg(1, 1), msg(2, 2), msg(3, 3))
+	h, _ = apply(t, h, ReadyOpen{At: t0},
+		ReadyKey{At: t0, Action: ReadyDown}, ReadyKey{At: t0, Action: ReadyDown}) // on message 1
+	h, _ = apply(t, h, ReadyChanged{At: t0, Rev: 11, Items: []ReadyItem{msg(9, 10), msg(8, 9)}})
+	if got := h.Ready.New; len(got) != 2 {
+		t.Fatalf("new %v", got)
+	}
+	// A change to an item already there is not new.
+	h, _ = apply(t, h, ReadyChanged{At: t0, Rev: 12, Items: []ReadyItem{msg(2, 2)}})
+	if len(h.Ready.New) != 2 {
+		t.Fatalf("new %v after a change", h.Ready.New)
+	}
+	// Moving up reaches them one at a time.
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyTop})
+	if len(h.Ready.New) != 0 {
+		t.Fatalf("new %v at the top", h.Ready.New)
+	}
+	// Closed, nothing is new; opened again, nothing is carried over.
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyBottom}, ReadyChanged{At: t0, Rev: 13, Items: []ReadyItem{msg(20, 30)}})
+	if len(h.Ready.New) != 1 {
+		t.Fatalf("new %v", h.Ready.New)
+	}
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyChanged{At: t0, Rev: 14, Items: []ReadyItem{msg(21, 31)}}, ReadyOpen{At: t0})
+	if len(h.Ready.New) != 0 {
+		t.Fatalf("new %v while closed", h.Ready.New)
+	}
+}
+
+// Whatever arrives and whatever is pressed, what is new is always in the
+// view and above the selection.
+func TestReadyNewIsAlwaysAboveTheSelection(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		h := readyHub(t, msg(1, 1), msg(2, 2), msg(3, 3))
+		h, _ = apply(t, h, ReadyOpen{At: t0})
+		next := int64(10)
+		for i := 0; i < rapid.IntRange(1, 25).Draw(t, "steps"); i++ {
+			switch rapid.IntRange(0, 4).Draw(t, "op") {
+			case 0:
+				next++
+				h, _ = apply(t, h, ReadyChanged{At: t0, Rev: next, Items: []ReadyItem{msg(next, int(next)-5+rapid.IntRange(0, 10).Draw(t, "age"))}})
+			case 1:
+				h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyDown})
+			case 2:
+				h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyUp})
+			case 3:
+				h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyTop})
+			case 4:
+				h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyBottom})
+			}
+			_, sel := ReadySelected(h.Ready)
+			for _, id := range h.Ready.New {
+				i := slices.Index(ids(h.Ready), id)
+				if i < 0 || i >= sel {
+					t.Fatalf("new %q at %d, selection at %d, items %v", id, i, sel, ids(h.Ready))
+				}
+			}
+		}
+	})
+}
+
+func TestReadyKeepsTheZoneRelayNamed(t *testing.T) {
+	h, _ := apply(t, readyHub(t, msg(1, 1)), ReadyLoaded{At: t0, Rev: 11, Zone: "America/Toronto", Items: []ReadyItem{msg(1, 1)}})
+	if h.Ready.Zone != "America/Toronto" {
+		t.Fatalf("zone %q", h.Ready.Zone)
+	}
+}

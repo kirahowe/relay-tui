@@ -204,3 +204,14 @@ func TestSectionsAndOffersAreRead(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 }
+
+func TestReadyReadsTheZoneRelayNames(t *testing.T) {
+	got := Ready(json.RawMessage(`{"rev": 3, "timezone": "America/Toronto", "items": []}`), nil, t0)
+	if got.Err != "" || got.Zone != "America/Toronto" {
+		t.Fatalf("%+v", got)
+	}
+	// Today's relay sends none.
+	if got := Ready(json.RawMessage(`{"rev": 3, "items": []}`), nil, t0); got.Err != "" || got.Zone != "" {
+		t.Fatalf("%+v", got)
+	}
+}

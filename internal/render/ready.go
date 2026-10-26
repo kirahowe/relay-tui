@@ -91,24 +91,40 @@ func ago(at string, now time.Time) string {
 	case d < 48*time.Hour:
 		return "yesterday"
 	}
-	return t.In(now.Location()).Format("Jan 2")
+	return t.In(now.Location()).Format("2 Jan")
 }
 
-// whenLine is an event's time: its start, and its end when it is later
-// the same day or another day.
+// ZoneTime is now in the zone relay named for the operator (an IANA name
+// such as America/Halifax, from the ready answer), so every time in the
+// view reads as it does in relay's own output. A zone that is empty or
+// unknown leaves it in the machine's zone.
+func ZoneTime(now time.Time, zone string) time.Time {
+	if zone == "" {
+		return now
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return now
+	}
+	return now.In(loc)
+}
+
+// whenLine is an event's time, as "Mon 2 Jan · 19:00": its start, and
+// its end when it is later the same day or another day. The zone is
+// now's.
 func whenLine(it core.ReadyItem, now time.Time) string {
 	s, err := time.Parse(time.RFC3339Nano, it.Start)
 	if err != nil {
 		return ""
 	}
 	s = s.In(now.Location())
-	out := s.Format("Mon Jan 2 · 15:04")
+	out := s.Format("Mon 2 Jan · 15:04")
 	if e, err := time.Parse(time.RFC3339Nano, it.End); err == nil && e.After(s) {
 		e = e.In(now.Location())
 		if e.YearDay() == s.YearDay() && e.Year() == s.Year() {
 			out += "–" + e.Format("15:04")
 		} else {
-			out += " – " + e.Format("Mon Jan 2 · 15:04")
+			out += " – " + e.Format("Mon 2 Jan · 15:04")
 		}
 	}
 	return out
@@ -210,8 +226,14 @@ func readyRows(r core.Ready, now time.Time, width int) (rows []string, first, la
 // readyWindow is the rows to show in room rows with the selected item in
 // view: as much of what is above it as fits.
 func readyWindow(rows []string, first, last []int, sel, room int) []string {
+	out, _ := readyWindowAt(rows, first, last, sel, room)
+	return out
+}
+
+// readyWindowAt is readyWindow and the index of the first row it shows.
+func readyWindowAt(rows []string, first, last []int, sel, room int) ([]string, int) {
 	if len(rows) == 0 || room <= 0 {
-		return nil
+		return nil, 0
 	}
 	start := 0
 	if sel >= 0 && sel < len(first) && last[sel] >= room {
@@ -230,7 +252,20 @@ func readyWindow(rows []string, first, last []int, sel, room int) []string {
 			}
 		}
 	}
-	return rows[start:min(len(rows), start+room)]
+	return rows[start:min(len(rows), start+room)], start
+}
+
+// hiddenNew is how many of the new items are wholly above the window that
+// starts at row start.
+func hiddenNew(r core.Ready, last []int, start int) int {
+	n := 0
+	for _, id := range r.New {
+		i := slices.IndexFunc(r.Items, func(it core.ReadyItem) bool { return it.ID == id })
+		if i >= 0 && i < len(last) && last[i] < start {
+			n++
+		}
+	}
+	return n
 }
 
 // ReadyListKeys is what the keys do in the ready view's list, in the list
@@ -330,16 +365,13 @@ func readyStatus(r core.Ready, width int) string {
 // rows: a top bar, the panels, the status row and the keys.
 func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	r := h.Ready
+	now = ZoneTime(now, r.Zone)
 	left := styled(accent, " ◆ ") + styled(bold, "relay") + "   " + styled(bold, "Ready")
-	right := ""
+	count := ""
 	if n := len(r.Items); n > 0 {
-		right = styled(faint, fmt.Sprintf("%d ", n))
+		count = fmt.Sprintf("%d ", n)
 	}
-	bar := left
-	if gap := width - Method.StringWidth(left) - Method.StringWidth(right); gap > 0 {
-		bar += strings.Repeat(" ", gap) + right
-	}
-	rows := []string{truncate(bar, width)}
+	rows := []string{""} // the bar, once the body says what is out of sight
 
 	// A refusal with no reply open may take up to a third of the screen,
 	// at least three rows, so its reason (which files an undo left, and
@@ -379,11 +411,23 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		pw := min(width, readyMaxWidth)
 		all, first, last := readyRows(r, now, pw)
 		_, sel := core.ReadySelected(r)
-		body = readyWindow(all, first, last, sel, room)
+		var start int
+		body, start = readyWindowAt(all, first, last, sel, room)
+		if n := hiddenNew(r, last, start); n > 0 {
+			count = fmt.Sprintf("↑ %d new · ", n) + count
+		}
 	}
 	if len(body) > room {
 		body = body[:room]
 	}
+	// The bar carries the count at its right, and, when new items sit above
+	// the window, how many.
+	right := styled(faint, count)
+	bar := left
+	if gap := width - Method.StringWidth(left) - Method.StringWidth(right); gap > 0 {
+		bar += strings.Repeat(" ", gap) + right
+	}
+	rows[0] = truncate(bar, width)
 	rows = append(rows, body...)
 	for len(rows) < height-1-len(status)-btoi(note != "") {
 		rows = append(rows, "")

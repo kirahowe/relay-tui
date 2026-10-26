@@ -117,8 +117,16 @@ type Ready struct {
 	// Asked says _relay/ready has been called; Loaded, that it answered.
 	// Unavailable says relay has no such method.
 	Asked, Loaded, Unavailable bool
-	Rev                        int64
-	LoadedRev                  int64 // the rev of the last load; changes up to it are in it
+	// Zone is the IANA zone name relay's answer gave for showing times,
+	// or empty when it gave none (the times then show in the machine's
+	// zone).
+	Zone string
+	// New are the ids of items that arrived while the view was open and
+	// that the selection has not yet reached: they are above it, since
+	// the newest come first. The view says how many are out of sight.
+	New       []string
+	Rev       int64
+	LoadedRev int64 // the rev of the last load; changes up to it are in it
 	// Items are newest first. Sel is the selected one, by id.
 	Items []ReadyItem
 	Sel   string
@@ -176,6 +184,7 @@ type (
 	ReadyLoaded struct {
 		At          time.Time
 		Rev         int64
+		Zone        string
 		Items       []ReadyItem
 		Unavailable bool
 		Err         string
@@ -379,6 +388,7 @@ func (r *hubReducer) ready(e Event) {
 	rd := &h.Ready
 	rd.Items = slices.Clone(rd.Items)
 	_, was := ReadySelected(*rd)
+	defer rd.keepNew()
 	switch e := e.(type) {
 	case ReadyLoaded:
 		switch {
@@ -400,6 +410,7 @@ func (r *hubReducer) ready(e Event) {
 			rd.Items = sortReady(readyOnly(e.Items))
 			rd.Rev = max(rd.Rev, e.Rev)
 			rd.LoadedRev = e.Rev
+			rd.Zone = e.Zone
 		}
 		r.keepReadySelection(was)
 		r.keepReadyDetail()
@@ -413,6 +424,9 @@ func (r *hubReducer) ready(e Event) {
 				items[i] = n
 			} else {
 				items = append(items, n)
+				if rd.Open && rd.Loaded && !slices.Contains(rd.New, n.ID) {
+					rd.New = append(slices.Clone(rd.New), n.ID)
+				}
 			}
 		}
 		rd.Items = sortReady(items)
@@ -505,6 +519,23 @@ func (r *hubReducer) ready(e Event) {
 	case ReadyKey:
 		r.readyKey(e)
 	}
+}
+
+// keepNew drops from New what the selection has reached or passed, what
+// has gone, and everything while the view is closed.
+func (rd *Ready) keepNew() {
+	if len(rd.New) == 0 {
+		return
+	}
+	_, sel := ReadySelected(*rd)
+	var keep []string
+	for _, id := range rd.New {
+		i := slices.IndexFunc(rd.Items, func(it ReadyItem) bool { return it.ID == id })
+		if rd.Open && i >= 0 && i < sel {
+			keep = append(keep, id)
+		}
+	}
+	rd.New = keep
 }
 
 // readyKey applies a key in the view.

@@ -162,13 +162,17 @@ func Ready(raw json.RawMessage, err error, at time.Time) core.ReadyLoaded {
 		return core.ReadyLoaded{At: at, Err: errText(err)}
 	}
 	var r struct {
-		Rev   int64             `json:"rev"`
-		Items []json.RawMessage `json:"items"`
+		Rev int64 `json:"rev"`
+		// Timezone is the zone name relay shows times in (relay.edn's
+		// :timezone). relay does not send it yet; when it does, times
+		// follow it.
+		Timezone string            `json:"timezone"`
+		Items    []json.RawMessage `json:"items"`
 	}
 	if strictjson.Unmarshal(raw, &r) != nil || r.Items == nil {
 		return core.ReadyLoaded{At: at, Err: "relay's answer could not be read"}
 	}
-	return core.ReadyLoaded{At: at, Rev: r.Rev, Items: readyItems(r.Items)}
+	return core.ReadyLoaded{At: at, Rev: r.Rev, Zone: r.Timezone, Items: readyItems(r.Items)}
 }
 
 // ReadyChanged translates a _relay/ready/changed notification. ok is

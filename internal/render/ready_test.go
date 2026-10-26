@@ -142,11 +142,11 @@ func TestReadyTimesAreInTheOperatorsZone(t *testing.T) {
 	zone := time.FixedZone("EST", -5*3600)
 	now := t0.In(zone)
 	it := core.ReadyItem{Kind: "event", Start: "2026-11-21T00:00:00Z", End: "2026-11-21T01:30:00Z"}
-	if got, want := whenLine(it, now), "Fri Nov 20 · 19:00–20:30"; got != want {
+	if got, want := whenLine(it, now), "Fri 20 Nov · 19:00–20:30"; got != want {
 		t.Errorf("%q want %q", got, want)
 	}
 	it.End = "2026-11-22T01:30:00Z"
-	if got, want := whenLine(it, now), "Fri Nov 20 · 19:00 – Sat Nov 21 · 20:30"; got != want {
+	if got, want := whenLine(it, now), "Fri 20 Nov · 19:00 – Sat 21 Nov · 20:30"; got != want {
 		t.Errorf("%q want %q", got, want)
 	}
 	for _, c := range []struct {
@@ -154,7 +154,7 @@ func TestReadyTimesAreInTheOperatorsZone(t *testing.T) {
 		want string
 	}{{t0.Add(-10 * time.Second).Format(time.RFC3339), "now"}, {t0.Add(-5 * time.Minute).Format(time.RFC3339), "5m"},
 		{t0.Add(-3 * time.Hour).Format(time.RFC3339), "3h"}, {t0.Add(-30 * time.Hour).Format(time.RFC3339), "yesterday"},
-		{t0.Add(-72 * time.Hour).Format(time.RFC3339), "Oct 12"}, {"nonsense", ""}} {
+		{t0.Add(-72 * time.Hour).Format(time.RFC3339), "12 Oct"}, {"nonsense", ""}} {
 		if got := ago(c.at, t0); got != c.want {
 			t.Errorf("ago(%q) = %q want %q", c.at, got, c.want)
 		}
@@ -468,5 +468,55 @@ func TestReadyFollowsThePickedItem(t *testing.T) {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("pick %d: %q is not on screen:\n%s", h.Ready.Pick, want, plain)
 		}
+	}
+}
+
+// Times show in the zone relay named, whatever the machine's zone is, and
+// day then month, as relay's own output has them.
+func TestReadyShowsTimesInRelaysZone(t *testing.T) {
+	mac := time.FixedZone("AST", -4*3600) // the Mac says Halifax in winter
+	now := time.Date(2027, 1, 4, 9, 0, 0, 0, mac)
+	h := hubStep(hubFixture(), core.ReadyLoaded{At: now, Rev: 1, Zone: "America/Toronto", Items: []core.ReadyItem{
+		{ID: "event:1", Kind: "event", At: "2027-01-04T14:00:00Z", Title: "Load-in", Start: "2027-01-04T15:00:00Z", End: "2027-01-04T15:30:00Z"},
+	}}, core.StopTyping{At: now}, core.ReadyOpen{At: now})
+	out := ansi.Strip(HubView(h, "", "", now, 80, 20).Content)
+	if !strings.Contains(out, "Mon 4 Jan · 10:00–10:30") {
+		t.Errorf("want Toronto's 10:00:\n%s", out)
+	}
+	// No zone from relay: the machine's.
+	h.Ready.Zone = ""
+	if out := ansi.Strip(HubView(h, "", "", now, 80, 20).Content); !strings.Contains(out, "Mon 4 Jan · 11:00–11:30") {
+		t.Errorf("want the machine's 11:00:\n%s", out)
+	}
+	h.Ready.Zone = "Not/AZone"
+	if out := ansi.Strip(HubView(h, "", "", now, 80, 20).Content); !strings.Contains(out, "11:00") {
+		t.Errorf("an unknown zone should fall back:\n%s", out)
+	}
+}
+
+// New items out of sight above the selection show in the top bar; once
+// they are in sight, or reached, the cue goes.
+func TestReadyBarCountsNewItemsOutOfSight(t *testing.T) {
+	var items []core.ReadyItem
+	for i := 1; i <= 6; i++ {
+		items = append(items, core.ReadyItem{ID: fmt.Sprintf("message:%d", i), Kind: "message", Message: int64(i),
+			At: t0.Add(-time.Duration(i) * time.Hour).Format(time.RFC3339), Title: fmt.Sprintf("Old %d", i), Lines: []string{"a line"}})
+	}
+	h := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 1, Items: items}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0},
+		core.ReadyKey{At: t0, Action: core.ReadyBottom})
+	h = hubStep(h, core.ReadyChanged{At: t0, Rev: 2, Items: []core.ReadyItem{
+		{ID: "message:20", Kind: "message", Message: 20, At: t0.Format(time.RFC3339), Title: "Load-in added", Lines: []string{"x"}}}})
+	bar := func(h core.Hub) string {
+		return strings.SplitN(ansi.Strip(HubView(h, "", "", t0, 60, 14).Content), "\n", 2)[0]
+	}
+	if b := bar(h); !strings.Contains(b, "↑ 1 new") {
+		t.Errorf("bar %q lacks the cue", b)
+	}
+	if b := bar(hubStep(h, core.ReadyKey{At: t0, Action: core.ReadyTop})); strings.Contains(b, "new") {
+		t.Errorf("bar %q still has the cue at the top", b)
+	}
+	// Tall enough for all of them: the new one is in sight, so no cue.
+	if b := strings.SplitN(ansi.Strip(HubView(h, "", "", t0, 60, 80).Content), "\n", 2)[0]; strings.Contains(b, "new") {
+		t.Errorf("bar %q has the cue though the item shows", b)
 	}
 }
