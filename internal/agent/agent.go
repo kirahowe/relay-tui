@@ -300,6 +300,15 @@ func (a *Agent) Undo(move int64) {
 	})
 }
 
+// Act asks relay to do what item n of a daily note offers (revert a
+// change, drop a suggestion) and emits ActDone. It does not block.
+func (a *Agent) Act(message int64, n int, op string) {
+	a.enqueue(func() {
+		_, err := a.call(wire.MethodMessagesAct, wire.ActParams(message, n))
+		a.emit(wire.ActOutcome(message, n, op, err, time.Now()))
+	})
+}
+
 // HandleExtensionMethod takes relay's notifications about the board, the
 // roster and replays. It ignores _relay/permission/settled, which a relay
 // that still holds calls sends: this client was never asked. The client

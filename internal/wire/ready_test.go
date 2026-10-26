@@ -29,7 +29,7 @@ const readyWire = `{"rev": 99, "items": [
   "urgency": "normal", "thread": 4, "replyTo": 4,
   "replies": [{"at": "2026-10-14T12:03:00Z", "text": "Shorter please."}]},
  {"id": "move:3", "kind": "move", "at": "2026-10-14T11:00:00Z", "seq": 3, "title": "statement.pdf",
-  "lines": ["By steward.", "/f/Downloads/statement.pdf → /f/Bank/statement.pdf"],
+  "lines": ["1 file in f", "Downloads/statement.pdf → Bank/statement.pdf"],
   "from": "from a mail by bank@example.org", "outsider": true, "move": 3, "role": "steward", "undo": 3, "undone": false}]}`
 
 func TestReadyReadsRelaysWireForm(t *testing.T) {
@@ -142,4 +142,36 @@ func TestReadyReadingIsTotal(t *testing.T) {
 		}
 		ReadyChanged(json.RawMessage(raw), t0)
 	})
+}
+
+func TestAnActsOfADailyNoteAreRead(t *testing.T) {
+	raw := json.RawMessage(`{"rev": 3, "items": [{"id": "message:9", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 9,
+ "title": "Daily note", "lines": ["1. A change", "And 2 more changes like these", "2. Dentist", "3. A suggestion"], "from": null, "outsider": false,
+ "message": 9, "messageKind": "digest", "urgency": "normal", "thread": 9, "replyTo": 9, "replies": [],
+ "acts": [{"n": 1, "op": "revert", "line": 0, "done": null}, {"n": 3, "op": "dismiss", "line": 3, "done": "dismissed"}]}]}`)
+	got := Ready(raw, nil, t0)
+	want := []core.ReadyAct{{N: 1, Op: "revert", Line: 0}, {N: 3, Op: "dismiss", Line: 3, Done: "dismissed"}}
+	if got.Err != "" || len(got.Items) != 1 || !reflect.DeepEqual(got.Items[0].Acts, want) {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestActParamsAndOutcome(t *testing.T) {
+	if p := ActParams(9, 3); !reflect.DeepEqual(p, map[string]any{"message": int64(9), "item": 3}) {
+		t.Errorf("%v", p)
+	}
+	if got := ActOutcome(9, 3, "dismiss", nil, t0); got != (core.ActDone{At: t0, Message: 9, N: 3, Op: "dismiss"}) {
+		t.Errorf("%+v", got)
+	}
+	err := &acp.RequestError{Code: -32000, Message: "Item 3 was dropped already."}
+	if got := ActOutcome(9, 3, "dismiss", err, t0); got.Err != err.Message {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestUndoSummaryIsRead(t *testing.T) {
+	got := UndoOutcome(3, json.RawMessage(`{"lines": ["Undid move 3: put back 3 of 3."], "summary": "Put back 3 files."}`), nil, t0)
+	if got.Summary != "Put back 3 files." {
+		t.Errorf("%+v", got)
+	}
 }

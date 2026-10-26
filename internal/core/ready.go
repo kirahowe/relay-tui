@@ -1,7 +1,9 @@
 package core
 
 import (
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -59,6 +61,26 @@ type ReadyItem struct {
 	Role   string
 	Undo   int64
 	Undone bool
+	// Acts are the numbered items of a daily note, each with the number
+	// the note shows and what it offers (see ReadyAct).
+	Acts []ReadyAct
+}
+
+// Ops a numbered item of a daily note offers.
+const (
+	OpRevert  = "revert"
+	OpDismiss = "dismiss"
+)
+
+// ReadyAct is one numbered item of a daily note: its own number N in the
+// note, what it offers (OpRevert or OpDismiss), the index in the item's
+// Lines of the line that begins with the number, and Done, which is
+// "reverted" or "dismissed" once it was, else empty.
+type ReadyAct struct {
+	N    int
+	Op   string
+	Line int
+	Done string
 }
 
 // ReplyInput is the reply being written to a message.
@@ -85,8 +107,20 @@ type Ready struct {
 	Input   *ReplyInput
 	Sending int64
 	Sent    *ReplyInput
-	// Undoing is the move an undo is on its way for.
+	// Undoing is the move an undo is on its way for. Acting is the
+	// message a revert or a dismissal is on its way for.
 	Undoing int64
+	Acting  int64
+	// Detail is the id of the item open whole on its own screen, or empty
+	// while the list shows. Top is the first row of it shown, Follow says
+	// the screen is to scroll until the picked item shows, and Pick is the
+	// index in the item's Acts that v and d act on.
+	Detail string
+	Top    int
+	Follow bool
+	Pick   int
+	// Help says the list of keys covers the view.
+	Help bool
 	// Message is the outcome of the last action, and Failure relay's
 	// refusal, shown escaped.
 	Message string
@@ -106,6 +140,9 @@ const (
 	UndoRefusedNote  = "Not undone."
 	UndoBusyNote     = "An undo is on its way: wait for it."
 	NoUndoNote       = "Nothing to undo here."
+	NoActNote        = "Nothing to revert or drop here."
+	ActBusyNote      = "A change is on its way: wait for it."
+	ActRefusedNote   = "Not done."
 )
 
 // Events about the view.
@@ -135,12 +172,23 @@ type (
 		Err     string
 	}
 	// UndoDone is relay's answer to _relay/undo on Move: the lines relay
-	// undo prints, or Err, relay's refusal with its reason.
+	// undo prints and a short Summary for the status line, or Err,
+	// relay's refusal with its reason.
 	UndoDone struct {
-		At    time.Time
-		Move  int64
-		Lines []string
-		Err   string
+		At      time.Time
+		Move    int64
+		Lines   []string
+		Summary string
+		Err     string
+	}
+	// ActDone is relay's answer to _relay/messages/act on item N of
+	// Message, which did Op; Err is relay's refusal.
+	ActDone struct {
+		At      time.Time
+		Message int64
+		N       int
+		Op      string
+		Err     string
 	}
 	// ReadyOpen is R: the view opens, or closes when it is open.
 	ReadyOpen struct{ At time.Time }
@@ -148,7 +196,10 @@ type (
 	ReadyKey struct {
 		At     time.Time
 		Action ReadyAction
-		Text   string // what ReadyChar types
+		Text   string // what ReadyChar types, or the digit ReadyPick names
+		// Top, Max and Page are the open item as drawn: the first row
+		// shown, how far it can scroll and how many rows a page is.
+		Top, Max, Page int
 	}
 )
 
@@ -156,6 +207,7 @@ func (e ReadyLoaded) at() time.Time  { return e.At }
 func (e ReadyChanged) at() time.Time { return e.At }
 func (e ReplyDone) at() time.Time    { return e.At }
 func (e UndoDone) at() time.Time     { return e.At }
+func (e ActDone) at() time.Time      { return e.At }
 func (e ReadyOpen) at() time.Time    { return e.At }
 func (e ReadyKey) at() time.Time     { return e.At }
 
@@ -175,6 +227,15 @@ const (
 	ReadyChar                         // typed into the reply: ReadyKey.Text
 	ReadyBackspace                    // delete the reply's last character
 	ReadyUndoKey                      // u: undo the selected move
+	ReadyOpenKey                      // enter, o: open the selected item whole
+	ReadyPageUp                       // page up
+	ReadyPageDown                     // page down
+	ReadyNext                         // ], tab in an open item: the next numbered item
+	ReadyPrev                         // [, shift+tab in an open item: the one before
+	ReadyPick                         // a digit: that numbered item (ReadyKey.Text)
+	ReadyRevert                       // v: revert the picked item of a daily note
+	ReadyDismiss                      // d: drop the picked item of a daily note
+	ReadyHelp                         // ?: the list of keys
 )
 
 // Effects asking the shell to call relay.
@@ -187,11 +248,20 @@ type (
 	// SendUndo asks relay to undo a file move (_relay/undo), as relay
 	// undo does.
 	SendUndo struct{ Move int64 }
+	// SendAct asks relay to do what item N of daily note Message offers
+	// (_relay/messages/act): revert a change, or drop a suggestion. Op is
+	// what the item offered, kept for the answer's wording.
+	SendAct struct {
+		Message int64
+		N       int
+		Op      string
+	}
 )
 
 func (RequestReady) effect() {}
 func (SendReply) effect()    {}
 func (SendUndo) effect()     {}
+func (SendAct) effect()      {}
 
 // ReadyCount is how many items the view holds.
 func ReadyCount(h Hub) int { return len(h.Ready.Items) }
@@ -268,6 +338,35 @@ func (r *hubReducer) keepReadySelection(was int) {
 	rd.Sel = rd.Items[min(max(was, 0), len(rd.Items)-1)].ID
 }
 
+// ReadyDetail is the item open whole, and its index, or -1 when the list
+// shows or the item is gone.
+func ReadyDetail(r Ready) (ReadyItem, int) {
+	if r.Detail == "" {
+		return ReadyItem{}, -1
+	}
+	for i, it := range r.Items {
+		if it.ID == r.Detail {
+			return it, i
+		}
+	}
+	return ReadyItem{}, -1
+}
+
+// keepReadyDetail closes the open item once it has gone, and keeps the
+// picked numbered item in range.
+func (r *hubReducer) keepReadyDetail() {
+	rd := &r.h.Ready
+	if rd.Detail == "" {
+		return
+	}
+	it, i := ReadyDetail(*rd)
+	if i < 0 {
+		rd.Detail, rd.Top, rd.Follow, rd.Input = "", 0, false, nil
+		return
+	}
+	rd.Pick = min(max(rd.Pick, 0), max(len(it.Acts)-1, 0))
+}
+
 // askReady asks relay for the view once the connection can take it, so
 // that relay sends the changes after. It asks again only after a failure
 // or a refresh.
@@ -307,6 +406,7 @@ func (r *hubReducer) ready(e Event) {
 			rd.LoadedRev = e.Rev
 		}
 		r.keepReadySelection(was)
+		r.keepReadyDetail()
 	case ReadyChanged:
 		if rd.Loaded && e.Rev <= rd.LoadedRev {
 			return // the load already holds it
@@ -322,6 +422,7 @@ func (r *hubReducer) ready(e Event) {
 		rd.Items = sortReady(items)
 		rd.Rev = max(rd.Rev, e.Rev)
 		r.keepReadySelection(was)
+		r.keepReadyDetail()
 	case ReplyDone:
 		sent := rd.Sent
 		if rd.Sending == e.Message {
@@ -347,12 +448,43 @@ func (r *hubReducer) ready(e Event) {
 			return
 		}
 		rd.Message, rd.Failure = UndoneNote, ""
-		if len(e.Lines) > 0 {
+		switch {
+		case e.Summary != "":
+			rd.Message = e.Summary
+		case len(e.Lines) > 0:
 			rd.Message = e.Lines[0]
+		}
+	case ActDone:
+		if rd.Acting == e.Message {
+			rd.Acting = 0
+		}
+		if e.Err != "" {
+			rd.Message, rd.Failure = ActRefusedNote, e.Err
+			return
+		}
+		done := "reverted"
+		rd.Message, rd.Failure = fmt.Sprintf("Item %d undone.", e.N), ""
+		if e.Op == OpDismiss {
+			done = "dismissed"
+			rd.Message = fmt.Sprintf("Item %d dropped.", e.N)
+		}
+		// Relay sends the note changed too; this shows it at once.
+		for i, it := range rd.Items {
+			if it.Message != e.Message {
+				continue
+			}
+			acts := slices.Clone(it.Acts)
+			for j := range acts {
+				if acts[j].N == e.N {
+					acts[j].Done = done
+				}
+			}
+			rd.Items[i].Acts = acts
 		}
 	case ReadyOpen:
 		if rd.Open {
-			rd.Open, rd.Input = false, nil
+			rd.Open, rd.Input, rd.Help = false, nil, false
+			rd.Detail, rd.Top, rd.Follow = "", 0, false
 			rd.Message, rd.Failure = "", ""
 			return
 		}
@@ -404,7 +536,16 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		}
 		return
 	}
+	// The list of keys covers the view; any key closes it and does only that.
+	if rd.Help {
+		rd.Help = false
+		return
+	}
 	rd.Message, rd.Failure = "", ""
+	if rd.Detail != "" {
+		r.detailKey(e)
+		return
+	}
 	it, i := ReadySelected(*rd)
 	move := func(to int) {
 		if len(rd.Items) > 0 {
@@ -412,9 +553,9 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		}
 	}
 	switch e.Action {
-	case ReadyUp:
+	case ReadyUp, ReadyPrev:
 		move(i - 1)
-	case ReadyDown:
+	case ReadyDown, ReadyNext:
 		move(i + 1)
 	case ReadyTop:
 		move(0)
@@ -423,26 +564,145 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 	case ReadyRefresh:
 		rd.Asked = false
 		r.askReady()
+	case ReadyHelp:
+		rd.Help = true
 	case ReadyEsc:
 		rd.Open = false
+	case ReadyOpenKey, ReadyEnter:
+		if i >= 0 {
+			rd.Detail, rd.Top, rd.Follow, rd.Pick = it.ID, 0, false, firstOpenAct(it)
+		}
 	case ReadyUndoKey:
-		switch {
-		case i < 0 || it.Undo == 0:
-			rd.Message = NoUndoNote
-		case rd.Undoing != 0:
-			rd.Message = UndoBusyNote
-		default:
-			rd.Undoing = it.Undo
-			r.emit(SendUndo{Move: it.Undo})
+		r.undo(it, i)
+	case ReadyReplyKey:
+		r.reply(it, i)
+	case ReadyRevert, ReadyDismiss:
+		rd.Message = OpenNoteNote
+	}
+}
+
+// OpenNoteNote is what v and d say in the list: they act on a numbered
+// item, which shows when the note is open.
+const OpenNoteNote = "Open the note first (enter), then v or d on an item."
+
+// firstOpenAct is the index of the first numbered item not done yet, or 0.
+func firstOpenAct(it ReadyItem) int {
+	for i, a := range it.Acts {
+		if a.Done == "" {
+			return i
 		}
-	case ReadyReplyKey, ReadyEnter:
-		switch {
-		case i < 0 || it.ReplyTo == 0:
-			rd.Message = NoReplyNote
-		case rd.Sending != 0:
-			rd.Message = ReplyBusyNote
-		default:
-			rd.Input = &ReplyInput{Message: it.ReplyTo}
+	}
+	return 0
+}
+
+func (r *hubReducer) undo(it ReadyItem, i int) {
+	rd := &r.h.Ready
+	switch {
+	case i < 0 || it.Undo == 0:
+		rd.Message = NoUndoNote
+	case rd.Undoing != 0:
+		rd.Message = UndoBusyNote
+	default:
+		rd.Undoing = it.Undo
+		r.emit(SendUndo{Move: it.Undo})
+	}
+}
+
+func (r *hubReducer) reply(it ReadyItem, i int) {
+	rd := &r.h.Ready
+	switch {
+	case i < 0 || it.ReplyTo == 0:
+		rd.Message = NoReplyNote
+	case rd.Sending != 0:
+		rd.Message = ReplyBusyNote
+	default:
+		rd.Input = &ReplyInput{Message: it.ReplyTo}
+	}
+}
+
+// detailKey applies a key while an item is open whole.
+func (r *hubReducer) detailKey(e ReadyKey) {
+	rd := &r.h.Ready
+	it, i := ReadyDetail(*rd)
+	if i < 0 {
+		rd.Detail = ""
+		return
+	}
+	scroll := func(to int) {
+		rd.Top, rd.Follow = min(max(to, 0), max(e.Max, 0)), false
+	}
+	pick := func(to int) {
+		if len(it.Acts) == 0 {
+			return
 		}
+		rd.Pick = min(max(to, 0), len(it.Acts)-1)
+		rd.Top, rd.Follow = e.Top, true
+	}
+	switch e.Action {
+	case ReadyUp:
+		scroll(e.Top - 1)
+	case ReadyDown:
+		scroll(e.Top + 1)
+	case ReadyPageUp:
+		scroll(e.Top - max(e.Page, 1))
+	case ReadyPageDown:
+		scroll(e.Top + max(e.Page, 1))
+	case ReadyTop:
+		scroll(0)
+	case ReadyBottom:
+		scroll(e.Max)
+	case ReadyNext:
+		pick(rd.Pick + 1)
+	case ReadyPrev:
+		pick(rd.Pick - 1)
+	case ReadyPick:
+		n, err := strconv.Atoi(e.Text)
+		idx := slices.IndexFunc(it.Acts, func(a ReadyAct) bool { return err == nil && a.N == n })
+		if idx < 0 {
+			rd.Message = fmt.Sprintf("There is no item %s here.", e.Text)
+			return
+		}
+		pick(idx)
+	case ReadyRefresh:
+		rd.Asked = false
+		r.askReady()
+	case ReadyHelp:
+		rd.Help = true
+	case ReadyEsc:
+		rd.Detail, rd.Top, rd.Follow = "", 0, false
+	case ReadyUndoKey:
+		r.undo(it, i)
+	case ReadyReplyKey:
+		r.reply(it, i)
+	case ReadyRevert, ReadyDismiss:
+		r.act(it, e.Action)
+	}
+}
+
+// act sends the picked numbered item of a daily note, when the key is the
+// one for what the item offers.
+func (r *hubReducer) act(it ReadyItem, key ReadyAction) {
+	rd := &r.h.Ready
+	if len(it.Acts) == 0 || rd.Pick >= len(it.Acts) {
+		rd.Message = NoActNote
+		return
+	}
+	a := it.Acts[rd.Pick]
+	want, other := OpRevert, "d"
+	if key == ReadyDismiss {
+		want, other = OpDismiss, "v"
+	}
+	switch {
+	case a.Done == "reverted":
+		rd.Message = fmt.Sprintf("Item %d is undone already.", a.N)
+	case a.Done != "":
+		rd.Message = fmt.Sprintf("Item %d is dropped already.", a.N)
+	case a.Op != want:
+		rd.Message = fmt.Sprintf("Item %d: press %s.", a.N, map[string]string{"v": "v to undo it", "d": "d to drop it"}[other])
+	case rd.Acting != 0:
+		rd.Message = ActBusyNote
+	default:
+		rd.Acting = it.Message
+		r.emit(SendAct{Message: it.Message, N: a.N, Op: a.Op})
 	}
 }

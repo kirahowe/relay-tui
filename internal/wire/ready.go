@@ -17,7 +17,14 @@ const (
 	MethodReadyChanged = "_relay/ready/changed"
 	MethodReply        = "_relay/reply"
 	MethodUndo         = "_relay/undo"
+	MethodMessagesAct  = "_relay/messages/act"
 )
+
+// ActParams is the parameters of _relay/messages/act: the daily note and
+// the number of one of its items, the note's own.
+func ActParams(message int64, item int) map[string]any {
+	return map[string]any{"message": message, "item": item}
+}
 
 // ReadyParams is the parameters of _relay/ready: the newest items, as
 // many as relay sends by default. The method is the connection's, so it
@@ -37,6 +44,13 @@ func UndoParams(move int64) map[string]any { return map[string]any{"move": move}
 type rawReply struct {
 	At   string `json:"at"`
 	Text string `json:"text"`
+}
+
+type rawAct struct {
+	N    int     `json:"n"`
+	Op   string  `json:"op"`
+	Line int     `json:"line"`
+	Done *string `json:"done"`
 }
 
 type rawReadyItem struct {
@@ -60,6 +74,7 @@ type rawReadyItem struct {
 	Role        string     `json:"role"`
 	Undo        *int64     `json:"undo"`
 	Undone      bool       `json:"undone"`
+	Acts        []rawAct   `json:"acts"`
 }
 
 // readyItem reads one item. An item without an id is left out. A missing
@@ -83,6 +98,13 @@ func readyItem(raw json.RawMessage) (core.ReadyItem, bool) {
 	}
 	if r.ReplyTo != nil {
 		it.ReplyTo = *r.ReplyTo
+	}
+	for _, x := range r.Acts {
+		a := core.ReadyAct{N: x.N, Op: x.Op, Line: x.Line}
+		if x.Done != nil {
+			a.Done = *x.Done
+		}
+		it.Acts = append(it.Acts, a)
 	}
 	for _, x := range r.Replies {
 		it.Replies = append(it.Replies, core.ReadyReply{At: x.At, Text: x.Text})
@@ -150,10 +172,20 @@ func UndoOutcome(move int64, raw json.RawMessage, err error, at time.Time) core.
 		return core.UndoDone{At: at, Move: move, Err: errText(err)}
 	}
 	var r struct {
-		Lines []string `json:"lines"`
+		Lines   []string `json:"lines"`
+		Summary string   `json:"summary"`
 	}
 	if strictjson.Unmarshal(raw, &r) != nil {
 		return core.UndoDone{At: at, Move: move, Err: "relay's answer could not be read"}
 	}
-	return core.UndoDone{At: at, Move: move, Lines: r.Lines}
+	return core.UndoDone{At: at, Move: move, Lines: r.Lines, Summary: r.Summary}
+}
+
+// ActOutcome translates the answer to _relay/messages/act on item n of
+// message, which did op: a JSON-RPC error's message is relay's refusal.
+func ActOutcome(message int64, n int, op string, err error, at time.Time) core.ActDone {
+	if err != nil {
+		return core.ActDone{At: at, Message: message, N: n, Op: op, Err: errText(err)}
+	}
+	return core.ActDone{At: at, Message: message, N: n, Op: op}
 }

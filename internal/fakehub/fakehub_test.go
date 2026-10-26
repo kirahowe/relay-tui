@@ -244,3 +244,36 @@ func TestReadyViewUndoesAMoveOnceAndNotifies(t *testing.T) {
 		t.Errorf("a second undo: %v", err)
 	}
 }
+
+func TestReadyViewActsOnANotesItemOnceAndNotifies(t *testing.T) {
+	item := json.RawMessage(`{"id":"message:9","kind":"message","message":9,"replyTo":9,"title":"Daily note","lines":["1. A change"],
+"acts":[{"n":1,"op":"revert","line":0,"done":null}]}`)
+	h := New(Config{Ready: []json.RawMessage{item}}, io.Discard)
+	conn, tc := connectHub(t, h)
+	notes := make(chan json.RawMessage, 2)
+	tc.notes = notes
+	ctx := context.Background()
+	if _, err := conn.CallExtension(ctx, "_relay/ready", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 1, "op": "revert"}); err == nil {
+		t.Errorf("a parameter it does not take was taken")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 4}); err == nil {
+		t.Errorf("an item the note does not have was done")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case n := <-notes:
+		if !strings.Contains(string(n), `"done":"reverted"`) {
+			t.Errorf("%s", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 1}); err == nil || !strings.Contains(err.Error(), "done already") {
+		t.Errorf("a second act: %v", err)
+	}
+}

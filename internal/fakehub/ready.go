@@ -41,13 +41,13 @@ func newReady(raw []json.RawMessage) (*readyView, error) {
 }
 
 // readyMethods are the methods readyMethod answers.
-var readyMethods = []string{"_relay/ready", "_relay/reply", "_relay/undo"}
+var readyMethods = []string{"_relay/ready", "_relay/reply", "_relay/undo", "_relay/messages/act"}
 
 // readyMethod answers one of the view's methods. The caller holds no lock.
 func (h *Hub) readyMethod(ctx context.Context, method string, raw json.RawMessage) (json.RawMessage, error) {
 	var params map[string]any
 	_ = json.Unmarshal(raw, &params)
-	h.logf("%s %s", map[string]string{"_relay/ready": "ready", "_relay/reply": "reply", "_relay/undo": "undo"}[method], raw)
+	h.logf("%s %s", map[string]string{"_relay/ready": "ready", "_relay/reply": "reply", "_relay/undo": "undo", "_relay/messages/act": "act"}[method], raw)
 	h.mu.Lock()
 	v, conn := h.ready, h.conn
 	if v == nil {
@@ -88,6 +88,44 @@ func (h *Hub) readyMethod(ctx context.Context, method string, raw json.RawMessag
 			_ = conn.NotifyExtension(ctx, "_relay/ready/changed", body)
 		}
 		return copyOf(map[string]any{}), nil
+	case "_relay/messages/act":
+		// Item n of a daily note: its act is done as the item offers, and
+		// the note comes changed with that act done, as relay sends it.
+		if err := strict(method, params, "message", "item"); err != nil {
+			h.mu.Unlock()
+			return nil, err
+		}
+		id, n := num(params["message"]), num(params["item"])
+		var act map[string]any
+		var item map[string]any
+		for _, it := range v.items {
+			if num(it["message"]) != id {
+				continue
+			}
+			acts, _ := it["acts"].([]any)
+			for _, a := range acts {
+				if m, ok := a.(map[string]any); ok && num(m["n"]) == n {
+					item, act = it, m
+				}
+			}
+		}
+		if act == nil {
+			h.mu.Unlock()
+			return nil, refused(fmt.Sprintf("Item %v is not in message %v.", params["item"], params["message"]))
+		}
+		if act["done"] != nil {
+			h.mu.Unlock()
+			return nil, refused(fmt.Sprintf("Item %v was done already.", params["item"]))
+		}
+		act["done"] = map[string]string{"revert": "reverted", "dismiss": "dismissed"}[fmt.Sprint(act["op"])]
+		v.rev++
+		body := copyOf(map[string]any{"rev": v.rev, "items": []any{item}, "gone": []string{}})
+		notify := v.subscribed
+		h.mu.Unlock()
+		if notify && conn != nil {
+			_ = conn.NotifyExtension(ctx, "_relay/ready/changed", body)
+		}
+		return copyOf(map[string]any{}), nil
 	case "_relay/undo":
 		if err := strict(method, params, "move"); err != nil {
 			h.mu.Unlock()
@@ -114,7 +152,7 @@ func (h *Hub) readyMethod(ctx context.Context, method string, raw json.RawMessag
 		if notify && conn != nil {
 			_ = conn.NotifyExtension(ctx, "_relay/ready/changed", body)
 		}
-		return copyOf(map[string]any{"lines": []string{fmt.Sprintf("Undid move %v: put back 1 of 1.", params["move"])}}), nil
+		return copyOf(map[string]any{"lines": []string{fmt.Sprintf("Undid move %v: put back 1 of 1.", params["move"])}, "summary": "Put back 1 file."}), nil
 	}
 	h.mu.Unlock()
 	return nil, acp.NewMethodNotFound(method)

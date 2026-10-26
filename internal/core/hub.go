@@ -428,7 +428,7 @@ func (r *hubReducer) apply(e Event) {
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, Replayed,
 		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited,
-		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone:
+		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -452,7 +452,7 @@ func (r *hubReducer) apply(e Event) {
 		r.routed(e)
 	case CardsLoaded, CardsChanged, CardOpDone:
 		r.toApp(e, false)
-	case ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ReadyOpen, ReadyKey:
+	case ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, ReadyOpen, ReadyKey:
 		r.ready(e)
 	case PaneKey:
 		if h.List {
@@ -718,7 +718,7 @@ func (r *hubReducer) withApp(f func(*reducer)) {
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
-	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo:
+	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo, SendAct:
 		// The board's and the ready view's calls are the connection's,
 		// about no conversation.
 		r.emit(f)

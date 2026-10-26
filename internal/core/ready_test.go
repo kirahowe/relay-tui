@@ -233,7 +233,7 @@ func TestAReplyIsWrittenAndSentOnce(t *testing.T) {
 
 func TestABlankReplyIsNotSentAndEscCancelsIt(t *testing.T) {
 	h := readyHub(t, msg(4, 1))
-	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyEnter}) // enter writes
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyReplyKey}) // enter writes
 	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyChar, Text: "  "}, ReadyKey{At: t0, Action: ReadyEnter})
 	if len(effectsOf[SendReply](fx)) != 0 || h.Ready.Input == nil {
 		t.Fatalf("a blank reply went: %v %+v", fx, h.Ready)
@@ -246,7 +246,7 @@ func TestABlankReplyIsNotSentAndEscCancelsIt(t *testing.T) {
 
 func TestARefusedReplyComesBackToTheOperator(t *testing.T) {
 	h := readyHub(t, msg(4, 1))
-	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyEnter},
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyReplyKey},
 		ReadyKey{At: t0, Action: ReadyChar, Text: "Hello"}, ReadyKey{At: t0, Action: ReadyEnter})
 	h, _ = apply(t, h, ReplyDone{At: t0, Message: 4, Err: "The one who told you that is no longer here."})
 	if h.Ready.Input == nil || h.Ready.Input.Text != "Hello" || h.Ready.Message != ReplyRefusedNote ||
@@ -257,7 +257,7 @@ func TestARefusedReplyComesBackToTheOperator(t *testing.T) {
 
 func TestAPasteIntoTheReplyGoesNowhereAndSaysSo(t *testing.T) {
 	h := readyHub(t, msg(4, 1))
-	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyEnter}, Unbound{At: t0})
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyReplyKey}, Unbound{At: t0})
 	if h.Notice != EditorPasteNote || h.Ready.Input.Text != "" {
 		t.Errorf("%q %+v", h.Notice, h.Ready.Input)
 	}
@@ -368,7 +368,7 @@ func TestAnOlderLoadDoesNotUndoANewerChange(t *testing.T) {
 
 func TestARefusalStaysUntilTheNextKey(t *testing.T) {
 	h := readyHub(t, msg(4, 1))
-	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyEnter},
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyReplyKey},
 		ReadyKey{At: t0, Action: ReadyChar, Text: "Hello"}, ReadyKey{At: t0, Action: ReadyEnter})
 	h, _ = apply(t, h, ReplyDone{At: t0, Message: 4, Err: "A reply is at most 4000 characters."})
 	h2, _ := apply(t, h, ReadyKey{At: t0, Action: ReadyEnter}) // sends it again; relay will refuse again
@@ -400,4 +400,199 @@ func TestAStaleChangeAfterALoadIsDropped(t *testing.T) {
 	if len(h.Ready.Items) != 2 {
 		t.Errorf("%+v", h.Ready)
 	}
+}
+
+// --- an item whole, and the keys on a daily note's numbered items
+
+func note(id int64, min int) ReadyItem {
+	it := msg(id, min)
+	it.Title = "Daily note"
+	it.Lines = []string{"1. A change", "2. Another change", "3. A suggestion", "Reply \"not N\"."}
+	it.Acts = []ReadyAct{{N: 1, Op: OpRevert, Line: 0}, {N: 2, Op: OpRevert, Line: 1}, {N: 3, Op: OpDismiss, Line: 2}}
+	return it
+}
+
+func openNote(t *testing.T) Hub {
+	h := readyHub(t, note(7, 1), draft(5, 0))
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyOpenKey})
+	if h.Ready.Detail != "message:7" || h.Ready.Pick != 0 {
+		t.Fatalf("%+v", h.Ready)
+	}
+	return h
+}
+
+func TestEnterOpensTheItemAndAReplyHasItsOwnKey(t *testing.T) {
+	h := readyHub(t, msg(4, 1))
+	h, fx := apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyEnter})
+	if h.Ready.Detail != "message:4" || h.Ready.Input != nil || len(fx) > 1 {
+		t.Fatalf("enter should open it whole, not start a reply: %+v", h.Ready)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyReplyKey})
+	if h.Ready.Input == nil || h.Ready.Input.Message != 4 || HubSurface(h).Kind != SurfaceReadyInput {
+		t.Fatalf("a replies from the open item: %+v", h.Ready)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyEsc}, ReadyKey{At: t0, Action: ReadyEsc})
+	if h.Ready.Detail != "" || !h.Ready.Open {
+		t.Errorf("esc goes back to the list first: %+v", h.Ready)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyEsc})
+	if h.Ready.Open {
+		t.Errorf("then closes the view: %+v", h.Ready)
+	}
+}
+
+func TestScrollingAnOpenItemStaysInRange(t *testing.T) {
+	h := openNote(t)
+	k := func(a ReadyAction, top int) ReadyKey { return ReadyKey{At: t0, Action: a, Top: top, Max: 10, Page: 4} }
+	for _, c := range []struct {
+		a         ReadyAction
+		top, want int
+	}{{ReadyDown, 0, 1}, {ReadyUp, 0, 0}, {ReadyPageDown, 8, 10}, {ReadyPageUp, 2, 0}, {ReadyBottom, 3, 10}, {ReadyTop, 9, 0}} {
+		h, _ = apply(t, h, k(c.a, c.top))
+		if h.Ready.Top != c.want {
+			t.Errorf("%v from %d: top %d want %d", c.a, c.top, h.Ready.Top, c.want)
+		}
+	}
+}
+
+func TestVRevertsAndDDismissesThePickedItem(t *testing.T) {
+	h := openNote(t)
+	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
+	got := effectsOf[SendAct](fx)
+	if len(got) != 1 || got[0] != (SendAct{Message: 7, N: 1, Op: OpRevert}) || h.Ready.Acting != 7 {
+		t.Fatalf("%v %+v", fx, h.Ready)
+	}
+	// One at a time.
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != ActBusyNote {
+		t.Errorf("%v %+v", fx, h.Ready)
+	}
+	h, _ = apply(t, h, ActDone{At: t0, Message: 7, N: 1, Op: OpRevert})
+	if h.Ready.Acting != 0 || h.Ready.Message != "Item 1 undone." || h.Ready.Items[0].Acts[0].Done != "reverted" {
+		t.Fatalf("%+v", h.Ready)
+	}
+	// Item 1 is done: v says so and sends nothing.
+	_, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
+	if len(effectsOf[SendAct](fx)) != 0 {
+		t.Errorf("sent an item that was done: %v", fx)
+	}
+	// The number keys pick the note's own numbers.
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
+	if h.Ready.Pick != 2 {
+		t.Fatalf("%+v", h.Ready)
+	}
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyDismiss})
+	if got := effectsOf[SendAct](fx); len(got) != 1 || got[0] != (SendAct{Message: 7, N: 3, Op: OpDismiss}) {
+		t.Fatalf("%v", fx)
+	}
+	h, _ = apply(t, h, ActDone{At: t0, Message: 7, N: 3, Op: OpDismiss})
+	if h.Ready.Message != "Item 3 dropped." || h.Ready.Items[0].Acts[2].Done != "dismissed" {
+		t.Errorf("%+v", h.Ready)
+	}
+}
+
+func TestTheWrongKeyForAnItemDoesNothingAndSaysWhich(t *testing.T) {
+	h := openNote(t)
+	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyDismiss})
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 1: press v to undo it." {
+		t.Errorf("%v %q", fx, h.Ready.Message)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 3: press d to drop it." {
+		t.Errorf("%v %q", fx, h.Ready.Message)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "9"})
+	if h.Ready.Message != "There is no item 9 here." || h.Ready.Pick != 2 {
+		t.Errorf("%q %d", h.Ready.Message, h.Ready.Pick)
+	}
+	// In the list, and on an item with nothing to act on, they say so.
+	h = readyHub(t, msg(4, 1))
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyRevert})
+	if h.Ready.Message != OpenNoteNote {
+		t.Errorf("%q", h.Ready.Message)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyOpenKey}, ReadyKey{At: t0, Action: ReadyRevert})
+	if h.Ready.Message != NoActNote {
+		t.Errorf("%q", h.Ready.Message)
+	}
+}
+
+func TestARefusedActSaysWhy(t *testing.T) {
+	h := openNote(t)
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyRevert}, ActDone{At: t0, Message: 7, N: 1, Op: OpRevert, Err: "Item 1 was reverted already."})
+	if h.Ready.Acting != 0 || h.Ready.Message != ActRefusedNote || h.Ready.Failure == "" || h.Ready.Items[0].Acts[0].Done != "" {
+		t.Errorf("%+v", h.Ready)
+	}
+}
+
+func TestAnyKeyClosesTheKeysListAndDoesOnlyThat(t *testing.T) {
+	h := openNote(t)
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyHelp})
+	if !h.Ready.Help {
+		t.Fatal("? did nothing")
+	}
+	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
+	if h.Ready.Help || len(effectsOf[SendAct](fx)) != 0 || h.Ready.Detail == "" {
+		t.Errorf("%v %+v", fx, h.Ready)
+	}
+}
+
+func TestTheUndoSummaryIsWhatTheStatusLineSays(t *testing.T) {
+	m := ReadyItem{ID: "move:3", Kind: ReadyMove, At: at(1), Move: 3, Undo: 3}
+	h := readyHub(t, m)
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyUndoKey},
+		UndoDone{At: t0, Move: 3, Lines: []string{"Undid move 3: put back 3 of 3. Removed 2 empty folder(s) it had made."}, Summary: "Put back 3 files."})
+	if h.Ready.Message != "Put back 3 files." {
+		t.Errorf("%q", h.Ready.Message)
+	}
+}
+
+func TestAnOpenItemThatGoesAwayClosesItself(t *testing.T) {
+	h := openNote(t)
+	h, _ = apply(t, h, ReadyChanged{At: t0, Rev: 11, Gone: []string{"message:7"}})
+	if h.Ready.Detail != "" || !h.Ready.Open {
+		t.Errorf("%+v", h.Ready)
+	}
+}
+
+// Any run of keys on any items: the open item is always one that is
+// there, the pick and the top stay in range, and an act is sent only for
+// an item the note offers, with what it offered, and not twice.
+func TestReadyKeysKeepTheirInvariants(t *testing.T) {
+	actions := []ReadyAction{ReadyUp, ReadyDown, ReadyTop, ReadyBottom, ReadyOpenKey, ReadyEsc, ReadyPageUp, ReadyPageDown,
+		ReadyNext, ReadyPrev, ReadyPick, ReadyRevert, ReadyDismiss, ReadyHelp, ReadyReplyKey, ReadyUndoKey, ReadyRefresh}
+	rapid.Check(t, func(t *rapid.T) {
+		items := []ReadyItem{note(7, 1), msg(4, 2), draft(5, 0)}
+		items[0].Acts[rapid.IntRange(0, 2).Draw(t, "done")].Done = rapid.SampledFrom([]string{"", "reverted", "dismissed"}).Draw(t, "how")
+		h := readyHub(t, items...)
+		h, _ = apply(t, h, ReadyOpen{At: t0})
+		for i := 0; i < rapid.IntRange(1, 40).Draw(t, "n"); i++ {
+			a := rapid.SampledFrom(actions).Draw(t, "action")
+			k := ReadyKey{At: t0, Action: a, Top: rapid.IntRange(0, 12).Draw(t, "top"), Max: rapid.IntRange(0, 12).Draw(t, "max"),
+				Page: rapid.IntRange(0, 6).Draw(t, "page"), Text: rapid.SampledFrom([]string{"1", "2", "3", "9", "x"}).Draw(t, "text")}
+			var fx []Effect
+			h, fx = apply(t, h, k)
+			if h.Ready.Input != nil {
+				h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyEsc})
+			}
+			for _, s := range effectsOf[SendAct](fx) {
+				it := items[0]
+				idx := slices.IndexFunc(it.Acts, func(x ReadyAct) bool { return x.N == s.N })
+				if s.Message != 7 || idx < 0 || it.Acts[idx].Op != s.Op || it.Acts[idx].Done != "" {
+					t.Fatalf("sent %+v for %+v", s, it.Acts)
+				}
+				h, _ = apply(t, h, ActDone{At: t0, Message: s.Message, N: s.N, Op: s.Op})
+				items[0].Acts[idx].Done = "x"
+			}
+			if h.Ready.Detail != "" {
+				if _, i := ReadyDetail(h.Ready); i < 0 {
+					t.Fatalf("the open item is not there: %+v", h.Ready)
+				}
+			}
+			if h.Ready.Top < 0 || h.Ready.Top > 12 || h.Ready.Pick < 0 || h.Ready.Pick > 2 {
+				t.Fatalf("out of range: %+v", h.Ready)
+			}
+		}
+	})
 }
