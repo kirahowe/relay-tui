@@ -487,7 +487,9 @@ func TestHubReadyNoteOpensWholeAndRevertsAnItem(t *testing.T) {
 	h.keys("R")
 	h.waitScreen("the note in the list", func(s string) bool { return strings.Contains(s, "Daily note for Monday") })
 	h.keys("\r")
-	h.waitScreen("the note whole", func(s string) bool { return strings.Contains(s, "▸ 1. New how-to") && strings.Contains(s, "v revert") })
+	h.waitScreen("the note whole", func(s string) bool {
+		return strings.Contains(s, "▸ 1. New how-to") && strings.Contains(s, "v revert")
+	})
 	h.keys("v")
 	h.waitScreen("item 1 undone", func(s string) bool {
 		return strings.Contains(strings.Join(strings.Fields(s), " "), "(undone)") && strings.Contains(s, "Item 1 undone.")
