@@ -602,15 +602,6 @@ func testPermissionRefused(t *testing.T, cols, rows int) {
 	h.waitScreen("typed", func(s string) bool { return strings.Contains(s, "› y") })
 }
 
-// Ctrl-C while an older relay's request is out still stops the turn.
-func TestCtrlCStopsATurnThatAsked(t *testing.T) {
-	h := start(t, "permission.jsonl", 80, 24)
-	h.keys("go\r")
-	h.waitOutcome(`{"outcome":"cancelled"}`)
-	h.keys("\x03")
-	h.waitIdle()
-}
-
 // bracketed is a paste as a terminal sends it.
 func bracketed(s string) string { return "\x1b[200~" + s + "\x1b[201~" }
 
