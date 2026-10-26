@@ -1,0 +1,22 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                         ␛[0;2m5 ␛[m
+␛[0;2m╭─␛[m ready keys ␛[0;2m────────────────────────────────────────────␛[m␛[0;2m╮␛[m
+␛[0;2m│␛[m ↑ ↓ k j tab shift+tab  ␛[0;2mselect␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m g G home end           ␛[0;2mtop, bottom␛[m␛[0;2m                     ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m enter o                ␛[0;2mopen the one selected, whole␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m a                      ␛[0;2mreply to a message␛[m␛[0;2m              ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m u                      ␛[0;2mundo a file move␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m r                      ␛[0;2mask relay again␛[m␛[0;2m                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m R esc q h ←            ␛[0;2mclose this view␛[m␛[0;2m                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ?                      ␛[0;2mthese keys␛[m␛[0;2m                      ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                    ␛[m ␛[0;2m│␛[m
+␛[0;2m╰─────────────────────────────────────────────────────────╯␛[m
+
+
+
+
+
+
+
+
+
+ ␛[0;1mMOVING␛[m  ␛[0;36many␛[m␛[0;2m key closes the list␛[m

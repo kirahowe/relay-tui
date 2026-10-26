@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,37 +114,177 @@ func whenLine(it core.ReadyItem, now time.Time) string {
 	return out
 }
 
+// readyHead is the words in a panel's top border and the age at its
+// right. When the kind, the title and the age do not all fit, the border
+// keeps the kind and the age and the title goes to rows of its own
+// (titleRows, wrapped, at most maxRows of them), so the age never drops
+// out and a long title is not cut mid-word.
+func readyHead(it core.ReadyItem, now time.Time, width, maxRows int) (head, age string, titleRows []string) {
+	age = ago(it.At, now)
+	title := cardLine(it.Title, it.Outsider)
+	if strings.TrimSpace(title) == "" {
+		title = "(untitled)"
+	}
+	lead := ""
+	if it.Urgency == "high" {
+		lead = styled(bold, "! ")
+	}
+	kind := lead + styled(bold|readyColour(it.Kind), readyKindName(it))
+	full := kind + styled(faint, " · ") + title
+	if Method.StringWidth(full)+Method.StringWidth(age)+10 <= width {
+		return full, age, nil
+	}
+	rows := wrap(title, framed(width))
+	if maxRows > 0 {
+		rows = capLines(rows, maxRows, framed(width))
+	}
+	for i := range rows {
+		rows[i] = styled(bold, rows[i])
+	}
+	return kind, age, rows
+}
+
+// readyListLines is the rows of an item's lines in the list: a move's
+// lines one row each, the rest wrapped; cut to readyBodyLines rows, the
+// last one saying how to read the rest.
+func readyListLines(it core.ReadyItem, inner int) []string {
+	var rows []string
+	for _, l := range it.Lines {
+		if it.Kind == core.ReadyMove {
+			rows = append(rows, truncate(cardLine(l, it.Outsider), inner))
+			continue
+		}
+		rows = append(rows, cardLines(l, it.Outsider, inner)...)
+	}
+	return capReady(rows, it, inner)
+}
+
+func capReady(rows []string, it core.ReadyItem, inner int) []string {
+	if len(rows) <= readyBodyLines {
+		return rows
+	}
+	keep := readyBodyLines - 1
+	more := styled(faint, "… enter reads it all")
+	if it.Kind == core.ReadyMove {
+		more = styled(faint, fmt.Sprintf("… and %d more · enter lists all", len(rows)-keep))
+	}
+	return append(slices.Clone(rows[:keep]), truncate(more, inner))
+}
+
 // readyPanel is one item as a panel of exactly width columns.
 func readyPanel(it core.ReadyItem, now time.Time, width int, focus bool) []string {
 	inner := framed(width)
-	var lines []string
+	head, age, lines := readyHead(it, now, width, 3)
 	if it.Kind == core.ReadyEvent {
 		if w := whenLine(it, now); w != "" {
 			lines = append(lines, styled(bold, w))
 		}
 	}
-	for _, l := range it.Lines {
-		lines = append(lines, cardLines(l, it.Outsider, inner)...)
-	}
-	if len(lines) > readyBodyLines {
-		lines = append(lines[:readyBodyLines-1], styled(faint, "…"))
-	}
+	lines = append(lines, readyListLines(it, inner)...)
 	for _, r := range it.Replies[max(len(it.Replies)-1, 0):] {
 		lines = append(lines, wrap(styled(faint, "↩ you replied: ")+cardLine(r.Text, false), inner)[0])
-	}
-	title := cardLine(it.Title, it.Outsider)
-	if strings.TrimSpace(title) == "" {
-		title = "(untitled)"
-	}
-	head := styled(bold|readyColour(it.Kind), readyKindName(it)) + styled(faint, " · ") + title
-	if it.Urgency == "high" {
-		head = styled(bold, "! ") + head
 	}
 	foot := ""
 	if from := readyFrom(it); from != "" {
 		foot = styled(warnColour, from)
 	}
-	return panel(head, styled(faint, ago(it.At, now)), foot, lines, width, len(lines)+2, focus)
+	return panel(head, styled(faint, age), foot, lines, width, len(lines)+2, focus)
+}
+
+// readyDetailRows is an item whole, as rows of inner width: its title
+// when the border cannot hold it, an event's time, every line wrapped, and
+// every reply. For a daily note each numbered item has a two-column gutter
+// that shows the picked one with a marker. first and last are the rows of
+// the picked numbered item, or -1.
+func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) (rows []string, first, last int, head, age string) {
+	inner := framed(width)
+	head, age, titleRows := readyHead(it, now, width, 0)
+	first, last = -1, -1
+	rows = append(rows, titleRows...)
+	if len(titleRows) > 0 {
+		rows = append(rows, "")
+	}
+	if it.Kind == core.ReadyEvent {
+		if w := whenLine(it, now); w != "" {
+			rows = append(rows, styled(bold, w), "")
+		}
+	}
+	gutter := 0
+	if len(it.Acts) > 0 {
+		gutter = 2
+	}
+	for li, l := range it.Lines {
+		ai := slices.IndexFunc(it.Acts, func(a core.ReadyAct) bool { return a.Line == li })
+		text := l
+		if ai >= 0 {
+			switch it.Acts[ai].Done {
+			case "reverted":
+				text += " (undone)"
+			case "dismissed":
+				text += " (dropped)"
+			}
+		}
+		parts := cardLines(text, it.Outsider, max(inner-gutter, 1))
+		if ai >= 0 && ai == r.Pick {
+			first = len(rows)
+		}
+		for pi, part := range parts {
+			g := strings.Repeat(" ", gutter)
+			if ai >= 0 && ai == r.Pick {
+				if pi == 0 {
+					g = styled(accent, "▸ ")
+				}
+				part = styled(bold, part)
+			}
+			rows = append(rows, g+part)
+		}
+		if ai >= 0 && ai == r.Pick {
+			last = len(rows) - 1
+		}
+	}
+	for _, rp := range it.Replies {
+		rows = append(rows, "")
+		rows = append(rows, wrap(styled(faint, "↩ you replied: ")+cardLine(rp.Text, false), inner)...)
+	}
+	return rows, first, last, head, age
+}
+
+// readyDetail draws the open item as one framed panel of room rows,
+// scrolled to r.Top (moved to show the picked numbered item when r.Follow
+// says so). It returns the rows, the first row of the item shown, how far
+// it can scroll and how many rows a page is.
+func readyDetail(r core.Ready, it core.ReadyItem, now time.Time, width, room int) (out []string, top, maxTop, page int) {
+	all, first, last, head, age := readyDetailRows(r, it, now, width)
+	// The panel is as tall as what it holds, up to the room.
+	h := max(min(room-2, len(all)), 1)
+	maxTop = max(len(all)-h, 0)
+	top = min(max(r.Top, 0), maxTop)
+	if r.Follow && first >= 0 {
+		switch {
+		case first < top:
+			top = first
+		case last >= top+h:
+			top = min(last-h+1, first)
+		}
+		top = min(max(top, 0), maxTop)
+	}
+	view := all[top:min(len(all), top+h)]
+	right := styled(faint, age)
+	if maxTop > 0 {
+		arrows := ""
+		if top > 0 {
+			arrows += "↑"
+		}
+		if top < maxTop {
+			arrows += "↓"
+		}
+		right = styled(faint, strings.TrimSpace(age+" "+arrows))
+	}
+	foot := ""
+	if from := readyFrom(it); from != "" {
+		foot = styled(warnColour, from)
+	}
+	return panel(head, right, foot, view, width, h+2, true), top, maxTop, max(h-1, 1)
 }
 
 // readyRows lays the items out as panels with a blank row between, and
@@ -188,19 +329,81 @@ func readyWindow(rows []string, first, last []int, sel, room int) []string {
 	return rows[start:min(len(rows), start+room)]
 }
 
-// readyHint is the row of keys at the bottom.
+// ReadyListKeys is what the keys do in the ready view's list, in the list
+// of keys.
+var ReadyListKeys = []KeyHelp{
+	{[]string{"up", "down", "k", "j", "tab", "shift+tab"}, "select"},
+	{[]string{"g", "G", "home", "end"}, "top, bottom"},
+	{[]string{"enter", "o"}, "open the one selected, whole"},
+	{[]string{"a"}, "reply to a message"},
+	{[]string{"u"}, "undo a file move"},
+	{[]string{"r"}, "ask relay again"},
+	{[]string{"R", "esc", "q", "h", "left"}, "close this view"},
+	{[]string{"?"}, "these keys"},
+}
+
+// ReadyDetailKeys is what the keys do in an item open whole.
+var ReadyDetailKeys = []KeyHelp{
+	{[]string{"up", "down", "k", "j"}, "scroll"},
+	{[]string{"pgup", "pgdown", "space", "g", "G", "home", "end"}, "page, top, bottom"},
+	{[]string{"1"}, "pick a numbered item of a daily note (1 to 9)"},
+	{[]string{"tab", "]", "shift+tab", "["}, "the next or the previous numbered item"},
+	{[]string{"v"}, "undo the picked change"},
+	{[]string{"d"}, "drop the picked suggestion for good"},
+	{[]string{"a"}, "reply to a message"},
+	{[]string{"u"}, "undo a file move"},
+	{[]string{"r"}, "ask relay again"},
+	{[]string{"R"}, "close this view"},
+	{[]string{"esc", "q", "h", "left"}, "back to the list"},
+	{[]string{"?"}, "these keys"},
+}
+
+// readyHint is the row of keys at the bottom: the ones that matter here
+// first, so a narrow screen cuts the least useful.
 func readyHint(r core.Ready) string {
-	switch {
-	case r.Input != nil:
+	if r.Input != nil {
 		return "enter send · esc cancel"
 	}
-	keys := "↑↓ move"
-	if it, i := core.ReadySelected(r); i >= 0 && it.ReplyTo != 0 {
-		keys += " · a reply"
-	} else if i >= 0 && it.Undo != 0 {
-		keys += " · u undo"
+	if r.Help {
+		return "any key closes the list"
 	}
-	return keys + " · r refresh · R close"
+	it, i := core.ReadySelected(r)
+	if r.Detail != "" {
+		it, i = core.ReadyDetail(r)
+		var keys []string
+		if i >= 0 && len(it.Acts) > 0 && r.Pick < len(it.Acts) {
+			a := it.Acts[r.Pick]
+			switch {
+			case a.Done != "":
+			case a.Op == core.OpRevert:
+				keys = append(keys, "v revert")
+			default:
+				keys = append(keys, "d drop")
+			}
+		}
+		if i >= 0 && it.ReplyTo != 0 {
+			keys = append(keys, "a reply")
+		}
+		if i >= 0 && it.Undo != 0 {
+			keys = append(keys, "u undo")
+		}
+		keys = append(keys, "esc back", "↑↓ scroll")
+		if i >= 0 && len(it.Acts) > 1 {
+			keys = append(keys, "tab item")
+		}
+		return strings.Join(append(keys, "? keys"), " · ")
+	}
+	keys := []string{"↑↓ move"}
+	if i >= 0 {
+		keys = append(keys, "enter open")
+	}
+	switch {
+	case i >= 0 && it.ReplyTo != 0:
+		keys = append(keys, "a reply")
+	case i >= 0 && it.Undo != 0:
+		keys = append(keys, "u undo")
+	}
+	return strings.Join(append(keys, "? keys", "R close"), " · ")
 }
 
 // readyStatus is the row above the keys: the reply being written, or the
@@ -260,7 +463,18 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		room--
 	}
 	var body []string
+	var top, maxTop, page int
+	detail, di := core.ReadyDetail(r)
 	switch {
+	case r.Help:
+		rows := ReadyListKeys
+		title := "ready keys"
+		if di >= 0 {
+			rows, title = ReadyDetailKeys, "keys for this one"
+		}
+		body = helpBox(title, rows, min(width, readyMaxWidth))
+	case di >= 0:
+		body, top, maxTop, page = readyDetail(r, detail, now, min(width, readyMaxWidth), room)
 	case r.Unavailable:
 		body = []string{"", " " + styled(faint, "This relay has nothing ready to show.")}
 	case !r.Loaded && len(r.Items) == 0:
@@ -293,7 +507,8 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	if typing {
 		active = core.SurfaceReadyInput
 	}
-	return HubFrame{Content: strings.Join(rows[:min(len(rows), height)], "\n"), Active: active}
+	return HubFrame{Content: strings.Join(rows[:min(len(rows), height)], "\n"), Active: active,
+		Top: top, Max: maxTop, Page: page}
 }
 
 // readyFailureRows is a refusal over at most n rows, wrapped, the last

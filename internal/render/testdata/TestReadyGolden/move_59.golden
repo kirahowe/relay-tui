@@ -1,16 +1,16 @@
 ␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                         ␛[0;2m2 ␛[m
-␛[0;36m╭─␛[m ␛[0;1mMoved␛[m␛[0;2m · ␛[m2 things ␛[0;36m─────────────────────────────────␛[m ␛[0;2m5m␛[m ␛[0;36m─╮␛[m
-␛[0;36m│␛[m By steward.                                            ␛[m ␛[0;36m│␛[m
-␛[0;36m│␛[m /Users/k/Downloads/statement-oct.pdf →                 ␛[m ␛[0;36m│␛[m
-␛[0;36m│␛[m /Users/k/Bank/2025-10.pdf                              ␛[m ␛[0;36m│␛[m
-␛[0;36m│␛[m /Users/k/Downloads/w2.pdf → /Users/k/Taxes/2025/w2.pdf ␛[m ␛[0;36m│␛[m
+␛[0;36m╭─␛[m ␛[0;1mMoved␛[m␛[0;2m · ␛[m2 files ␛[0;36m──────────────────────────────────␛[m ␛[0;2m5m␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m 2 files in Documents, into 2 folders                   ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m Downloads/statement-oct.pdf → Bank/2025-10.pdf         ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m Downloads/w2.pdf → Taxes/2025/w2.pdf                   ␛[m ␛[0;36m│␛[m
 ␛[0;36m╰─␛[m ␛[0;33mfrom a mail by bank@example.org␛[m ␛[0;36m───────────────────────␛[m␛[0;36m╯␛[m
 
-␛[0;2m╭─␛[m ␛[0;1mMoved back␛[m␛[0;2m · ␛[mnotes.txt (undone) ␛[0;2m──────────────────␛[m ␛[0;2m9m␛[m ␛[0;2m─╮␛[m
-␛[0;2m│␛[m By steward.                                            ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m /Users/k/notes.txt → /Users/k/Notes/notes.txt (undone) ␛[m ␛[0;2m│␛[m
+␛[0;2m╭─␛[m ␛[0;1mMoved back␛[m␛[0;2m · ␛[mnotes.txt ␛[0;2m───────────────────────────␛[m ␛[0;2m9m␛[m ␛[0;2m─╮␛[m
+␛[0;2m│␛[m 1 file in Documents                                    ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m notes.txt → Notes/notes.txt (undone)                   ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰␛[m␛[0;2m─────────────────────────────────────────────────────────␛[m␛[0;2m╯␛[m
 
 
 
- ␛[0;1mMOVING␛[m  ␛[0;36m↑↓␛[m␛[0;2m move␛[m␛[0;2m • ␛[m␛[0;36mu␛[m␛[0;2m undo␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m refresh␛[m␛[0;2m • ␛[m␛[0;36mR␛[m␛[0;2m close␛[m
+
+ ␛[0;1mMOVING␛[m  ␛[0;36m↑↓␛[m␛[0;2m move␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36mu␛[m␛[0;2m undo␛[m␛[0;2m • ␛[m␛[0;36m?␛[m␛[0;2m keys␛[m␛[0;2m • ␛[m␛[0;36mR␛[m␛[0;2m close␛[m

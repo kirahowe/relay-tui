@@ -42,15 +42,15 @@ func TestReadyGolden(t *testing.T) {
 		core.ReadyKey{At: t0, Action: core.ReadyChar, Text: "Thank you"})
 	empty := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: nil}, core.ReadyOpen{At: t0})
 	move := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{
-		{ID: "move:12", Kind: "move", At: t0.Add(-5 * time.Minute).Format(time.RFC3339), Seq: 12, Title: "2 things",
-			Lines: []string{"By steward.", "/Users/k/Downloads/statement-oct.pdf → /Users/k/Bank/2025-10.pdf",
-				"/Users/k/Downloads/w2.pdf → /Users/k/Taxes/2025/w2.pdf"},
+		{ID: "move:12", Kind: "move", At: t0.Add(-5 * time.Minute).Format(time.RFC3339), Seq: 12, Title: "2 files",
+			Lines: []string{"2 files in Documents, into 2 folders", "Downloads/statement-oct.pdf → Bank/2025-10.pdf",
+				"Downloads/w2.pdf → Taxes/2025/w2.pdf"},
 			From: "from a mail by bank@example.org", Outsider: true, Move: 12, Role: "steward", Undo: 12},
-		{ID: "move:10", Kind: "move", At: t0.Add(-9 * time.Minute).Format(time.RFC3339), Seq: 10, Title: "notes.txt (undone)",
-			Lines: []string{"By steward.", "/Users/k/notes.txt → /Users/k/Notes/notes.txt (undone)"}, Move: 10, Role: "steward", Undone: true},
+		{ID: "move:10", Kind: "move", At: t0.Add(-9 * time.Minute).Format(time.RFC3339), Seq: 10, Title: "notes.txt",
+			Lines: []string{"1 file in Documents", "notes.txt → Notes/notes.txt (undone)"}, Move: 10, Role: "steward", Undone: true},
 	}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
 	undoRefused := hubStep(move, core.ReadyKey{At: t0, Action: core.ReadyUndoKey},
-		core.UndoDone{At: t0, Move: 12, Err: "Move 12 was not undone, and nothing changed: /Users/k/Bank/2025-10.pdf has changed since it was moved."})
+		core.UndoDone{At: t0, Move: 12, Err: "Move 12 was not undone, and nothing changed: Bank/2025-10.pdf has changed since it was moved."})
 	for _, c := range []struct {
 		name string
 		h    core.Hub
@@ -217,5 +217,208 @@ func refusedReplyAt(t *testing.T, h core.Hub, w int) {
 			t.Errorf("%d: the input is not open", w)
 		}
 		requireGolden(t, f.Content)
+	}
+}
+
+// --- papercuts: narrow titles, moves, the whole message, keys
+
+func deadLetters() []core.ReadyItem {
+	mk := func(id string, seq int64, tail string) core.ReadyItem {
+		return core.ReadyItem{ID: id, Kind: "message", At: t0.Add(-time.Minute).Format(time.RFC3339), Seq: seq,
+			Title: `Could not finish "Dead letter: scout could not read the page about ` + tail + `"`,
+			Lines: []string{"It will try again."}, Message: seq, Urgency: "normal"}
+	}
+	return []core.ReadyItem{mk("message:2", 2, "the choir hall"), mk("message:1", 1, "the town budget")}
+}
+
+// A title too long for the border moves into the panel, wrapped, so the
+// age stays and two titles that start alike can be told apart.
+func TestReadyNarrowKeepsTheAgeAndTheWholeTitle(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: deadLetters()}, core.ReadyOpen{At: t0})
+	plain := ansi.Strip(HubView(h, "", "", t0, 59, 30).Content)
+	for _, want := range []string{"choir hall", "town budget"} {
+		if !strings.Contains(strings.Join(strings.Fields(plain), " "), want) {
+			t.Errorf("%q is cut:\n%s", want, plain)
+		}
+	}
+	tops := 0
+	for _, l := range strings.Split(plain, "\n") {
+		if strings.HasPrefix(l, "╭─ Message") {
+			tops++
+			if !strings.Contains(l, " 1m ─╮") {
+				t.Errorf("the age is not in the border: %q", l)
+			}
+		}
+	}
+	if tops != 2 {
+		t.Errorf("%d panels:\n%s", tops, plain)
+	}
+	requireGolden(t, HubView(h, "", "", t0, 59, 20).Content)
+}
+
+// Whatever the title and the width, the age is in the top border and no
+// row is too wide.
+func TestReadyAgeNeverDropsOut(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		title := rapid.StringMatching(`[a-zA-Z0-9 :"]{0,120}`).Draw(t, "title")
+		w := rapid.IntRange(20, 120).Draw(t, "w")
+		it := core.ReadyItem{ID: "message:1", Kind: "message", At: t0.Add(-5 * time.Minute).Format(time.RFC3339), Title: title, Message: 1}
+		panelRows := readyPanel(it, t0, min(w, readyMaxWidth), false)
+		if top := ansi.Strip(panelRows[0]); !strings.Contains(top, " 5m ─╮") {
+			t.Fatalf("w=%d title=%q: %q", w, title, top)
+		}
+		for _, l := range panelRows {
+			if Width(l) != min(w, readyMaxWidth) {
+				t.Fatalf("row %q is %d wide, want %d", l, Width(l), min(w, readyMaxWidth))
+			}
+		}
+	})
+}
+
+func manyMoves() core.ReadyItem {
+	lines := []string{"41 files in notes, into 13 folders"}
+	for i := 0; i < 41; i++ {
+		lines = append(lines, fmt.Sprintf("meeting %02d.md → meetings/2026-09-%02d-board-meeting-with-a-long-name.md", i, i%28+1))
+	}
+	return core.ReadyItem{ID: "move:3", Kind: "move", At: t0.Add(-time.Minute).Format(time.RFC3339), Title: "41 files",
+		Lines: lines, Move: 3, Undo: 3}
+}
+
+// A move with many files is a summary, a few files one row each, and a
+// count; Enter lists them all.
+func TestReadyMovePanelIsASummaryAndACount(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{manyMoves()}}, core.ReadyOpen{At: t0})
+	plain := ansi.Strip(HubView(h, "", "", t0, 59, 20).Content)
+	for _, want := range []string{"41 files in notes, into 13 folders", "meeting 00.md", "and 38 more · enter lists all"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("%q missing:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "meeting 05.md") {
+		t.Errorf("more than the first files:\n%s", plain)
+	}
+	requireGolden(t, HubView(h, "", "", t0, 59, 20).Content)
+	opened := hubStep(h, core.ReadyKey{At: t0, Action: core.ReadyOpenKey})
+	f := HubView(opened, "", "", t0, 59, 20)
+	if f.Max == 0 || f.Page == 0 {
+		t.Errorf("a long list should scroll: max %d page %d", f.Max, f.Page)
+	}
+	end := hubStep(opened, core.ReadyKey{At: t0, Action: core.ReadyBottom, Max: f.Max, Page: f.Page})
+	if got := ansi.Strip(HubView(end, "", "", t0, 59, 20).Content); !strings.Contains(got, "meeting 40.md") {
+		t.Errorf("the end of the list is not reachable:\n%s", got)
+	}
+}
+
+func dailyNote() core.ReadyItem {
+	return core.ReadyItem{ID: "message:9", Kind: "message", At: t0.Add(-time.Minute).Format(time.RFC3339), Seq: 9, Message: 9, ReplyTo: 9,
+		Title: "Daily note for Monday 26 October: 2 changes to check",
+		Lines: []string{
+			`1. New how-to "grants" (1 line added), shaped by a mail by stranger@example.org. To undo it: relay revert 14, or reply "revert 1".`,
+			`2. A skill changed, shaped by the web. To undo it: relay revert 15, or reply "revert 2".`,
+			`3. Dentist on Thursday. Want me to book a reminder?`,
+			`Reply "not N" to drop a suggestion. It will not come back.`,
+		},
+		Acts: []core.ReadyAct{{N: 1, Op: core.OpRevert, Line: 0}, {N: 2, Op: core.OpRevert, Line: 1, Done: "reverted"}, {N: 3, Op: core.OpDismiss, Line: 2}},
+		From: "from a mail by stranger@example.org", Outsider: true}
+}
+
+func noteHub() core.Hub {
+	return hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{dailyNote()}},
+		core.ReadyOpen{At: t0}, core.ReadyKey{At: t0, Action: core.ReadyOpenKey})
+}
+
+func TestReadyOpenItemGolden(t *testing.T) {
+	open := noteHub()
+	next := hubStep(open, core.ReadyKey{At: t0, Action: core.ReadyNext}, core.ReadyKey{At: t0, Action: core.ReadyNext})
+	help := hubStep(open, core.ReadyKey{At: t0, Action: core.ReadyHelp})
+	listHelp := hubStep(readyHubFixture(), core.ReadyKey{At: t0, Action: core.ReadyHelp})
+	for _, c := range []struct {
+		name string
+		h    core.Hub
+	}{{"note", open}, {"note_third", next}, {"note_keys", help}, {"list_keys", listHelp}} {
+		for _, w := range []int{59, 119} {
+			t.Run(fmt.Sprintf("%s_%d", c.name, w), func(t *testing.T) {
+				requireGolden(t, HubView(c.h, "", "", t0, w, 22).Content)
+			})
+		}
+	}
+}
+
+// The whole message is on screen across scrolling, and the keys list
+// names every key and wraps instead of cutting.
+func TestReadyOpenItemShowsTheWholeMessage(t *testing.T) {
+	plain := ansi.Strip(HubView(noteHub(), "", "", t0, 59, 40).Content)
+	flat := strings.Join(strings.Fields(strings.NewReplacer("│", " ", "▸", " ").Replace(plain)), " ")
+	for _, want := range []string{"Daily note for Monday 26 October: 2 changes to check", "relay revert 14", "(undone)",
+		"Dentist on Thursday", "It will not come back.", "v revert", "from a mail by stranger"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("%q missing:\n%s", want, plain)
+		}
+	}
+	if !strings.Contains(plain, "▸ 1. New how-to") {
+		t.Errorf("the picked item is not marked:\n%s", plain)
+	}
+	help := ansi.Strip(HubView(hubStep(noteHub(), core.ReadyKey{At: t0, Action: core.ReadyHelp}), "", "", t0, 59, 40).Content)
+	for _, r := range ReadyDetailKeys {
+		for _, word := range strings.Fields(r.What) {
+			if !strings.Contains(help, word) {
+				t.Errorf("%q of %q is cut at 59 columns:\n%s", word, r.What, help)
+			}
+		}
+	}
+	if strings.Contains(help, "…") {
+		t.Errorf("the keys list is cut:\n%s", help)
+	}
+}
+
+// Whatever is open, in whatever size, the frame fits.
+func TestReadyOpenItemFitsAtAnySize(t *testing.T) {
+	views := map[string]core.Hub{
+		"note":  noteHub(),
+		"keys":  hubStep(noteHub(), core.ReadyKey{At: t0, Action: core.ReadyHelp}),
+		"moves": hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{manyMoves()}}, core.ReadyOpen{At: t0}, core.ReadyKey{At: t0, Action: core.ReadyOpenKey}),
+		"reply": hubStep(noteHub(), core.ReadyKey{At: t0, Action: core.ReadyReplyKey}, core.ReadyKey{At: t0, Action: core.ReadyChar, Text: strings.Repeat("long ", 30)}),
+	}
+	for name, v := range views {
+		for _, w := range []int{1, 8, 20, 40, 59, 100, 160} {
+			for _, rows := range []int{2, 5, 10, 24, 40} {
+				f := HubView(v, "", "hint", t0, w, rows)
+				lines := strings.Split(f.Content, "\n")
+				if len(lines) != rows {
+					t.Errorf("%s %dx%d: %d rows", name, w, rows, len(lines))
+				}
+				for i, l := range lines {
+					if got := Width(l); got > w {
+						t.Errorf("%s %dx%d: row %d is %d wide: %q", name, w, rows, i, got, l)
+					}
+				}
+				if f.Top < 0 || f.Top > f.Max {
+					t.Errorf("%s %dx%d: top %d max %d", name, w, rows, f.Top, f.Max)
+				}
+			}
+		}
+	}
+}
+
+// The picked numbered item stays on screen as the pick moves.
+func TestReadyFollowsThePickedItem(t *testing.T) {
+	it := dailyNote()
+	for i := 0; i < 12; i++ {
+		it.Lines = append(it.Lines, fmt.Sprintf("%d. Another suggestion with some words to fill a row or two on a phone.", i+4))
+		it.Acts = append(it.Acts, core.ReadyAct{N: i + 4, Op: core.OpDismiss, Line: len(it.Lines) - 1})
+	}
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{it}},
+		core.ReadyOpen{At: t0}, core.ReadyKey{At: t0, Action: core.ReadyOpenKey})
+	for i := 0; i < len(it.Acts)-1; i++ {
+		f := HubView(h, "", "", t0, 59, 14)
+		h = hubStep(h, core.ReadyKey{At: t0, Action: core.ReadyNext, Top: f.Top, Max: f.Max, Page: f.Page})
+		plain := ansi.Strip(HubView(h, "", "", t0, 59, 14).Content)
+		want := fmt.Sprintf("▸ %d. ", h.Ready.Pick+1)
+		if h.Ready.Pick >= 3 {
+			want = "▸ " + fmt.Sprint(h.Ready.Pick+1) + ". "
+		}
+		if !strings.Contains(plain, want) {
+			t.Fatalf("pick %d: %q is not on screen:\n%s", h.Ready.Pick, want, plain)
+		}
 	}
 }

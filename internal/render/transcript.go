@@ -130,8 +130,21 @@ func helpBox(title string, rows []KeyHelp, width int) []string {
 	}
 	inner := InputWidth(width)
 	var lines []string
+	// A description wraps under itself when the line is too narrow, so a
+	// phone shows all of it.
+	room := max(inner-w-2, 8)
 	for i, r := range rows {
-		lines = append(lines, truncate(names[i]+strings.Repeat(" ", w-Method.StringWidth(names[i]))+"  "+styled(faint, r.What), inner))
+		parts := wrap(r.What, room)
+		if len(parts) == 0 {
+			parts = []string{""}
+		}
+		for j, part := range parts {
+			lead := strings.Repeat(" ", w)
+			if j == 0 {
+				lead = names[i] + strings.Repeat(" ", w-Method.StringWidth(names[i]))
+			}
+			lines = append(lines, truncate(lead+"  "+styled(faint, part), inner))
+		}
 	}
 	lines = append(lines, styled(faint, truncate("any key closes this", inner)))
 	return box(title, lines, width)

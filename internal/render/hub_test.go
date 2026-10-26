@@ -306,13 +306,20 @@ func TestHubSaysWhenConversationsEndWithTheClient(t *testing.T) {
 	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 50},
 		{"wide list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 100}} {
 		got := ansi.Strip(HubView(v.h, "", "", t0, v.w, 20).Content)
-		if !strings.Contains(strings.Join(strings.Fields(got), " "), "relay service not running") {
+		if !strings.Contains(strings.Join(strings.Fields(got), " "), "Chats end when you close this") {
 			t.Errorf("%s:\n%s", v.name, got)
+		}
+	}
+	// It fits one row of a phone, whole, with no word left alone on the next.
+	for _, w := range []int{40, 50, 59} {
+		got := ansi.Strip(HubView(h, "", "", t0, w, 20).Content)
+		if !strings.Contains(got, EmbeddedNote+"\n") && !strings.HasSuffix(strings.TrimRight(got, "\n"), EmbeddedNote) {
+			t.Errorf("width %d: the note is not on a row of its own:\n%s", w, got)
 		}
 	}
 	// With the service, or when relay did not say, nothing.
 	for _, ok := range []core.Hub{hubStep(hubFixture(), core.HubConnected{At: t0, KeepsKnown: true, Keeps: true}), hubFixture()} {
-		if got := ansi.Strip(HubView(ok, "", "", t0, 100, 20).Content); strings.Contains(got, "not running") {
+		if got := ansi.Strip(HubView(ok, "", "", t0, 100, 20).Content); strings.Contains(got, "Chats end") {
 			t.Errorf("a note when there should be none:\n%s", got)
 		}
 	}

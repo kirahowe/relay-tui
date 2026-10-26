@@ -64,9 +64,11 @@ func focusedChat(h core.Hub) core.State {
 // DetailMax is the same for the pane's detail view. When Cursor is set
 // the input box is on screen with its first row at InputX, InputY.
 type HubFrame struct {
-	Content        string
-	Max, Page      int
-	DetailMax      int
+	Content   string
+	Max, Page int
+	DetailMax int
+	// Top is the first row of the ready view's open item as drawn.
+	Top            int
 	Cursor         bool
 	InputX, InputY int
 	// Active is what the frame drew as having the keys.
@@ -199,7 +201,7 @@ func plural(n int, word string) string {
 
 // EmbeddedNote is what the view says all the time when relay is not
 // running as a service, so conversations end with this client.
-const EmbeddedNote = "relay service not running: conversations end when you close this"
+const EmbeddedNote = "Chats end when you close this"
 
 // embeddedNote is the note, or "" when relay keeps the conversations or
 // did not say.

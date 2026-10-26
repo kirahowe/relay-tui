@@ -1,10 +1,10 @@
 ␛[0;2m‹ h roles · ␛[m␛[0;1mDev␛[m␛[0;2m · 3 turns␛[m
-␛[0;2m│␛[m pgup pgdown         ␛[0;2mscroll the con…␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ctrl+t              ␛[0;2mshow or hide t…␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ctrl+o              ␛[0;2mshow or hide t…␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ctrl+c              ␛[0;2mstop the turn,…␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ctrl+d              ␛[0;2mquit, from an …␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ?                   ␛[0;2mthese keys, fr…␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                     ␛[0;2mclear, or quit␛[m␛[0;2m ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ctrl+d              ␛[0;2mquit, from an␛[m␛[0;2m  ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                     ␛[0;2mempty input␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ?                   ␛[0;2mthese keys,␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                     ␛[0;2mfrom an empty␛[m␛[0;2m  ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                     ␛[0;2minput␛[m␛[0;2m          ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰─────────────────────────────────────╯␛[m
 ␛[0;2m▶ replying   … waiting for schedul…␛[m

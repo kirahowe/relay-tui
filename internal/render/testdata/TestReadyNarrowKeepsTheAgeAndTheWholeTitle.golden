@@ -1,0 +1,20 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                         ␛[0;2m2 ␛[m
+␛[0;36m╭─␛[m ␛[0;1;34mMessage␛[m ␛[0;36m──────────────────────────────────────────␛[m ␛[0;2m1m␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m ␛[0;1mCould not finish "Dead letter: scout could not read the␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;1mpage about the choir hall"␛[m                             ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m It will try again.                                     ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m─────────────────────────────────────────────────────────␛[m␛[0;36m╯␛[m
+
+␛[0;2m╭─␛[m ␛[0;1;34mMessage␛[m ␛[0;2m──────────────────────────────────────────␛[m ␛[0;2m1m␛[m ␛[0;2m─╮␛[m
+␛[0;2m│␛[m ␛[0;1mCould not finish "Dead letter: scout could not read the␛[m␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ␛[0;1mpage about the town budget"␛[m                            ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m It will try again.                                     ␛[m ␛[0;2m│␛[m
+␛[0;2m╰␛[m␛[0;2m─────────────────────────────────────────────────────────␛[m␛[0;2m╯␛[m
+
+
+
+
+
+
+
+ ␛[0;1mMOVING␛[m  ␛[0;36m↑↓␛[m␛[0;2m move␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36m?␛[m␛[0;2m keys␛[m␛[0;2m • ␛[m␛[0;36mR␛[m␛[0;2m close␛[m

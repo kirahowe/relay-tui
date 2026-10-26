@@ -1,0 +1,22 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                         ␛[0;2m1 ␛[m
+␛[0;36m╭─␛[m ␛[0;1;34mMessage␛[m ␛[0;36m──────────────────────────────────────────␛[m ␛[0;2m1m␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m ␛[0;1mDaily note for Monday 26 October: 2 changes to check␛[m   ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m                                                        ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;36m▸ ␛[m␛[0;1m1. New how-to "grants" (1 line added), shaped by a␛[m   ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   ␛[0;1mmail by stranger@example.org. To undo it: relay␛[m      ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   ␛[0;1mrevert 14, or reply "revert 1".␛[m                      ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   2. A skill changed, shaped by the web. To undo it:   ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   relay revert 15, or reply "revert 2". (undone)       ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   3. Dentist on Thursday. Want me to book a reminder?  ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   Reply "not N" to drop a suggestion. It will not come ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m   back.                                                ␛[m ␛[0;36m│␛[m
+␛[0;36m╰─␛[m ␛[0;33mfrom a mail by stranger@example.org␛[m ␛[0;36m───────────────────␛[m␛[0;36m╯␛[m
+
+
+
+
+
+
+
+
+ ␛[0;1mMOVING␛[m  ␛[0;36mv␛[m␛[0;2m revert␛[m␛[0;2m • ␛[m␛[0;36ma␛[m␛[0;2m reply␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m␛[0;2m • ␛[m␛[0;36m↑↓␛[m␛[0;2m scroll␛[m

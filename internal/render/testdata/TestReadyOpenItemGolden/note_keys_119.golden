@@ -1,0 +1,22 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                                                                                     ␛[0;2m1 ␛[m
+␛[0;2m╭─␛[m keys for this one ␛[0;2m──────────────────────────────────────────────────────────────────────────────␛[m␛[0;2m╮␛[m
+␛[0;2m│␛[m ↑ ↓ k j                         ␛[0;2mscroll␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m pgup pgdown space g G home end  ␛[0;2mpage, top, bottom␛[m␛[0;2m                                               ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m 1                               ␛[0;2mpick a numbered item of a daily note (1 to 9)␛[m␛[0;2m                   ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m tab ] shift+tab [               ␛[0;2mthe next or the previous numbered item␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m v                               ␛[0;2mundo the picked change␛[m␛[0;2m                                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m d                               ␛[0;2mdrop the picked suggestion for good␛[m␛[0;2m                             ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m a                               ␛[0;2mreply to a message␛[m␛[0;2m                                              ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m u                               ␛[0;2mundo a file move␛[m␛[0;2m                                                ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m r                               ␛[0;2mask relay again␛[m␛[0;2m                                                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m R                               ␛[0;2mclose this view␛[m␛[0;2m                                                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m esc q h ←                       ␛[0;2mback to the list␛[m␛[0;2m                                                ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ?                               ␛[0;2mthese keys␛[m␛[0;2m                                                      ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                                             ␛[m ␛[0;2m│␛[m
+␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
+
+
+
+
+
+ ␛[0;1mMOVING␛[m  ␛[0;36many␛[m␛[0;2m key closes the list␛[m
