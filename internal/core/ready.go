@@ -22,6 +22,7 @@ const (
 	ReadyDraft   = "draft"
 	ReadyEvent   = "event"
 	ReadyFinding = "finding"
+	ReadyMove    = "move"
 )
 
 // ReadyReply is an answer the operator gave to a message.
@@ -31,9 +32,12 @@ type ReadyReply struct{ At, Text string }
 // is already safe to show. From says where it came from, in words, and is
 // empty for her own things.
 type ReadyItem struct {
-	ID       string
-	Kind     string
-	At       string
+	ID   string
+	Kind string
+	At   string
+	// Seq is the log's number of the event that made the item. Items made
+	// at the same time are newest first by it.
+	Seq      int64
 	Title    string
 	Lines    []string
 	From     string
@@ -48,6 +52,13 @@ type ReadyItem struct {
 	Urgency          string
 	Replies          []ReadyReply
 	Card             int64
+	// Move is a file move's number, and Role the role that made it. Undo
+	// is the number to undo it under, or 0 when nothing is left to undo;
+	// Undone says all of it is back.
+	Move   int64
+	Role   string
+	Undo   int64
+	Undone bool
 }
 
 // ReplyInput is the reply being written to a message.
@@ -74,6 +85,8 @@ type Ready struct {
 	Input   *ReplyInput
 	Sending int64
 	Sent    *ReplyInput
+	// Undoing is the move an undo is on its way for.
+	Undoing int64
 	// Message is the outcome of the last action, and Failure relay's
 	// refusal, shown escaped.
 	Message string
@@ -89,6 +102,10 @@ const (
 	ReplyRefusedNote = "Not sent."
 	ReplyBusyNote    = "A reply is on its way: wait for it."
 	NoReplyNote      = "Nothing to answer here."
+	UndoneNote       = "Undone."
+	UndoRefusedNote  = "Not undone."
+	UndoBusyNote     = "An undo is on its way: wait for it."
+	NoUndoNote       = "Nothing to undo here."
 )
 
 // Events about the view.
@@ -117,6 +134,14 @@ type (
 		Message int64
 		Err     string
 	}
+	// UndoDone is relay's answer to _relay/undo on Move: the lines relay
+	// undo prints, or Err, relay's refusal with its reason.
+	UndoDone struct {
+		At    time.Time
+		Move  int64
+		Lines []string
+		Err   string
+	}
 	// ReadyOpen is R: the view opens, or closes when it is open.
 	ReadyOpen struct{ At time.Time }
 	// ReadyKey is a key press in the view.
@@ -130,6 +155,7 @@ type (
 func (e ReadyLoaded) at() time.Time  { return e.At }
 func (e ReadyChanged) at() time.Time { return e.At }
 func (e ReplyDone) at() time.Time    { return e.At }
+func (e UndoDone) at() time.Time     { return e.At }
 func (e ReadyOpen) at() time.Time    { return e.At }
 func (e ReadyKey) at() time.Time     { return e.At }
 
@@ -148,6 +174,7 @@ const (
 	ReadyRefresh                      // r: ask relay again
 	ReadyChar                         // typed into the reply: ReadyKey.Text
 	ReadyBackspace                    // delete the reply's last character
+	ReadyUndoKey                      // u: undo the selected move
 )
 
 // Effects asking the shell to call relay.
@@ -157,10 +184,14 @@ type (
 		Message int64
 		Text    string
 	}
+	// SendUndo asks relay to undo a file move (_relay/undo), as relay
+	// undo does.
+	SendUndo struct{ Move int64 }
 )
 
 func (RequestReady) effect() {}
 func (SendReply) effect()    {}
+func (SendUndo) effect()     {}
 
 // ReadyCount is how many items the view holds.
 func ReadyCount(h Hub) int { return len(h.Ready.Items) }
@@ -178,7 +209,8 @@ func ReadySelected(r Ready) (ReadyItem, int) {
 	return r.Items[0], 0
 }
 
-// readyBefore orders items newest first, then by id.
+// readyBefore orders items newest first; at the same time, the later in
+// relay's log first (Seq); then by id.
 func readyBefore(a, b ReadyItem) int {
 	ta, ea := time.Parse(time.RFC3339Nano, a.At)
 	tb, eb := time.Parse(time.RFC3339Nano, b.At)
@@ -191,6 +223,11 @@ func readyBefore(a, b ReadyItem) int {
 	case ea == nil && eb != nil:
 		return -1
 	case ea != nil && eb == nil:
+		return 1
+	case a.Seq != b.Seq:
+		if a.Seq > b.Seq {
+			return -1
+		}
 		return 1
 	}
 	return strings.Compare(a.ID, b.ID)
@@ -301,6 +338,18 @@ func (r *hubReducer) ready(e Event) {
 			return
 		}
 		rd.Message, rd.Failure = ReplySentNote, ""
+	case UndoDone:
+		if rd.Undoing == e.Move {
+			rd.Undoing = 0
+		}
+		if e.Err != "" {
+			rd.Message, rd.Failure = UndoRefusedNote, e.Err
+			return
+		}
+		rd.Message, rd.Failure = UndoneNote, ""
+		if len(e.Lines) > 0 {
+			rd.Message = e.Lines[0]
+		}
 	case ReadyOpen:
 		if rd.Open {
 			rd.Open, rd.Input = false, nil
@@ -376,6 +425,16 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		r.askReady()
 	case ReadyEsc:
 		rd.Open = false
+	case ReadyUndoKey:
+		switch {
+		case i < 0 || it.Undo == 0:
+			rd.Message = NoUndoNote
+		case rd.Undoing != 0:
+			rd.Message = UndoBusyNote
+		default:
+			rd.Undoing = it.Undo
+			r.emit(SendUndo{Move: it.Undo})
+		}
 	case ReadyReplyKey, ReadyEnter:
 		switch {
 		case i < 0 || it.ReplyTo == 0:

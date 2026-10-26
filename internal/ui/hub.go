@@ -91,6 +91,8 @@ func (m *Model) hubEffect(f core.Effect) {
 		m.conn.Ready()
 	case core.SendReply:
 		m.conn.Reply(f.Message, f.Text)
+	case core.SendUndo:
+		m.conn.Undo(f.Move)
 	default:
 		m.effect(f, m.now())
 	}

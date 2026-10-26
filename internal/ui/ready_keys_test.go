@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,13 @@ type readyConn struct {
 	nopConn
 	asks    *int
 	replies *[]string
+	undos   *[]int64
+}
+
+func (c readyConn) Undo(m int64) {
+	if c.undos != nil {
+		*c.undos = append(*c.undos, m)
+	}
 }
 
 func (c readyConn) Ready() { *c.asks++ }
@@ -123,5 +131,34 @@ func TestRDoesNothingAgainstAPlainAgent(t *testing.T) {
 	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24}, ev(core.Connected{At: time.Now()}), key("esc"), key("R"))
 	if len(calls) != 0 || m.hub.Ready.Open {
 		t.Errorf("%v %+v", calls, m.hub.Ready)
+	}
+}
+
+func TestUOnAMoveAsksRelayToUndoIt(t *testing.T) {
+	asks, replies, undos := 0, []string{}, []int64{}
+	now := time.Now()
+	m := New(readyConn{asks: &asks, replies: &replies, undos: &undos}, "").Open("dev")
+	m.clock = func() time.Time { return now }
+	items := []core.ReadyItem{
+		{ID: "move:7", Kind: core.ReadyMove, At: now.Format(time.RFC3339), Seq: 7, Title: "statement.pdf",
+			Lines: []string{"By steward.", "/f/Downloads/statement.pdf → /f/Bank/statement.pdf"}, Move: 7, Role: "steward", Undo: 7},
+		{ID: "message:4", Kind: core.ReadyMessage, At: now.Add(-time.Minute).Format(time.RFC3339), Title: "Hi", Message: 4, ReplyTo: 4}}
+	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 30},
+		ev(core.HubConnected{At: now}),
+		ev(core.RosterUpdate{At: now, Roles: []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}}),
+		ev(core.Attached{At: now, Role: "dev", Session: "s1"}),
+		ev(core.ReadyLoaded{At: now, Rev: 5, Items: items}),
+		key("esc"), key("R"), key("u"))
+	if len(undos) != 1 || undos[0] != 7 {
+		t.Fatalf("undos %v", undos)
+	}
+	m = update(m, ev(core.UndoDone{At: now, Move: 7, Err: "Move 7 was not undone, and nothing changed: /f/Bank/statement.pdf has changed since it was moved."}))
+	if m.hub.Ready.Message != core.UndoRefusedNote || !strings.Contains(m.hub.Ready.Failure, "changed since") {
+		t.Fatalf("%+v", m.hub.Ready)
+	}
+	// u on a message does nothing but say so.
+	m = update(m, key("j"), key("u"))
+	if len(undos) != 1 || m.hub.Ready.Message != core.NoUndoNote {
+		t.Errorf("undos %v %+v", undos, m.hub.Ready)
 	}
 }

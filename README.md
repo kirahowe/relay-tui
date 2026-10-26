@@ -286,7 +286,9 @@ never clickable, and relay-tui fetches nothing.
 
 `R`, while you are moving, opens a view of what is ready for you: what
 relay told you, drafts it prepared in your own accounts, entries on the
-agent's calendar and findings it put on the board, newest first. `R`
+agent's calendar, findings it put on the board and files it moved,
+newest first; things that came at the same moment are in the order
+relay recorded them, the latest first. `R`
 again, Esc, `q` or `h` closes it. It covers the whole screen, so it reads
 the same on a phone-width terminal (about 60 columns) as on a wide one,
 and the keys row names it everywhere as `R ready`, with how many things
@@ -314,6 +316,14 @@ none. While it is on its way a second one waits, and a refusal gives your
 words back. A message relay wrote itself, or any draft, calendar entry or
 finding, has nobody to answer, and `a` says so. Once relay has the reply,
 the message shows "you replied" with the start of it.
+
+A move says which role moved what, from where to where, and where what
+it had read came from. To put it back, select it and press `u`. relay
+undoes it as `relay undo` does (`_relay/undo`): everything goes back
+exactly, or nothing does. When something has changed since, such as a
+file you edited after it moved, relay refuses and the view shows its
+reason, over up to three rows on a narrow screen. Once undone, the panel
+reads "Moved back". One undo is on its way at a time.
 
 ## Several conversations (relay's hub)
 

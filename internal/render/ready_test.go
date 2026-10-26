@@ -41,10 +41,20 @@ func TestReadyGolden(t *testing.T) {
 	replying := hubStep(moved, core.ReadyKey{At: t0, Action: core.ReadyUp}, core.ReadyKey{At: t0, Action: core.ReadyReplyKey},
 		core.ReadyKey{At: t0, Action: core.ReadyChar, Text: "Thank you"})
 	empty := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: nil}, core.ReadyOpen{At: t0})
+	move := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{
+		{ID: "move:12", Kind: "move", At: t0.Add(-5 * time.Minute).Format(time.RFC3339), Seq: 12, Title: "2 things",
+			Lines: []string{"By steward.", "/Users/k/Downloads/statement-oct.pdf → /Users/k/Bank/2025-10.pdf",
+				"/Users/k/Downloads/w2.pdf → /Users/k/Taxes/2025/w2.pdf"},
+			From: "from a mail by bank@example.org", Outsider: true, Move: 12, Role: "steward", Undo: 12},
+		{ID: "move:10", Kind: "move", At: t0.Add(-9 * time.Minute).Format(time.RFC3339), Seq: 10, Title: "notes.txt (undone)",
+			Lines: []string{"By steward.", "/Users/k/notes.txt → /Users/k/Notes/notes.txt (undone)"}, Move: 10, Role: "steward", Undone: true},
+	}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
+	undoRefused := hubStep(move, core.ReadyKey{At: t0, Action: core.ReadyUndoKey},
+		core.UndoDone{At: t0, Move: 12, Err: "Move 12 was not undone, and nothing changed: /Users/k/Bank/2025-10.pdf has changed since it was moved."})
 	for _, c := range []struct {
 		name string
 		h    core.Hub
-	}{{"items", h}, {"last", moved}, {"reply", replying}, {"empty", empty}} {
+	}{{"items", h}, {"last", moved}, {"reply", replying}, {"empty", empty}, {"move", move}, {"undo_refused", undoRefused}} {
 		// A 60 column phone and a 120 column screen; the shell draws one
 		// column short of the screen.
 		for _, w := range []int{59, 119} {
@@ -61,6 +71,7 @@ func TestReadyFrameFitsAtAnySize(t *testing.T) {
 		"reply": hubStep(readyHubFixture(), core.ReadyKey{At: t0, Action: core.ReadyDown}, core.ReadyKey{At: t0, Action: core.ReadyDown},
 			core.ReadyKey{At: t0, Action: core.ReadyDown}, core.ReadyKey{At: t0, Action: core.ReadyReplyKey},
 			core.ReadyKey{At: t0, Action: core.ReadyChar, Text: strings.Repeat("long ", 40)}),
+		"refused": hubStep(readyHubFixture(), core.UndoDone{At: t0, Move: 1, Err: strings.Repeat("a reason that is long ", 20)}),
 		"loading": hubStep(core.NewHub(""), core.ReadyOpen{At: t0}),
 		"none":    hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Unavailable: true}, core.ReadyOpen{At: t0}),
 	}

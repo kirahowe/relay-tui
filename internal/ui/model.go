@@ -37,6 +37,7 @@ type Conn interface {
 	// it.
 	Ready()
 	Reply(message int64, text string)
+	Undo(move int64)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as

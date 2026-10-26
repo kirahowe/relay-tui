@@ -16,6 +16,7 @@ const (
 	MethodReady        = "_relay/ready"
 	MethodReadyChanged = "_relay/ready/changed"
 	MethodReply        = "_relay/reply"
+	MethodUndo         = "_relay/undo"
 )
 
 // ReadyParams is the parameters of _relay/ready: the newest items, as
@@ -29,6 +30,10 @@ func ReplyParams(message int64, text string) map[string]any {
 	return map[string]any{"inReplyTo": message, "text": text}
 }
 
+// UndoParams is the parameters of _relay/undo: the move to undo, a move
+// item's undo.
+func UndoParams(move int64) map[string]any { return map[string]any{"move": move} }
+
 type rawReply struct {
 	At   string `json:"at"`
 	Text string `json:"text"`
@@ -38,6 +43,7 @@ type rawReadyItem struct {
 	ID          string     `json:"id"`
 	Kind        string     `json:"kind"`
 	At          string     `json:"at"`
+	Seq         int64      `json:"seq"`
 	Title       string     `json:"title"`
 	Lines       []string   `json:"lines"`
 	From        *string    `json:"from"`
@@ -50,6 +56,10 @@ type rawReadyItem struct {
 	ReplyTo     *int64     `json:"replyTo"`
 	Replies     []rawReply `json:"replies"`
 	Card        int64      `json:"card"`
+	Move        int64      `json:"move"`
+	Role        string     `json:"role"`
+	Undo        *int64     `json:"undo"`
+	Undone      bool       `json:"undone"`
 }
 
 // readyItem reads one item. An item without an id is left out. A missing
@@ -63,7 +73,11 @@ func readyItem(raw json.RawMessage) (core.ReadyItem, bool) {
 	}
 	it := core.ReadyItem{ID: r.ID, Kind: r.Kind, At: r.At, Title: r.Title, Lines: r.Lines,
 		Outsider: r.Outsider == nil || *r.Outsider, Start: r.Start, End: r.End,
-		Message: r.Message, MessageKind: r.MessageKind, Urgency: r.Urgency, Card: r.Card}
+		Message: r.Message, MessageKind: r.MessageKind, Urgency: r.Urgency, Card: r.Card,
+		Seq: r.Seq, Move: r.Move, Role: r.Role, Undone: r.Undone}
+	if r.Undo != nil {
+		it.Undo = *r.Undo
+	}
 	if r.From != nil {
 		it.From = *r.From
 	}
@@ -127,4 +141,19 @@ func ReplyOutcome(message int64, err error, at time.Time) core.ReplyDone {
 		return core.ReplyDone{At: at, Message: message, Err: errText(err)}
 	}
 	return core.ReplyDone{At: at, Message: message}
+}
+
+// UndoOutcome translates the answer to _relay/undo on move: the lines
+// relay undo prints, or relay's refusal, which says why.
+func UndoOutcome(move int64, raw json.RawMessage, err error, at time.Time) core.UndoDone {
+	if err != nil {
+		return core.UndoDone{At: at, Move: move, Err: errText(err)}
+	}
+	var r struct {
+		Lines []string `json:"lines"`
+	}
+	if strictjson.Unmarshal(raw, &r) != nil {
+		return core.UndoDone{At: at, Move: move, Err: "relay's answer could not be read"}
+	}
+	return core.UndoDone{At: at, Move: move, Lines: r.Lines}
 }

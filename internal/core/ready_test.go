@@ -129,6 +129,73 @@ func TestReadyIsNotOpenedOverAQuestion(t *testing.T) {
 	}
 }
 
+func moved(id int64, min int, undo int64) ReadyItem {
+	return ReadyItem{ID: fmt.Sprintf("move:%d", id), Kind: ReadyMove, At: at(min), Seq: id, Title: "statement.pdf",
+		Move: id, Role: "steward", Undo: undo}
+}
+
+func TestItemsAtTheSameTimeAreNewestFirstByTheLogsOrder(t *testing.T) {
+	a, b, c := draft(9, 1), msg(4, 1), moved(2, 1, 2)
+	a.Seq, b.Seq = 3, 7
+	h := readyHub(t, a, b, c, msg(1, 2))
+	if got, want := ids(h.Ready), []string{"message:1", "message:4", "prepared:9", "move:2"}; !slices.Equal(got, want) {
+		t.Fatalf("%v want %v", got, want)
+	}
+}
+
+func TestReadyBeforeIsATotalOrder(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		gen := rapid.Custom(func(t *rapid.T) ReadyItem {
+			return ReadyItem{ID: fmt.Sprintf("x:%d", rapid.IntRange(0, 3).Draw(t, "id")),
+				At: at(rapid.IntRange(0, 2).Draw(t, "min")), Seq: rapid.Int64Range(0, 3).Draw(t, "seq")}
+		})
+		a, b := gen.Draw(t, "a"), gen.Draw(t, "b")
+		if readyBefore(a, b) != -readyBefore(b, a) {
+			t.Fatalf("not antisymmetric: %+v %+v", a, b)
+		}
+		if a.At == b.At && a.Seq > b.Seq && readyBefore(a, b) >= 0 {
+			t.Fatalf("the later in the log is not first: %+v %+v", a, b)
+		}
+		if readyBefore(a, b) == 0 && a.ID != b.ID {
+			t.Fatalf("a tie between different items: %+v %+v", a, b)
+		}
+	})
+}
+
+func TestAMoveIsUndoneOnceAndARefusalSaysWhy(t *testing.T) {
+	h := readyHub(t, moved(5, 2, 5), msg(4, 1), moved(3, 0, 0))
+	h, _ = apply(t, h, ReadyOpen{At: t0})
+	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyUndoKey})
+	if got := effectsOf[SendUndo](fx); len(got) != 1 || got[0].Move != 5 || h.Ready.Undoing != 5 {
+		t.Fatalf("%v %+v", fx, h.Ready)
+	}
+	// One undo at a time.
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyUndoKey})
+	if len(effectsOf[SendUndo](fx)) != 0 || h.Ready.Message != UndoBusyNote {
+		t.Fatalf("%v %+v", fx, h.Ready)
+	}
+	h, _ = apply(t, h, UndoDone{At: t0, Move: 5, Err: "Move 5 was not undone, and nothing changed: /f/s.pdf has changed since it was moved."})
+	if h.Ready.Undoing != 0 || h.Ready.Message != UndoRefusedNote || h.Ready.Failure == "" {
+		t.Fatalf("%+v", h.Ready)
+	}
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyUndoKey})
+	h, _ = apply(t, h, UndoDone{At: t0, Move: 5, Lines: []string{"Undid move 5: put back 1 of 1."}})
+	if len(effectsOf[SendUndo](fx)) != 1 || h.Ready.Message != "Undid move 5: put back 1 of 1." || h.Ready.Failure != "" {
+		t.Fatalf("%v %+v", fx, h.Ready)
+	}
+	// A message, and a move with nothing left to undo, offer none.
+	for _, down := range []int{1, 2} {
+		h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyTop})
+		for range down {
+			h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyDown})
+		}
+		h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyUndoKey})
+		if len(effectsOf[SendUndo](fx)) != 0 || h.Ready.Message != NoUndoNote {
+			t.Fatalf("%d: %v %+v", down, fx, h.Ready)
+		}
+	}
+}
+
 func TestAReplyIsWrittenAndSentOnce(t *testing.T) {
 	h := readyHub(t, draft(5, 2), msg(4, 1))
 	h, _ = apply(t, h, ReadyOpen{At: t0})
@@ -219,12 +286,17 @@ func TestReadyInvariantsHoldForAnyRun(t *testing.T) {
 			item := func() ReadyItem {
 				id := rapid.Int64Range(1, 8).Draw(t, "id")
 				m := rapid.IntRange(0, 5).Draw(t, "min")
-				if rapid.Bool().Draw(t, "kind") {
-					return msg(id, m)
+				switch rapid.IntRange(0, 2).Draw(t, "kind") {
+				case 0:
+					it := msg(id, m)
+					it.Seq = rapid.Int64Range(0, 3).Draw(t, "seq")
+					return it
+				case 1:
+					return moved(id, m, rapid.SampledFrom([]int64{0, id}).Draw(t, "undo"))
 				}
 				return draft(id, m)
 			}
-			switch rapid.IntRange(0, 6).Draw(t, "ev") {
+			switch rapid.IntRange(0, 7).Draw(t, "ev") {
 			case 0:
 				e = ReadyLoaded{At: t0, Rev: int64(i), Items: rapid.SliceOfN(rapid.Custom(func(t *rapid.T) ReadyItem { return item() }), 0, 6).Draw(t, "items")}
 			case 1:
@@ -233,11 +305,13 @@ func TestReadyInvariantsHoldForAnyRun(t *testing.T) {
 			case 2:
 				e = ReadyOpen{At: t0}
 			case 3:
-				e = ReadyKey{At: t0, Action: ReadyAction(rapid.IntRange(0, int(ReadyBackspace)).Draw(t, "a")), Text: "x"}
+				e = ReadyKey{At: t0, Action: ReadyAction(rapid.IntRange(0, int(ReadyUndoKey)).Draw(t, "a")), Text: "x"}
 			case 4:
 				e = ReplyDone{At: t0, Message: rapid.Int64Range(1, 8).Draw(t, "m"), Err: rapid.SampledFrom([]string{"", "no"}).Draw(t, "err")}
 			case 5:
 				e = Move{At: t0, Delta: rapid.SampledFrom([]int{-1, 1}).Draw(t, "d")}
+			case 6:
+				e = UndoDone{At: t0, Move: rapid.Int64Range(1, 8).Draw(t, "u"), Err: rapid.SampledFrom([]string{"", "no"}).Draw(t, "uerr")}
 			default:
 				e = ListMove{At: t0, Delta: 1}
 			}

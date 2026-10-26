@@ -291,6 +291,15 @@ func (a *Agent) Reply(message int64, text string) {
 	})
 }
 
+// Undo asks relay to undo a file move, as relay undo does, and emits
+// UndoDone. It does not block.
+func (a *Agent) Undo(move int64) {
+	a.enqueue(func() {
+		raw, err := a.call(wire.MethodUndo, wire.UndoParams(move))
+		a.emit(wire.UndoOutcome(move, raw, err, time.Now()))
+	})
+}
+
 // HandleExtensionMethod takes relay's notifications about the board, the
 // roster and replays. It ignores _relay/permission/settled, which a relay
 // that still holds calls sends: this client was never asked. The client

@@ -214,3 +214,33 @@ func TestReadyViewAnswersRepliesAndNotifies(t *testing.T) {
 		t.Errorf("a hub without the view answered")
 	}
 }
+
+func TestReadyViewUndoesAMoveOnceAndNotifies(t *testing.T) {
+	item := json.RawMessage(`{"id":"move:3","kind":"move","move":3,"undo":3,"undone":false,"title":"s.pdf","lines":[]}`)
+	h := New(Config{Ready: []json.RawMessage{item}}, io.Discard)
+	conn, tc := connectHub(t, h)
+	notes := make(chan json.RawMessage, 2)
+	tc.notes = notes
+	ctx := context.Background()
+	if _, err := conn.CallExtension(ctx, "_relay/ready", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/undo", map[string]any{"move": 3, "call": 1}); err == nil {
+		t.Errorf("a parameter it does not take was taken")
+	}
+	raw, err := conn.CallExtension(ctx, "_relay/undo", map[string]any{"move": 3})
+	if err != nil || !strings.Contains(string(raw), "Undid move 3") {
+		t.Fatalf("%s %v", raw, err)
+	}
+	select {
+	case n := <-notes:
+		if !strings.Contains(string(n), `"undone":true`) {
+			t.Errorf("%s", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification")
+	}
+	if _, err := conn.CallExtension(ctx, "_relay/undo", map[string]any{"move": 3}); err == nil || !strings.Contains(err.Error(), "nothing left to undo") {
+		t.Errorf("a second undo: %v", err)
+	}
+}

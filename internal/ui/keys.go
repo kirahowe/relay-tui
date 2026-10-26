@@ -320,6 +320,8 @@ func ClassifyReady(k tea.KeyPressMsg) core.ReadyAction {
 		return core.ReadyBottom
 	case "a":
 		return core.ReadyReplyKey
+	case "u":
+		return core.ReadyUndoKey
 	case "enter":
 		return core.ReadyEnter
 	case "esc", "q", "h", "left", "ctrl+c":

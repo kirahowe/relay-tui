@@ -14,9 +14,9 @@ import (
 
 // readyWire is what relay answers to _relay/ready: produced by relay's own
 // relay.ready/wire for a message with a reply, a draft, an event and a
-// finding, then one more item from a mail.
+// finding, then one more item from a mail, and a file move.
 const readyWire = `{"rev": 99, "items": [
- {"id": "card:7", "kind": "finding", "at": "2026-10-14T12:03:00Z", "title": "Venues to call",
+ {"id": "card:7", "kind": "finding", "at": "2026-10-14T12:03:00Z", "seq": 7, "title": "Venues to call",
   "lines": ["0 of 2 done"], "from": null, "outsider": false, "card": 7},
  {"id": "event:6", "kind": "event", "at": "2026-10-14T12:02:00Z", "title": "Choir concert", "lines": ["Town hall"],
   "start": "2026-11-21T00:00:00Z", "end": "2026-11-21T01:00:00Z", "from": null, "outsider": false},
@@ -27,11 +27,14 @@ const readyWire = `{"rev": 99, "items": [
  {"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "title": "Concert email is drafted",
   "lines": ["It is in your drafts."], "from": null, "outsider": false, "message": 4, "messageKind": "note",
   "urgency": "normal", "thread": 4, "replyTo": 4,
-  "replies": [{"at": "2026-10-14T12:03:00Z", "text": "Shorter please."}]}]}`
+  "replies": [{"at": "2026-10-14T12:03:00Z", "text": "Shorter please."}]},
+ {"id": "move:3", "kind": "move", "at": "2026-10-14T11:00:00Z", "seq": 3, "title": "statement.pdf",
+  "lines": ["By steward.", "/f/Downloads/statement.pdf → /f/Bank/statement.pdf"],
+  "from": "from a mail by bank@example.org", "outsider": true, "move": 3, "role": "steward", "undo": 3, "undone": false}]}`
 
 func TestReadyReadsRelaysWireForm(t *testing.T) {
 	got := Ready(json.RawMessage(readyWire), nil, t0)
-	if got.Err != "" || got.Unavailable || got.Rev != 99 || len(got.Items) != 5 {
+	if got.Err != "" || got.Unavailable || got.Rev != 99 || len(got.Items) != 6 {
 		t.Fatalf("%+v", got)
 	}
 	want := core.ReadyItem{ID: "message:4", Kind: "message", At: "2026-10-14T12:00:00Z", Title: "Concert email is drafted",
@@ -46,8 +49,11 @@ func TestReadyReadsRelaysWireForm(t *testing.T) {
 	if e := got.Items[1]; e.Start != "2026-11-21T00:00:00Z" || e.End != "2026-11-21T01:00:00Z" {
 		t.Errorf("event %+v", e)
 	}
-	if f := got.Items[0]; f.Card != 7 || f.Kind != "finding" {
+	if f := got.Items[0]; f.Card != 7 || f.Kind != "finding" || f.Seq != 7 {
 		t.Errorf("finding %+v", f)
+	}
+	if m := got.Items[5]; m.Kind != core.ReadyMove || m.Move != 3 || m.Undo != 3 || m.Role != "steward" || m.Undone || m.Seq != 3 {
+		t.Errorf("move %+v", m)
 	}
 }
 
@@ -104,6 +110,23 @@ func TestReplyParamsAndOutcome(t *testing.T) {
 	err := &acp.RequestError{Code: -32000, Message: "The one who told you that is no longer here."}
 	if got := ReplyOutcome(4, err, t0); got.Err != err.Message {
 		t.Errorf("%+v", got)
+	}
+}
+
+func TestUndoParamsAndOutcome(t *testing.T) {
+	if p := UndoParams(3); !reflect.DeepEqual(p, map[string]any{"move": int64(3)}) {
+		t.Errorf("%v", p)
+	}
+	got := UndoOutcome(3, json.RawMessage(`{"lines": ["Undid move 3: put back 1 of 1."]}`), nil, t0)
+	if got.Err != "" || got.Move != 3 || !reflect.DeepEqual(got.Lines, []string{"Undid move 3: put back 1 of 1."}) {
+		t.Errorf("%+v", got)
+	}
+	err := &acp.RequestError{Code: -32000, Message: "Move 3 was not undone, and nothing changed: /f/Bank/statement.pdf has changed since it was moved."}
+	if got := UndoOutcome(3, nil, err, t0); got.Err != err.Message {
+		t.Errorf("%+v", got)
+	}
+	if got := UndoOutcome(3, json.RawMessage(`{"lines": 1}`), nil, t0); got.Err == "" {
+		t.Errorf("an answer it cannot read is a failure: %+v", got)
 	}
 }
 

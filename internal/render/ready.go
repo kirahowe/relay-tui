@@ -51,6 +51,11 @@ func readyKindName(it core.ReadyItem) string {
 		return "Calendar"
 	case core.ReadyFinding:
 		return "Board"
+	case core.ReadyMove:
+		if it.Undone {
+			return "Moved back"
+		}
+		return "Moved"
 	}
 	return "Ready"
 }
@@ -192,6 +197,8 @@ func readyHint(r core.Ready) string {
 	keys := "↑↓ move"
 	if it, i := core.ReadySelected(r); i >= 0 && it.ReplyTo != 0 {
 		keys += " · a reply"
+	} else if i >= 0 && it.Undo != 0 {
+		keys += " · u undo"
 	}
 	return keys + " · r refresh · R close"
 }
@@ -238,7 +245,13 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	rows := []string{truncate(bar, width)}
 
-	room := max(height-3, 0)
+	// A refusal with no reply open may take up to three rows, so its
+	// reason (why an undo could not run, say) is read whole on a phone.
+	status := []string{readyStatus(r, width)}
+	if r.Input == nil && r.Failure != "" {
+		status = readyFailureRows(r, width, max(min(3, height-3), 1))
+	}
+	room := max(height-2-len(status), 0)
 	// A refusal of the reply being written has a row of its own above it:
 	// the words come back, and the reason must not hide behind them.
 	note := ""
@@ -264,13 +277,13 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		body = body[:room]
 	}
 	rows = append(rows, body...)
-	for len(rows) < height-2-btoi(note != "") {
+	for len(rows) < height-1-len(status)-btoi(note != "") {
 		rows = append(rows, "")
 	}
 	if note != "" {
 		rows = append(rows, note)
 	}
-	rows = append(rows, readyStatus(r, width))
+	rows = append(rows, status...)
 	typing := r.Input != nil
 	rows = append(rows, modeRow(!typing, readyHint(r), width))
 	for i := range rows {
@@ -281,6 +294,21 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		active = core.SurfaceReadyInput
 	}
 	return HubFrame{Content: strings.Join(rows[:min(len(rows), height)], "\n"), Active: active}
+}
+
+// readyFailureRows is a refusal over at most n rows, wrapped, the last
+// row cut when it is longer still.
+func readyFailureRows(r core.Ready, width, n int) []string {
+	text := styled(warnColour, r.Message) + " " + styled(faint, oneLine(core.EscapeNonPrinting(r.Failure)))
+	rows := wrap(text, max(width-1, 1))
+	if len(rows) > n {
+		rows = rows[:n]
+		rows[n-1] = truncate(rows[n-1]+" …", max(width-1, 1))
+	}
+	for i := range rows {
+		rows[i] = truncate(" "+rows[i], width)
+	}
+	return rows
 }
 
 func btoi(b bool) int {

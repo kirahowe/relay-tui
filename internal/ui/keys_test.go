@@ -24,6 +24,7 @@ func (nopConn) End(string)                {}
 func (nopConn) Seen(string, int)          {}
 func (nopConn) Ready()                    {}
 func (nopConn) Reply(int64, string)       {}
+func (nopConn) Undo(int64)                {}
 func (nopConn) Shutdown()                 {}
 
 func genKey(t *rapid.T) tea.KeyPressMsg {
