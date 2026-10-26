@@ -100,6 +100,7 @@ var MovingKeys = []KeyHelp{
 	{[]string{"i"}, "type in the conversation"},
 	{[]string{"1", "alt+1"}, "role 1 (2 for 2, up to 9)"},
 	{[]string{"X"}, "end this conversation, after asking"},
+	{[]string{"R"}, "what is ready for you"},
 	{[]string{"esc"}, "back to the conversation"},
 	{[]string{"ctrl+t"}, "show or hide tool calls"},
 	{[]string{"ctrl+o"}, "show or hide thinking"},
@@ -294,7 +295,7 @@ func listScreen(h core.Hub, now time.Time, width, height int) []string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, note...)
-	foot := styled(faint, truncate(modeTag(true)+" · enter open · ↑↓ move · ? keys", width))
+	foot := styled(faint, truncate(modeTag(true)+" · enter open · ↑↓ move · "+readyKey(h)+" · ? keys", width))
 	if h.Notice != "" {
 		foot = styled(faint, truncate("! "+oneLine(h.Notice), width))
 	}
@@ -327,6 +328,8 @@ func HubView(h core.Hub, input, hint string, now time.Time, width, height int) H
 	// What has the keys is what is drawn as active: core.HubSurface
 	// decides it, and nothing here decides it again.
 	switch surf := core.HubSurface(h); surf.Kind {
+	case core.SurfaceReady, core.SurfaceReadyInput:
+		return readyScreen(h, now, width, height)
 	case core.SurfaceHelp:
 		f := withHelp(h, input, hint, now, width, height, wide)
 		f.Active = core.SurfaceHelp
@@ -685,16 +688,16 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	}
 	switch under := surf.Covered().Kind; {
 	case under == core.SurfaceList:
-		keys = "enter open · ↑↓ move" + right + " · 1 role · ? keys"
+		keys = "enter open · ↑↓ move" + right + " · 1 role · " + readyKey(h) + " · ? keys"
 	case surf.Column == core.ColumnPane && pw > 0:
 	case surf.Column == core.ColumnPane:
 		keys = "" // the pane, in the conversation's place, lists its own
 	case under == core.SurfaceEnd:
 		keys = "y end it · n keep it"
 	case under == core.SurfaceConversation && conv != nil:
-		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · ? keys"
+		keys = "i type · h roles" + pane + " · ↑↓ scroll · X end · " + readyKey(h) + " · ? keys"
 	case under == core.SurfaceConversation:
-		keys = "i type · h roles" + pane + " · ? keys"
+		keys = "i type · h roles" + pane + " · " + readyKey(h) + " · ? keys"
 	default:
 		keys = "enter send · esc move · alt+1 role · ctrl+t tools · ? keys"
 	}
@@ -710,6 +713,15 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	f.InputX += sw + 2
 	f.InputY += 2 // the top bar and the panel's top border
 	return f
+}
+
+// readyKey is how the keys row names the ready view: R ready, with how
+// many things are in it.
+func readyKey(h core.Hub) string {
+	if n := len(h.Ready.Items); n > 0 {
+		return fmt.Sprintf("R ready %d", n)
+	}
+	return "R ready"
 }
 
 // modeRow is the row of keys along the bottom, led by the mode.
