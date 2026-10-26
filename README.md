@@ -307,8 +307,9 @@ never appear, whatever relay sends.
 An event's time reads `Sat 12 Dec · 19:00–21:00`, day before month, in the
 zone relay names for you (`timezone` in its `_relay/ready` answer, an IANA
 name such as `America/Halifax`), so the dashboard and relay's own output
-agree. When relay names none, which is so today, the times show in this
-machine's zone. When new things arrive while you look and the list is
+agree. When relay names none, or one
+this machine cannot read (an offset such as `+05:30`), the times show in
+this machine's zone. When new things arrive while you look and the list is
 scrolled so they are out of sight above, the top bar says `↑ 2 new`; it
 goes once you move up to them.
 

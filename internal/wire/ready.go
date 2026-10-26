@@ -164,8 +164,8 @@ func Ready(raw json.RawMessage, err error, at time.Time) core.ReadyLoaded {
 	var r struct {
 		Rev int64 `json:"rev"`
 		// Timezone is the zone name relay shows times in (relay.edn's
-		// :timezone). relay does not send it yet; when it does, times
-		// follow it.
+		// :timezone). Times follow it; an empty or unreadable one keeps
+		// the machine's zone.
 		Timezone string            `json:"timezone"`
 		Items    []json.RawMessage `json:"items"`
 	}
