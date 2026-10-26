@@ -2,8 +2,8 @@
 
 relay-tui is the terminal dashboard for
 [relay](https://github.com/kirahowe/relay): the roles and their live
-conversations, the board of cards, and a full-screen review of anything
-you approve. It speaks the
+conversations and the board of cards. It never asks you to approve
+anything. It speaks the
 [Agent Client Protocol](https://agentclientprotocol.com), and pointed at
 any other ACP agent it is a plain chat client: it starts the agent as a
 child process, streams its replies into the terminal's own scrollback, and
@@ -53,120 +53,32 @@ and `G`, and the mouse wheel scroll it, and Esc or `q` goes back. It
 works while the agent is busy too. The chat prints into the terminal's
 own scrollback, which cannot be redrawn, so the transcript is where
 blocks open and close. Nothing goes into scrollback while it is open:
-what the agent writes meanwhile is printed when you leave. A permission
-request closes the transcript, so the request is always on screen, and
-while one waits Ctrl-T and Ctrl-O do not open it: the status line says
-to answer the request first. The session's labels lead the
-transcript's footer as they lead the status line.
+what the agent writes meanwhile is printed when you leave.
 
 The agent's stderr would garble the screen, so relay-tui keeps the last
 64 KiB and prints them if the agent exits on its own. `--agent-log FILE`
 writes all of it to a file. relay-tui's own notes about the connection,
 such as a line it dropped as unreadable, go to the same place.
 
-When the agent asks permission for a tool call, the request moves no
-keys and closes nothing. While you are typing, in the input or in a
-card's editor, it takes no keys: a line above the input says
-"permission needed", names the tool and says how to get to it ("esc,
-then enter to review"), the status line says so too, and what you type
-goes on where you were typing. In the pane it waits the same way, and
-`h` goes to it. In its conversation while moving, a short summary takes
-the input box's place: the tool's name and "enter to review". The
-summary answers nothing and arms nothing. Requests queue and are
-answered in order; ending the turn cancels the rest.
+### Permission requests
 
-### The review
+relay-tui advertises no approvals, and it asks you nothing about a tool
+call. An agent that still sends `session/request_permission` (relay did,
+before it dropped its holds) is answered at once with a plain `cancelled`,
+without a dialog, a summary, a mark or a note on screen. The call is
+refused and the turn goes on. `_relay/permission/settled` is ignored, and
+so is anything else about permissions or trust that an older relay sends.
+Nothing in relay-tui turns a refusal into an allow: it has no key for it.
 
-Everything you consent to is answered from its review, a pager that
-takes the whole screen: allowing a tool call, and trusting a card or a
-doc or archiving a card (see "The workspace pane" and "The board").
-Enter on a request's summary opens it, and `t` and `X` open the pane's.
-The review shows a text, T, exactly as it is: wrapped to the window,
-never cut, never escaped again and never shortened, so the pager's
-lines put together are T. T's rows start two columns in; a row that
-carries on a line the window was too narrow for starts with `↪` in
-those columns instead, so a wrapped line never passes for a new one. Nothing the agent wrote shows anywhere else
-on the review. The top row says what you are asked, in relay-tui's own
-words ("Allow this tool call?"). The foot names a request's options by
-their number in T and their ACP kind (`▸ 2 reject_once (n)`), always
-keeping the highlighted one in view, with `‹` and `›` where more lie
-(when even it does not fit, the row says to widen the window), then
-shows which page you are on, how many are left, and the keys.
-
-Keys in the review:
-
-| Key | What it does |
-|---|---|
-| `space`, `pgdown`, `f` / `pgup`, `b` | the next page, the one before |
-| `j`, `down` / `k`, `up` | a row down, a row up |
-| `g`, `home` / `G`, `end` | the top, the end |
-| `y` | allow once (a request: the highlighted allow_once option, or else the first; only that entry is marked `(y)`), or trust, or archive |
-| `tab`, `right` / `shift+tab`, `left` | the next option, or the one before (a request) |
-| `enter` | the highlighted option (a request; it starts on a reject). An allow, by enter or y, waits until the entry of the option it sends has been on screen whole for 600 ms since the highlight last moved |
-| `n` | reject once (a request: the highlighted reject_once, or else the first, marked `(n)`), or cancel |
-| `esc` | cancel (a request answers cancelled) |
-| `q` | back to the dashboard, answering nothing (a request); cancel (the pane's questions) |
-| `ctrl+c` | stop the turn, which cancels its requests |
-
-`y`, and any other allow, works only once every page of this T has been
-on screen, by a frame that stayed there, and 600 ms after the last page
-you had not seen yet came up. Until then the foot says "once all is
-read", or names the pages not on screen long enough. A page you flip
-past within a frame or two does not count. A T that changes (the
-session's labels grow, a card changes) is read again from the start.
-Rejecting, cancelling and going back work at once. A key typed while
-connecting (see "Reopening where you left off") answers nothing at all.
-Options of any kind other than allow_once and reject_once, such as
-allow_always, are not offered: relay-tui never grants standing
-permission.
-
-The review fails closed. If T holds a character other than a printable
-one, a space or a newline, if relay's digest of T does not match it, or
-if relay sent no review for a card or a doc, or if T holds a character
-that terminals draw at different widths (an emoji with a skin tone, say,
-which is one cell pair or two), the review says so and nothing can be
-allowed there. relay-tui measures text by code point, as Bubble Tea
-does, and keeps Bubble Tea on that even when the terminal offers
-grapheme widths, so what the pager lays out is what the screen shows. A window too narrow for one of T's
-characters, or too short for a row of it, says to make it larger.
-
-With relay, T is relay's: relay sends it with every request, card and
-doc (`"review": {"text", "sha256"}`), and relay-tui shows it as sent.
-relay-tui says so in `initialize`
-(`clientCapabilities._meta["relay/review"]: 1`), and gives relay back
-the sha256 of T with an allow (`_meta["relay/review"]` on the answer)
-and with a trust (its `sha256`). If relay refuses an allow, it asks
-again for the same tool call with its reason
-(`_meta["relay/refused"]`); the review stays open on it, shows the
-reason, and is read again from the start.
-
-Against an agent without relay, relay-tui builds T from the request
-itself, with relay's rules. Each value the agent wrote is a quoted
-string on a labelled line (the tool, its title and kind, each fixed
-argument, each option and its kind), or a block of lines that each
-start with `  │ ` (relay's preview, the whole input, pretty-printed with
-its numbers as written). Each piece of the call's content shows with
-its fields apart: a text; a diff's path, old text and new text; a
-terminal's id; an embedded resource's URI, mime type and text, or a
-blob's size and sha256. Content of any other kind, or with a field
-relay-tui does not know, cannot be allowed: the review names it, and a
-refusal still works. In them a
-backslash shows as `\\`, a quote as `\"` and any character that does
-not print as `\u{XXXX}`, so T reads back to exactly the request.
-Once the session is contaminated, links in what the agent wrote are
-broken by the same escapes: the `:` of `https://` shows as `\u{003a}`
-and the dots of a host as `\u{002e}`, while an amount such as 12.50
-keeps its dot. A "Characters to check" section names every word that
-mixes scripts or holds a lookalike letter, and every character outside
-ASCII in something that looks like a host or an address, with its code
-point. No digest is sent.
-
-If the agent reports session labels in `_meta["agentloop/labels"]` on tool
-calls, usage updates and session_info_update, the status line shows them
-as pills: ` private ` and ` contaminated `, each in its own colour on a
-tint. Where the terminal has not said what its colours are, they show as
-`[private]` in bold and ` contaminated ` in reverse video. Labels only
-accumulate during a session.
+The two questions relay-tui does ask are not approvals. They are about
+its own screen: whether to end a conversation (`X`, see "Several
+conversations") and whether to archive a card (`X` on the board). Each is
+a line of its own where you are, and the next key answers it. A `y` is
+taken only from a key you pressed, not one held while connecting, and
+only a moment (0.6 s) after the question came up, so a key meant for what
+was there before cannot answer it. On the end question, n and Esc keep
+the conversation and other keys do nothing; on the archive question any
+other key keeps the card.
 
 ## Typing and moving
 
@@ -199,7 +111,6 @@ Typing:
 | `alt+1` to `alt+9` | that role, still typing (hub) |
 | `pgup`, `pgdown` | scroll the conversation (hub) |
 | `ctrl+t`, `ctrl+o` | tool calls, or thinking, in full |
-| `ctrl+y` | trust the latest paste in the input |
 | `ctrl+c` | stop the turn, clear the input, or quit |
 | `ctrl+d` | quit, from an empty input |
 | `?` | the keys, from an empty input |
@@ -222,18 +133,15 @@ Moving:
 | `?` | the keys |
 
 In the pane its own keys work too, as its foot lists them (see "The
-workspace pane" and "The board"). While the pane asks you something, an
-archive or a trust, the next key answers or cancels it and does nothing
+workspace pane" and "The board"). While the pane asks you whether to
+archive a card, the next key answers or cancels it and does nothing
 else. A letter that does nothing where you are shows "i to type" in the
 status line. A paste while moving goes nowhere, with the same note, and
 so does a paste into a card's editor: a card's text is your own words,
 so a paste, which may be anyone's, does not go into it.
 
-A permission request is answered only from its review, as described
-above: while typing it takes no keys and the input keeps them. In its
-conversation while moving its summary has the keys: enter opens the
-review, and besides that only `h` (to the list), the role keys and the
-page keys work while it waits.
+A held key never answers a question: a `y`, `X` or Enter typed while
+connecting types or moves, and archives or ends nothing.
 
 ## The look
 
@@ -244,71 +152,52 @@ behind a selection, the block behind your own messages, a key chip, a
 label pill. A terminal that does not answer gets reverse video for a
 selection and no tints. Your messages are then drawn in boxes.
 
-While the session is contaminated, URLs in what the agent writes (replies,
+Once the session has read text from outside (the agent reports it in
+`_meta["agentloop/labels"]`), URLs in what the agent writes (replies,
 notices, tool names, arguments and output) show defanged, as
-`hxxps://host[.]tld/path`, so a click cannot carry data out. relay-tui never
-writes OSC 8 hyperlinks. A review built by relay-tui breaks the links in
-a request by escapes once the session is contaminated (see "The
-review"): a click on one, to look at it, would send what it carries
-before you approve anything. relay-tui never sends `resource_link`
+`hxxps://host[.]tld/path`, so a click cannot carry data out. The label
+itself is never shown, and nothing is held or withheld because of it.
+relay-tui never writes OSC 8 hyperlinks and never sends `resource_link`
 blocks.
+
+Where a thing came from is said in plain words, where it is shown: "from
+the web" for an item with a web source, "from outside" for any other text
+that arrived through a tool (`core.Provenance`). The words "contaminated",
+"untrusted" and "private" never appear on screen.
 
 ## The workspace pane
 
 Agents that run under relay put work in front of you as they go: what a
-tool found, the calls waiting for your approval, and the documents the
-latest reply cites. The workspace pane lists it, in its items view; its
-other view is the board (see below), which it shows by default. A new
-display or proposal brings the items into view, and a card that changes
-brings the board back. On a screen 120 columns or wider the pane stands
-to the right of the chat. On a narrower one, `l` (while moving) opens it
-over the chat and the status line names the view and its count, as in
-`l workspace (3)`.
+tool found, and the documents the latest reply cites. The workspace pane
+lists it, in its items view; its other view is the board (see below),
+which it shows by default. A new display brings the items into view, and
+a card that changes brings the board back. On a screen 120 columns or
+wider the pane stands to the right of the chat. On a narrower one, `l`
+(while moving) opens it over the chat and the status line names the view
+and its count, as in `l workspace (3)`.
 
-Newest items come first. A shown item has a title, its labels and its
-sources. A proposal is a call held for approval, with relay's preview of
-what it will do and its status: waiting, allowed, rejected or cancelled.
-Below the items, each reference in the latest reply, written `[[fact:12]]`
-or `[[doc:notes/venues.md]]`, shows the title relay gives it. A reference
+Newest items come first. A shown item has a title, where it came from if
+that was outside (see "The look"), and its sources. Below the items, each
+reference in the latest reply, written `[[fact:12]]` or
+`[[doc:notes/venues.md]]`, shows the title relay gives it. A reference
 relay cannot find shows as `missing` in reverse video. A reference not yet
 checked, or checked against an agent that cannot answer, shows as
 `unchecked`. The pane never shows words from the model as a title: the
 model's text is only searched for references.
 
-Text from a contaminated item sits under an `untrusted` mark in reverse
-video, with its URLs defanged. A preview's URLs are always defanged,
-since a preview is what a service said. relay labels a preview's text
-apart from the session (`relay/labels` on the preview block), and a
-request or proposal is shown by both sets of labels. Arguments the
-operator fixed in relay's settings are listed under "set by your
-settings". A link to a domain that no approved or trusted item has shown
-so far in this run carries `[new domain]`.
+Text from outside shows with its URLs defanged.
 
 Keys, once `l` has given the pane the keys:
 
 - Up and down, or k and j, select an item. Enter opens it; up and down,
   Page Up and Page Down scroll.
-- t starts a trust of the selected item.
 - b switches between the board and the items.
 - Esc goes back from an item, then to the conversation. `h` goes to the
   conversation from anywhere in the pane.
 
 While the pane has focus no key reaches the input box. Ctrl-C still stops
-a running turn. A permission request leaves the pane its keys: `h` goes
-to the conversation, where you review it as before. The pane only
-highlights the waiting proposal and shows its preview. It adds no
-second way to approve.
-
-Trusting needs relay's dashboard (`relay`), which lets relay-tui ask relay to do it. Press t
-on a contaminated shown item. Its review (see "The review") shows the
-text relay sent for the doc, its path and version among it. Once it is
-read, y confirms; n, esc and q cancel. relay-tui then sends relay the
-version it listed and the digest of the review, so a document that
-changed in between is refused. Where relay does not take trust from
-this client, or sent no review, the pane shows the `relay trust` command
-to run in a terminal and does nothing else. Against an agent without relay
-the pane lists the displays and requests relay-tui saw itself, and offers no
-trust.
+a running turn. Against an agent without relay the pane lists the
+displays relay-tui saw itself.
 
 ## The board
 
@@ -328,8 +217,8 @@ agent has no board."
 
 When a card is added or changes, the pane switches back to the board
 and selects that card, so a card a role mentions is in view. It stays on
-the workspace items while the pane has focus or a proposal is waiting
-for your answer. An agent without a board leaves the pane on the items.
+the workspace items while the pane has focus. An agent without a board
+leaves the pane on the items.
 
 Each card is a panel of its own, with a blank row between cards. The
 title sits in the top border in the colour of its kind, and how far along
@@ -358,23 +247,12 @@ Keys on the board:
 - e edits the selected line's text: the title, an item or a row's name.
   In the list it retitles the selected card. In an open tracker, E
   renames the selected column. A note's text cannot be edited here.
-- X archives the selected card, from its review (see "The review"):
-  once it is read, y archives; n, esc and q cancel. The review is about
-  the card as you saw it: if it changes meanwhile (another device
-  retitles it, say), the review closes with a note. The archive also
-  carries the rev you saw (`seen`). A doc's trust is cancelled the same
-  way when relay lists a newer version. relay's CLI can restore an
-  archived card.
-- t trusts the selected card when it holds outside text, from its
-  review, which shows the text relay sent for the card. Once it is
-  read, y confirms; n, esc and q cancel. relay-tui sends relay the
-  card's rev and the digest of the review (`_relay/cards/trust`), so a
-  card that changed in the meantime is not trusted. If the card changes
-  while you are being asked, the question
-  closes, as it does when you leave it: `h`, another role, the list of
-  roles or the list of keys. relay takes trust only from its dashboard
-  (`relay`), which runs with approvals. Elsewhere the pane names the `relay trust card <id>` command
-  to run in a terminal.
+- X asks whether to archive the selected card: "Archive “title”?" with
+  `y archive · any other key keeps it` in the foot. The question is
+  about the card as you saw it: if it changes meanwhile (another device
+  retitles it, say), the question closes with a note. The archive also
+  carries the rev you saw (`seen`). relay's CLI can restore an archived
+  card.
 - r asks relay for the board again; b goes back to the workspace items. An agent with
   no board is not asked again.
 
@@ -400,7 +278,7 @@ it, unless a turn is running, which it stops.
 Card text is shown as relay sent it. relay has already made hidden
 characters visible and defanged links in text from outside, which it
 marks as such. relay-tui shows that text in the warning colour, and the
-bottom border of a card that holds any says `outside text`. Links are
+bottom border of a card that holds any says `from outside`. Links are
 never clickable, and relay-tui fetches nothing.
 
 ## Several conversations (relay's hub)
@@ -409,7 +287,7 @@ When the agent is relay's hub, relay-tui shows every role at once. It knows
 this from `_meta["relay/hub"]` in the answer to `initialize`. Against any
 other agent nothing here applies, and the client works as described
 above. `relay [--open ROLE]` runs it as
-`relay-tui [--open ROLE] -- relay acp --approvals`.
+`relay-tui [--open ROLE] -- relay acp`.
 
 The whole screen is drawn on the alternate screen, from state. On a
 screen 73 columns or wider it is drawn as panels, each in a frame with
@@ -442,17 +320,6 @@ What the sidebar shows beside a role (the `?` list explains them too):
   to finish (the status line says "waiting for the role's scheduled
   work"), `~` the role's scheduled work is running
 - `●` the latest reply is unread
-- `?2` two permission requests wait, in reverse video; `!1` one of the
-  role's calls is held for you
-
-A request shows on the dashboard as its summary, and is answered from
-its review, which takes the whole screen (see "The review").
-
-A request from a conversation in the background shows as `?N` beside its
-role and is answered after switching to it while moving and opening its
-review, so a key typed for the switch cannot approve it. When
-another device answers first, the dialog closes and the transcript notes
-"answered elsewhere".
 
 The keys are in "Typing and moving". With the hub:
 
@@ -461,17 +328,15 @@ The keys are in "Typing and moving". With the hub:
 - The mouse wheel scrolls too; `ctrl+t` and `ctrl+o` show tool calls and
   thinking in full, as in the transcript.
 - `ctrl+c` cancels a running turn, including one another device started,
-  and otherwise clears the input or quits. Quitting only detaches: it
-  answers no permission request, in any conversation (relay holds an
-  unanswered one and tells you), and the conversations keep running.
-  When relay runs as a service, relay-tui says so as it exits. When it does
+  and otherwise clears the input or quits. Quitting only detaches, and
+  the conversations keep running. When relay runs as a service, relay-tui says so as it exits. When it does
   not (relay says so in `initialize`), the view says "relay service not
   running: conversations end when you close this" all the time.
 
 The board is the same whichever role is in focus, with the same card
 selected, and it shows with no conversation open: beside the roles on a
 wide screen, or, once `l` gives the pane the keys, in the
-conversation's place. Its ops and trust work from a role that has no
+conversation's place. Its ops work from a role that has no
 conversation, and open none. With no role in focus there is no
 conversation column, so `l` on the list goes straight to the board, and
 esc or `h` there goes back to the list, with the cursor where it was. On
@@ -525,9 +390,8 @@ exists; against relay's hub, once the roles have come and the saved
 view has been put back (or found nothing to put back). relay-tui then
 replays them as if you had just typed them on that screen, at the times
 you pressed them, so they do not stop the saved view coming back. They
-type and move, and nothing else: a replayed key never allows, trusts,
-archives or ends anything, refuses or cancels a request, since you
-never saw what it would have answered: with
+type and move, and nothing else: a replayed key never archives or ends
+anything, since you never saw what it would have answered: with
 `--open`, or a saved role in focus, they land in that role's input
 after its saved draft, and on the list they are the list's keys. Only
 the card, which waits for the board, can still be cancelled by them.
@@ -537,29 +401,29 @@ saved view is left as it was. A view saved against the other kind of
 agent puts back what it can, and a draft with nowhere to go is not put
 back, with a note.
 
-A restored paste is never more trusted than it was. One you trusted
-with Ctrl-Y comes back trusted, the rest untrusted, and anything about
-a paste that cannot be checked brings it back untrusted, or not at all.
 A damaged file, one for another command, one too large or of an unknown
-version means the defaults, and the status line says so. Nothing
-restored counts as sent or answered: no permission answer, no trust of
-a card or a document, no question waiting for y, and no queued message
-is saved.
+version (this is version 2) means the defaults, and the status line says
+so. A version 1 file, from before pastes were all your own, is still
+read: its drafts come back, and its placeholders such as
+`[pasted 2 lines · untrusted #1]` become `[pasted 2 lines #1]`. Nothing restored counts as sent or answered: no question waiting for
+y, and no queued message is saved.
 
-## Pasting marks the conversation untrusted
+## Pasting
 
-A pasted email or web page is text an outsider may have written, and
-pasting it is the usual way that text reaches the agent. So relay-tui does
-not type a paste into the prompt. A bracketed paste is held, and the input
-shows a placeholder such as `[pasted 42 lines · untrusted #1]`, even for a
-single line: a short paste can carry an injected instruction as well as a
-long one. When you send, the prompt is the text you typed, with each
-placeholder replaced by a reference like `[paste:1]`, plus one embedded
-`resource` block per paste (text/plain, uri `paste:1`). agentloop labels a
-session `contaminated` when it receives a resource block, which is what
-makes egress need your approval from then on. Delete a placeholder from
-the input and that paste is not sent. A terminal that does not do
-bracketed paste types the text in as keys, and relay-tui cannot tell.
+What you paste is yours. relay-tui does not type a paste into the prompt,
+though, so a long one does not fill the box. A bracketed paste is held,
+and the input shows a placeholder such as `[pasted 42 lines #1]`, even
+for a single line. When you send, each placeholder still in the prompt is
+replaced by the pasted text, in one pass (pasted text that happens to
+spell another placeholder is not expanded again). The prompt is plain
+text: no resource block, no label, no note in the transcript. Delete a
+placeholder from the input and that paste is not sent. Line breaks in a
+paste may arrive as LF, CR or CRLF depending on the terminal; all three
+count as lines and are sent as LF. A terminal that
+does not do bracketed paste types the text in as keys, and relay-tui
+cannot tell. relay cleans what you paste when it arrives (invisible
+characters and lookalikes, reported in one plain line), so relay-tui does
+not.
 
 A draft belongs to its role, not to a conversation: its text and its
 pastes stay as they are when the conversation ends, here or on another
@@ -567,24 +431,8 @@ device, or fails to open, and a message that could not be sent comes
 back to it with its pastes. A paste's number is never used again in
 the same draft.
 
-A paste is always untrusted when it arrives. To send one block as trusted
-text, paste it and then press Ctrl-Y: it marks the latest paste still in
-the input, and its placeholder changes to `[pasted 42 lines · trusted #1]`.
-At send it goes into the prompt as plain text, and the transcript notes
-that it was not labelled. Press Ctrl-Y again to trust the one before it.
-"Latest" means the one pasted last, and only a paste made since
-relay-tui started counts: a paste that came back with a saved draft
-keeps the trust it had, and to trust it you paste it again.
-With no untrusted paste in the input, Ctrl-Y does nothing and the status
-line says so. Nothing is armed ahead of a paste, so no paste can inherit
-a trust meant for another. If a placeholder still reads `untrusted` when
-you send, it goes as an attachment whatever was marked. A paste made while
-a permission request waits, the pane has focus or the transcript is open
-goes nowhere.
-
-If the agent does not advertise `promptCapabilities.embeddedContext`, a
-paste cannot be labelled. It goes in the prompt as plain text and the
-transcript warns that it was not labelled untrusted.
+A paste made while the pane has focus, the transcript is open or the
+mode is moving goes nowhere, and the status line says how to type.
 
 `go test` also drives a real agentloop binary against a fake Messages API on
 localhost, when one exists at `../agentloop/bin/agentloop` (or the path in
@@ -604,23 +452,21 @@ The terminal's colours are its one input that is not part of the state.
 
 The client's state comes in two parts. `core.App` is one per
 connection: relay's board, which view the pane shows and whether it has
-the keys. `core.State` is one per conversation: its transcript, input,
-pastes, permission requests and its own pane items. Against a single
+the keys. `core.State` is one per conversation: its transcript and its
+own pane items. The input and its pastes are the draft's (`core.Draft`). Against a single
 agent `core.Single` holds the app and the one conversation, and
 `core.ReduceSingle` applies an event to both. The pane follows the same
-split. `core` holds its state, the trust rules and the board's cards, `wire` reads relay's `_meta`, its
-`_relay/items`, `_relay/resolve`, `_relay/trust`, `_relay/cards` and
+split. `core` holds its state and the board's cards, `wire` reads relay's `_meta`, its
+`_relay/items`, `_relay/resolve`, `_relay/cards` and
 `_relay/cards/op` answers and its `_relay/cards/changed` notifications,
 and `render` draws it all. The `agent` package makes the calls one at a
 time and in order.
 
-Consent lives in `core/review.go`. `core.ReviewSubject` is what the
-review that has the keys is about: its identity, T (relay's, or
-`core.RequestText`) and the digest to give back. `render.PagerLines`
-wraps T losslessly and `render.Review` draws the pager; after each
-frame the shell tells the core which bytes of T it drew
-(`core.Drawn`), and the core takes a yes only once all of them have
-been drawn, `core.ArmDelay` after the last new part.
+The two questions live in `core/authority.go`. `core.authorityOf` says
+which events need a yes that is live and armed, `App.mayTake` decides
+whether one is taken (a key that was not replayed, on a question that has
+been the surface for `core.ArmDelay`), and `core.Provenance` says in plain
+words where something came from.
 
 `internal/agent` runs the agent process, and `internal/ui` is the Bubble
 Tea program. Both are thin code around the core that carries out its
@@ -630,9 +476,8 @@ The saved view follows the same split. `core.SaveHub` and
 `core.SaveSingle` derive it from state, and `core.RestoreHub` and
 `core.RestoreSingle` hand a loaded one to the reducers, which put it back
 part by part as the roster, the session and the board arrive.
-`internal/viewfile` encodes it, with a digest of the view and a seal on
-each trusted paste over its number and text, and does the file's IO in
-the background.
+`internal/viewfile` encodes it, with a digest of the view, and does the
+file's IO in the background.
 
 Hub mode adds one level above the conversation. `core.Hub` holds the
 app, relay's roster as it last sent it, one `State` per conversation (marked `Shared`, so it
@@ -697,8 +542,9 @@ go test ./... -rapid.checks=5000
 ```
 
 `cmd/fakehub` stands in for relay's hub in the tests: the roster, attach
-with replay, several sessions, a permission request another device can
-settle, and a turn queued behind scheduled work. A control file plays the
+with replay, several sessions, a permission request and a settle notice
+from a relay that still held calls (relay-tui refuses and ignores them),
+and a turn queued behind scheduled work. A control file plays the
 second device; see `internal/fakehub` for its commands.
 
 `testdata/agentloop` holds ACP streams recorded from agentloop. The tests
