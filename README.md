@@ -28,12 +28,15 @@ When the session starts, relay-tui prints a banner with the agent's name and
 version, and the model if the agent names one in its session options. The
 banner's title is `--title` if given, otherwise the title the agent reports
 about itself, otherwise its name. The input sits in a box at the bottom,
-with a status line under it showing what the agent is doing, for how long,
-and how much of its context window is in use and what the session has
-cost when the agent reports those. A message you send stays in its box,
-so your turns stand apart from the agent's. Tool calls made one after
-another share one line that names the tools, and the agent's thinking
-shows as one faint line, `∴ thought`.
+with a status line under it showing what the agent is doing and for how
+long. A message you send stays in its box, so your turns stand apart from
+the agent's. Tool calls made one after another share one line, a mark and
+one word (`worked`, `working`, `failed`), and the agent's thinking shows as
+one faint line, `∴ thought`. The chat names no tool, and the status line
+shows no context share or cost, until you turn on the detail toggle,
+Ctrl-T: then the transcript names the tools, and the status line also
+names the running tool and, when the agent reports them, how much of its
+context window is in use and what the session has cost.
 
 Enter sends. Ctrl-J starts a new line in any terminal; Shift-Enter,
 Ctrl-Enter and Alt-Enter do too where the terminal reports them. Pressing
@@ -301,6 +304,14 @@ booker@example.org" or "from the web", in the warning colour. Things of
 your own say nothing. The words "contaminated", "untrusted" and "private"
 never appear, whatever relay sends.
 
+An event's time reads `Sat 12 Dec · 19:00–21:00`, day before month, in the
+zone relay names for you (`timezone` in its `_relay/ready` answer, an IANA
+name such as `America/Halifax`), so the dashboard and relay's own output
+agree. When relay names none, which is so today, the times show in this
+machine's zone. When new things arrive while you look and the list is
+scrolled so they are out of sight above, the top bar says `↑ 2 new`; it
+goes once you move up to them.
+
 Keys: up and down, or k and j, select; g and G go to the top and bottom;
 r asks relay again; `?` lists the keys, wrapped to the width, and any key
 closes the list. The connection asks for the view once it is up
@@ -432,7 +443,12 @@ items, the selected card and whether it was open (with its line and
 column), and your unsent drafts with their pastes. With a single agent
 it keeps the parts that apply there. It does not keep scroll positions.
 It keeps which column had the keys, not the mode: back in a
-conversation you are typing, and anywhere else you are moving.
+conversation you are typing, and anywhere else you are moving. A role
+with no conversation yet counts as anywhere else, so the keys of the
+dashboard (`R`) work on the first key; its status line says `esc moves`
+in the first 60 columns. If the conversation fails to open, or ends,
+before you have pressed a key, you are moving too. Once you have pressed
+a key, the keys stay where you put them.
 
 The saved view goes in a file of relay-tui's own, one per agent command
 (everything after `--`), under `~/.local/state/relay-tui/`, or under
