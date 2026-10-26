@@ -501,3 +501,30 @@ func TestSaveKeepsADraftTypedBeforeTheRestore(t *testing.T) {
 		t.Fatalf("single %+v", d)
 	}
 }
+
+// A start is not mid-sentence: the view comes back moving over a role
+// with or without a live conversation, so the R meant for the dashboard
+// never lands in an input. The saved draft stays for i or enter.
+func TestRestoreHubOpensMoving(t *testing.T) {
+	for _, c := range []struct {
+		focus      string
+		wantMoving bool
+	}{{"mail", true}, {"dev", true}} {
+		h, _ := reopen(t, View{Hub: &HubView{Focus: c.focus, Cursor: c.focus}}, viewRoster(), viewCards())
+		if h.Focus != c.focus || h.List || h.App.Moving != c.wantMoving {
+			t.Errorf("%s: focus %q list %v moving %v", c.focus, h.Focus, h.List, h.App.Moving)
+		}
+	}
+}
+
+// Once the operator has pressed a key, a conversation that goes under
+// the typing is not theirs to lose: the keys stay in the input, which
+// sends the next message and starts one.
+func TestAConversationGoneAfterAKeyKeepsTyping(t *testing.T) {
+	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}},
+		Attached{At: t0, Role: "dev", Session: "s1"}, KeyPressed{At: t0})
+	h, _ = apply(t, h, RosterUpdate{At: t0, Roles: []Role{role("dev", "")}})
+	if h.Focused() != nil || h.App.Moving {
+		t.Fatalf("conv %v moving %v", h.Focused(), h.App.Moving)
+	}
+}

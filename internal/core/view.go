@@ -197,8 +197,11 @@ func (r *hubReducer) restoreLayout(v View, at time.Time) {
 		r.clampCursor()
 	}
 	h.List = hv.List || h.Focus == ""
-	// Back in a conversation is typing in it; anywhere else is moving.
-	defer func() { h.App.Moving = h.List || h.App.PaneFocus || h.Focus == "" }()
+	// A start is not a moment when Kira is mid-sentence: the view always
+	// reopens moving, so a key meant for the dashboard (R) is not typed
+	// into a conversation's input. A saved draft stays in the input; i or
+	// enter resumes it.
+	h.App.Moving = true
 	if !v.PaneFocus || h.Focus != hv.Focus || !h.PaneShown() {
 		// The pane had the keys over a role that has gone, or has
 		// nothing to show.

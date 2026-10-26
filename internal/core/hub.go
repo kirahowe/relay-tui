@@ -637,6 +637,15 @@ func (r *hubReducer) toColumn(to Column, at time.Time) {
 	}
 }
 
+// hasConversation says the role has a conversation, live or attached.
+func (h Hub) hasConversation(role string) bool {
+	if h.ConvOf(role) != nil {
+		return true
+	}
+	r := h.RoleByID(role)
+	return r != nil && r.Conv != nil
+}
+
 // startTyping is i, or enter on the conversation: the keys go to the
 // conversation in focus, to type. With no role in focus there is
 // nothing to type into, and the status line says so.
@@ -905,13 +914,20 @@ func (r *hubReducer) giveBack(role string, f RestoreInput) {
 }
 
 // dropConv removes conversation i; what it still had queued goes back to
-// its role.
+// its role. Before the operator has pressed a key, a conversation in
+// focus that goes leaves the keys moving: the start may move them (see
+// App.Pressed), and a role with no conversation has nothing to type into,
+// so the R meant for the dashboard would land in its input. After a key,
+// the keys stay where the operator put them (see keeptyping.go).
 func (r *hubReducer) dropConv(i int) {
 	c := r.h.Convs[i]
 	r.h.Convs = slices.Delete(r.h.Convs, i, i+1)
 	if len(c.State.Queue) > 0 {
 		q := joinQueued(c.State.Queue)
 		r.giveBack(c.Role, RestoreInput{Text: q.Text, Pastes: q.Pastes})
+	}
+	if c.Role == r.h.Focus && r.h.Focused() == nil && !r.h.App.Pressed {
+		r.h.App.Moving = true
 	}
 }
 

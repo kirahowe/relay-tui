@@ -445,3 +445,25 @@ func TestTheDashboardNeverNamesALabelOrAGate(t *testing.T) {
 		}
 	}
 }
+
+// With no conversation yet and the keys typing, the status line keeps its
+// way out (esc) within a phone's 60 columns.
+func TestNoConversationStatusKeepsEscWithin60Columns(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0, Agent: "relay"},
+		core.RosterUpdate{At: t0, Roles: rosterFixture()}, core.FocusIndex{At: t0, Index: 2}, core.Type{At: t0})
+	for _, w := range []int{40, 59, 60} {
+		out := ansi.Strip(HubView(h, "", "", t0, w, 20).Content)
+		var line string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "no conversation") && strings.Contains(l, "TYPING") {
+				line = l
+			}
+		}
+		if line == "" {
+			t.Fatalf("no status line at %d:\n%s", w, out)
+		}
+		if w >= 59 && !strings.Contains(line, "esc") {
+			t.Errorf("width %d: %q lacks the esc hint", w, line)
+		}
+	}
+}

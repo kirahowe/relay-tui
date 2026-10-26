@@ -110,16 +110,16 @@ func TestSingleHasTwoColumns(t *testing.T) {
 	}
 }
 
-// The saved view keeps the column; the mode comes back from it: typing
-// in a conversation, moving anywhere else.
+// The saved view keeps the column; a start always reopens moving, over
+// a conversation too.
 func TestRestoreLandsInTheModeOfTheColumn(t *testing.T) {
 	typing, _ := apply(t, boardHub(t), ListOpen{At: t0})
 	for name, c := range map[string]struct {
 		h      Hub
 		moving bool
 	}{
-		"conversation":        {typing, false},
-		"conversation moving": {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}); return h }(), false},
+		"conversation":        {typing, true},
+		"conversation moving": {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}); return h }(), true},
 		"pane":                {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}, Move{At: t0, Delta: 1}); return h }(), true},
 		"list":                {func() Hub { h, _ := apply(t, typing, StopTyping{At: t0}, Move{At: t0, Delta: -1}); return h }(), true},
 	} {

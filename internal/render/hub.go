@@ -538,7 +538,9 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	if h.Focus == "" {
 		status = styled(faint, truncate("  "+mode+"no role in focus · h roles · ? keys", width))
 	} else if conv == nil {
-		start := "type a message to start one"
+		// Typing sends the first message and starts one; the esc hint comes
+		// before the rest so a phone's 60 columns keep it.
+		start := "esc moves"
 		if moving {
 			start = "i to type a message and start one"
 		}
@@ -701,7 +703,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	case under == core.SurfaceConversation:
 		keys = "i type · h roles" + pane + " · " + readyKey(h) + " · ? keys"
 	default:
-		keys = "enter send · esc move · alt+1 role · ctrl+t tools · ? keys"
+		keys = "enter send · esc move · alt+1 role · ctrl+t details · ? keys"
 	}
 	rows := []string{topBar(h, now, width)}
 	for i := 0; i < mid; i++ {

@@ -818,7 +818,9 @@ func TestHubAttachFailureKeepsThePastes(t *testing.T) {
 	h, _ := apply(t, NewHub("dev"), HubConnected{At: t0})
 	h, fx := apply(t, h, Pasted{At: t0, Text: "an email"})
 	tok, _ := insertText(fx)
-	h, _ = apply(t, h, Submit{At: t0, Text: "read " + tok})
+	// The shell sends a key press ahead of each key, so the submit is one
+	// the operator made by typing.
+	h, _ = apply(t, h, KeyPressed{At: t0}, Submit{At: t0, Text: "read " + tok})
 	h, fx = apply(t, h, Attached{At: t0, Role: "dev", Err: "busy"})
 	if ri := effectsOf[RestoreInput](fx); len(ri) != 1 || ri[0].Text != "read "+tok {
 		t.Fatalf("restore %v", fx)
