@@ -93,6 +93,8 @@ func (m *Model) hubEffect(f core.Effect) {
 		m.conn.Reply(f.Message, f.Text)
 	case core.SendUndo:
 		m.conn.Undo(f.Move)
+	case core.SendAct:
+		m.conn.Act(f.Message, f.N, f.Op)
 	default:
 		m.effect(f, m.now())
 	}
@@ -135,10 +137,12 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 	case core.SurfaceArchive:
 		return one(m.archiveKey(k, now))
 	case core.SurfaceReady:
-		if k.String() == "R" {
+		if k.String() == "R" && !m.hub.Ready.Help {
 			return one(core.ReadyOpen{At: now})
 		}
-		return one(core.ReadyKey{At: now, Action: ClassifyReady(k)})
+		a, text := ClassifyReady(k)
+		f := m.hubFrame(now)
+		return one(core.ReadyKey{At: now, Action: a, Text: text, Top: f.Top, Max: f.Max, Page: f.Page})
 	case core.SurfaceReadyInput:
 		a, text := ClassifyReadyInput(k)
 		return one(core.ReadyKey{At: now, Action: a, Text: text})

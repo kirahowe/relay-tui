@@ -2,13 +2,16 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kirahowe/relay-tui/internal/core"
+	"github.com/kirahowe/relay-tui/internal/render"
 )
 
 // readyConn records what the ready view asks relay for.
@@ -17,6 +20,13 @@ type readyConn struct {
 	asks    *int
 	replies *[]string
 	undos   *[]int64
+	acts    *[]string
+}
+
+func (c readyConn) Act(m int64, n int, op string) {
+	if c.acts != nil {
+		*c.acts = append(*c.acts, fmt.Sprintf("%d:%d:%s", m, n, op))
+	}
 }
 
 func (c readyConn) Undo(m int64) {
@@ -160,5 +170,83 @@ func TestUOnAMoveAsksRelayToUndoIt(t *testing.T) {
 	m = update(m, key("j"), key("u"))
 	if len(undos) != 1 || m.hub.Ready.Message != core.NoUndoNote {
 		t.Errorf("undos %v %+v", undos, m.hub.Ready)
+	}
+}
+
+func noteModel(acts *[]string) Model {
+	now := time.Now()
+	asks, replies := 0, []string{}
+	m := New(readyConn{asks: &asks, replies: &replies, acts: acts}, "").Open("dev")
+	m.clock = func() time.Time { return now }
+	note := core.ReadyItem{ID: "message:9", Kind: core.ReadyMessage, At: now.Format(time.RFC3339), Title: "Daily note", Message: 9, ReplyTo: 9,
+		Lines: []string{"1. A change", "And 5 more changes like these", "7. A suggestion"},
+		Acts:  []core.ReadyAct{{N: 1, Op: core.OpRevert, Line: 0}, {N: 7, Op: core.OpDismiss, Line: 2}}}
+	return update(m, tea.WindowSizeMsg{Width: 60, Height: 30},
+		ev(core.HubConnected{At: now}),
+		ev(core.RosterUpdate{At: now, Roles: []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}}),
+		ev(core.Attached{At: now, Role: "dev", Session: "s1"}),
+		ev(core.ReadyLoaded{At: now, Rev: 5, Items: []core.ReadyItem{note}}))
+}
+
+// Enter opens the note whole, v reverts the picked change and d drops a
+// suggestion, each with the note's own number.
+func TestKeysOnANotesNumberedItemsCallRelay(t *testing.T) {
+	var acts []string
+	m := update(noteModel(&acts), key("esc"), key("R"), key("enter"))
+	if m.hub.Ready.Detail != "message:9" || m.hub.Ready.Input != nil {
+		t.Fatalf("enter should open it: %+v", m.hub.Ready)
+	}
+	m = update(m, key("d")) // item 1 is a change: d is the wrong key
+	if len(acts) != 0 {
+		t.Fatalf("%v", acts)
+	}
+	m = update(m, key("v"))
+	m = update(m, ev(core.ActDone{At: time.Now(), Message: 9, N: 1, Op: core.OpRevert}), key("7"), key("d"))
+	if want := []string{"9:1:revert", "9:7:dismiss"}; !slices.Equal(acts, want) {
+		t.Errorf("%v want %v", acts, want)
+	}
+	if got := ansi.Strip(m.View().Content); !strings.Contains(got, "(undone)") {
+		t.Errorf("the screen does not show item 1 done:\n%s", got)
+	}
+}
+
+// ? works in the view, in the list and in an open item.
+func TestQuestionMarkWorksInTheReadyView(t *testing.T) {
+	m := update(noteModel(nil), key("esc"), key("R"), key("?"))
+	if !m.hub.Ready.Help || !strings.Contains(ansi.Strip(m.View().Content), "close this view") {
+		t.Fatalf("%+v", m.hub.Ready)
+	}
+	m = update(m, key("R")) // any key closes the list, and does only that
+	if m.hub.Ready.Help || !m.hub.Ready.Open {
+		t.Fatalf("%+v", m.hub.Ready)
+	}
+	m = update(m, key("enter"), key("?"))
+	if !m.hub.Ready.Help || !strings.Contains(ansi.Strip(m.View().Content), "numbered item") {
+		t.Errorf("%+v", m.hub.Ready)
+	}
+}
+
+// The keys list for the view and the classifier agree, both ways, as
+// they do for the rest.
+func TestReadyHelpRowsAgreeWithTheClassifier(t *testing.T) {
+	rows := append(slices.Clone(render.ReadyListKeys), render.ReadyDetailKeys...)
+	does := func(name string) bool { a, _ := ClassifyReady(press(t, name)); return a != core.ReadyOther }
+	for _, r := range rows {
+		for _, k := range r.Keys {
+			if k == "R" { // the view's own toggle, taken before the classifier
+				continue
+			}
+			if !does(k) {
+				t.Errorf("%q (%s) does nothing", k, r.What)
+			}
+		}
+	}
+	for _, k := range candidates() {
+		if k == "ctrl+c" || k == "R" || !does(k) {
+			continue
+		}
+		if !slices.Contains(named(rows), alias(k, rows)) {
+			t.Errorf("%q does something but no row names it", k)
+		}
 	}
 }

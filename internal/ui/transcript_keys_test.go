@@ -13,7 +13,8 @@ import (
 func press(t *testing.T, name string) tea.KeyPressMsg {
 	t.Helper()
 	codes := map[string]rune{"enter": tea.KeyEnter, "esc": tea.KeyEscape, "up": tea.KeyUp, "down": tea.KeyDown,
-		"pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown, "home": tea.KeyHome, "end": tea.KeyEnd, "space": tea.KeySpace}
+		"pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown, "home": tea.KeyHome, "end": tea.KeyEnd, "space": tea.KeySpace,
+		"tab": tea.KeyTab, "left": tea.KeyLeft, "right": tea.KeyRight}
 	var k tea.KeyPressMsg
 	mods, key, ok := strings.Cut(name, "+")
 	if ok && len(key) > 0 {

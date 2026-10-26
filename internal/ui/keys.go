@@ -306,30 +306,50 @@ func ClassifyEnd(k tea.KeyPressMsg) (answered, yes bool) {
 }
 
 // ClassifyReady decides what a key press does in the ready view while no
-// reply is being written. R opens and closes the view, so it is handled
-// by the caller. It is pure.
-func ClassifyReady(k tea.KeyPressMsg) core.ReadyAction {
-	switch k.String() {
-	case "up", "k", "shift+tab":
-		return core.ReadyUp
-	case "down", "j", "tab":
-		return core.ReadyDown
+// reply is being written, in the list and in an item open whole alike (the
+// core reads the action by where the operator is). R opens and closes the
+// view, so it is handled by the caller. A digit names a numbered item of
+// a daily note, and the text is that digit. It is pure.
+func ClassifyReady(k tea.KeyPressMsg) (core.ReadyAction, string) {
+	switch s := k.String(); s {
+	case "up", "k":
+		return core.ReadyUp, ""
+	case "down", "j":
+		return core.ReadyDown, ""
+	case "pgup":
+		return core.ReadyPageUp, ""
+	case "pgdown", "space":
+		return core.ReadyPageDown, ""
 	case "g", "home":
-		return core.ReadyTop
+		return core.ReadyTop, ""
 	case "G", "end":
-		return core.ReadyBottom
+		return core.ReadyBottom, ""
+	case "tab", "]":
+		return core.ReadyNext, ""
+	case "shift+tab", "[":
+		return core.ReadyPrev, ""
 	case "a":
-		return core.ReadyReplyKey
+		return core.ReadyReplyKey, ""
 	case "u":
-		return core.ReadyUndoKey
-	case "enter":
-		return core.ReadyEnter
+		return core.ReadyUndoKey, ""
+	case "v":
+		return core.ReadyRevert, ""
+	case "d":
+		return core.ReadyDismiss, ""
+	case "enter", "o":
+		return core.ReadyOpenKey, ""
+	case "?":
+		return core.ReadyHelp, ""
 	case "esc", "q", "h", "left", "ctrl+c":
-		return core.ReadyEsc
+		return core.ReadyEsc, ""
 	case "r":
-		return core.ReadyRefresh
+		return core.ReadyRefresh, ""
+	default:
+		if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
+			return core.ReadyPick, s
+		}
 	}
-	return core.ReadyOther
+	return core.ReadyOther, ""
 }
 
 // ClassifyReadyInput decides what a key press does while a reply is being

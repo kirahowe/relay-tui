@@ -403,11 +403,11 @@ func TestHubEmbeddedModeIsSaidAllTheTime(t *testing.T) {
 	cfg.Embedded = true
 	h := startHub(t, cfg, 100, 24, "dev")
 	h.waitScreen("the note", func(s string) bool {
-		return strings.Contains(strings.Join(strings.Fields(s), " "), "relay service not running")
+		return strings.Contains(strings.Join(strings.Fields(s), " "), "Chats end when you close this")
 	})
 	h.keys(alt2)
 	h.waitScreen("still there", func(s string) bool {
-		return strings.Contains(strings.Join(strings.Fields(s), " "), "relay service not running")
+		return strings.Contains(strings.Join(strings.Fields(s), " "), "Chats end when you close this")
 	})
 }
 
@@ -472,4 +472,24 @@ func TestHubPasteBecomesAPlaceholder(t *testing.T) {
 	if strings.Contains(s, "trusted") {
 		t.Errorf("the placeholder speaks of trust:\n%s", s)
 	}
+}
+
+// A daily note opens whole on its own screen, and v reverts item 1 with
+// the note's own number: the hub marks it done and the screen shows it.
+func TestHubReadyNoteOpensWholeAndRevertsAnItem(t *testing.T) {
+	cfg := threeRoles()
+	cfg.Ready = []json.RawMessage{json.RawMessage(`{"id":"message:9","kind":"message","at":"2026-10-15T09:00:00Z","seq":9,
+"title":"Daily note for Monday 26 October: 1 change to check","lines":["1. New how-to grants, shaped by a mail by stranger@example.org. To undo it: relay revert 14.","Reply not N to drop a suggestion."],
+"from":"from a mail by stranger@example.org","outsider":true,"message":9,"messageKind":"digest","urgency":"normal","thread":9,"replyTo":9,"replies":[],
+"acts":[{"n":1,"op":"revert","line":0,"done":null}]}`)}
+	h := startHub(t, cfg, 60, 30, "dev")
+	h.escape()
+	h.keys("R")
+	h.waitScreen("the note in the list", func(s string) bool { return strings.Contains(s, "Daily note for Monday") })
+	h.keys("\r")
+	h.waitScreen("the note whole", func(s string) bool { return strings.Contains(s, "▸ 1. New how-to") && strings.Contains(s, "v revert") })
+	h.keys("v")
+	h.waitScreen("item 1 undone", func(s string) bool {
+		return strings.Contains(strings.Join(strings.Fields(s), " "), "(undone)") && strings.Contains(s, "Item 1 undone.")
+	})
 }

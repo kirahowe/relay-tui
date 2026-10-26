@@ -302,13 +302,22 @@ your own say nothing. The words "contaminated", "untrusted" and "private"
 never appear, whatever relay sends.
 
 Keys: up and down, or k and j, select; g and G go to the top and bottom;
-r asks relay again. The connection asks for the view once it is up
+r asks relay again; `?` lists the keys, wrapped to the width, and any key
+closes the list. The connection asks for the view once it is up
 (`_relay/ready`), and after that relay sends what changes
 (`_relay/ready/changed`), so a draft prepared while you look appears
 without a key. Against an agent that is not relay the view says it has
 nothing to show.
 
-To answer a message, select it and press `a` or Enter, type, and press
+A panel shows the first few lines of a thing. When the title is too long
+for the top border, it moves into the panel, wrapped, so the age stays in
+the border and two titles that start alike can be told apart. When there
+is more, the last row says so. Enter, or `o`, opens the selected thing
+whole on a screen of its own, framed, with the same words and nothing cut.
+Up and down, `j` and `k`, the page keys, `g` and `G` scroll it, and Esc,
+`q` or `h` goes back to the list. `R` closes the view from either.
+
+To answer a message, select it, or open it, and press `a`, type, and press
 Enter. The reply goes to relay as yours (`_relay/reply`), and relay wakes
 the role that wrote the message. Esc cancels a reply you are writing. The
 reply is a one-line input that takes no paste, as a card's editor takes
@@ -317,13 +326,27 @@ words back. A message relay wrote itself, or any draft, calendar entry or
 finding, has nobody to answer, and `a` says so. Once relay has the reply,
 the message shows "you replied" with the start of it.
 
-A move says which role moved what, from where to where, and where what
-it had read came from. To put it back, select it and press `u`. relay
-undoes it as `relay undo` does (`_relay/undo`): everything goes back
-exactly, or nothing does. When something has changed since, such as a
-file you edited after it moved, relay refuses and the view shows its
-reason, over up to three rows on a narrow screen. Once undone, the panel
-reads "Moved back". One undo is on its way at a time.
+A daily note numbers the things it offers: a change a mailbox shaped, to
+undo, and a suggestion, to drop. Open the note and the numbers are the
+note's own. A marker shows the picked one; the number keys `1` to `9`
+pick that number and Tab, `]` and `[` step through them. `v` undoes the
+picked change and `d` drops the picked suggestion for good, each with one
+key and no question, through `_relay/messages/act`, the same as
+`relay revert` and `relay dismiss`. The wrong key for an item says which
+one is right, an item done already says so, and a done item reads
+"(undone)" or "(dropped)". One change is on its way at a time. The keys
+row names `v` or `d` for the picked item.
+
+A move shows what moved where, relative to the folder you granted, one
+row per file, under a summary such as "41 files in notes, into 13
+folders". The panel shows the summary and the first few files, and a count
+of the rest; Enter lists them all. To put it back, select it and press
+`u`. relay undoes it as `relay undo` does (`_relay/undo`): everything goes
+back exactly, or nothing does, and the status line says "Put back 3
+files." When something has changed since, such as a file you edited after
+it moved, relay refuses and the view shows its reason, over up to three
+rows on a narrow screen. Once undone, the panel reads "Moved back". One
+undo is on its way at a time.
 
 ## Several conversations (relay's hub)
 

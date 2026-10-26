@@ -38,6 +38,9 @@ type Conn interface {
 	Ready()
 	Reply(message int64, text string)
 	Undo(move int64)
+	// Act does what item n of a daily note offers, op being what it
+	// offered.
+	Act(message int64, n int, op string)
 	// Attach, End and Seen are relay hub methods. Attach opens a role's
 	// conversation (loading Session when it is known); End ends one; Seen
 	// says the operator has read it through a turn. Answers come back as
