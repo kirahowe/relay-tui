@@ -309,7 +309,8 @@ func ClassifyEnd(k tea.KeyPressMsg) (answered, yes bool) {
 // reply is being written, in the list and in an item open whole alike (the
 // core reads the action by where the operator is). R opens and closes the
 // view, so it is handled by the caller. A digit names a numbered item of
-// a daily note, and the text is that digit. It is pure.
+// a daily note, and the text is that digit; in the list it opens the note
+// at that item. It is pure.
 func ClassifyReady(k tea.KeyPressMsg) (core.ReadyAction, string) {
 	switch s := k.String(); s {
 	case "up", "k":
@@ -336,6 +337,8 @@ func ClassifyReady(k tea.KeyPressMsg) (core.ReadyAction, string) {
 		return core.ReadyRevert, ""
 	case "d":
 		return core.ReadyDismiss, ""
+	case "n":
+		return core.ReadyDecline, ""
 	case "enter", "o":
 		return core.ReadyOpenKey, ""
 	case "?":

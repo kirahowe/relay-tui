@@ -38,9 +38,9 @@ func (r *hubReducer) keepReadyDetail() {
 	rd.Pick = min(max(rd.Pick, 0), max(len(it.Acts)-1, 0))
 }
 
-// OpenNoteNote is what v and d say in the list: they act on a numbered
+// OpenNoteNote is what v, n and d say in the list: they act on a numbered
 // item, which shows when the note is open.
-const OpenNoteNote = "Open the note first (enter), then v or d on an item."
+const OpenNoteNote = "Open the note first (enter or its number), then v, n or d on an item."
 
 // firstOpenAct is the index of the first numbered item not done yet, or 0.
 func firstOpenAct(it ReadyItem) int {
@@ -106,13 +106,14 @@ func (r *hubReducer) detailKey(e ReadyKey) {
 		r.undo(it, i)
 	case ReadyReplyKey:
 		r.reply(it, i)
-	case ReadyRevert, ReadyDismiss:
+	case ReadyRevert, ReadyDismiss, ReadyDecline:
 		r.act(it, e.Action)
 	}
 }
 
-// act sends the picked numbered item of a daily note, when the key is the
-// one for what the item offers.
+// act sends the picked numbered item of a daily note, when the key fits
+// what the item offers: v reverts a change, d drops a suggestion, and n
+// says no to a suggestion's offer, keeping it.
 func (r *hubReducer) act(it ReadyItem, key ReadyAction) {
 	rd := &r.h.Ready
 	if len(it.Acts) == 0 || rd.Pick >= len(it.Acts) {
@@ -120,21 +121,24 @@ func (r *hubReducer) act(it ReadyItem, key ReadyAction) {
 		return
 	}
 	a := it.Acts[rd.Pick]
-	want, other := OpRevert, "d"
-	if key == ReadyDismiss {
-		want, other = OpDismiss, "v"
-	}
+	op := map[ReadyAction]string{ReadyRevert: OpRevert, ReadyDismiss: OpDismiss, ReadyDecline: OpDecline}[key]
 	switch {
-	case a.Done == "reverted":
+	case a.Done == DoneReverted:
 		rd.Message = fmt.Sprintf("Item %d is undone already.", a.N)
-	case a.Done != "":
+	case a.Done == DoneDismissed:
 		rd.Message = fmt.Sprintf("Item %d is dropped already.", a.N)
-	case a.Op != want:
-		rd.Message = fmt.Sprintf("Item %d: press %s.", a.N, map[string]string{"v": "v to undo it", "d": "d to drop it"}[other])
+	case a.Done == DoneDeclined && op != OpDismiss:
+		rd.Message = fmt.Sprintf("Item %d: its offer was turned down already. d drops it.", a.N)
+	case a.Op == OpRevert && op != OpRevert:
+		rd.Message = fmt.Sprintf("Item %d is a change: press v to undo it.", a.N)
+	case a.Op != OpRevert && op == OpRevert:
+		rd.Message = fmt.Sprintf("Item %d: press n to say no to its offer, or d to drop it.", a.N)
+	case op == OpDecline && !a.Offer:
+		rd.Message = fmt.Sprintf("Item %d has no offer: press d to drop it.", a.N)
 	case rd.Acting != 0:
 		rd.Message = ActBusyNote
 	default:
 		rd.Acting = it.Message
-		r.emit(SendAct{Message: it.Message, N: a.N, Op: a.Op})
+		r.emit(SendAct{Message: it.Message, N: a.N, Op: op})
 	}
 }

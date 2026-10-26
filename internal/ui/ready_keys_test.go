@@ -229,7 +229,17 @@ func TestQuestionMarkWorksInTheReadyView(t *testing.T) {
 // The keys list for the view and the classifier agree, both ways, as
 // they do for the rest.
 func TestReadyHelpRowsAgreeWithTheClassifier(t *testing.T) {
-	rows := append(slices.Clone(render.ReadyListKeys), render.ReadyDetailKeys...)
+	// The digits are named once, as the range 1-9.
+	var rows []render.KeyHelp
+	for _, r := range append(slices.Clone(render.ReadyListKeys), render.ReadyDetailKeys...) {
+		keys := slices.Clone(r.Keys)
+		for i, k := range keys {
+			if k == "1-9" {
+				keys[i] = "1"
+			}
+		}
+		rows = append(rows, render.KeyHelp{Keys: keys, What: r.What})
+	}
 	does := func(name string) bool { a, _ := ClassifyReady(press(t, name)); return a != core.ReadyOther }
 	for _, r := range rows {
 		for _, k := range r.Keys {

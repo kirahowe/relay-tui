@@ -3,6 +3,7 @@
 ␛[0;2m│␛[m ↑ ↓ k j tab shift+tab  ␛[0;2mselect␛[m␛[0;2m                                                                   ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m g G home end           ␛[0;2mtop, bottom␛[m␛[0;2m                                                              ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m enter o                ␛[0;2mopen the one selected, whole␛[m␛[0;2m                                             ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m 1-9                    ␛[0;2mopen a daily note at that numbered item␛[m␛[0;2m                                  ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m a                      ␛[0;2mreply to a message␛[m␛[0;2m                                                       ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m u                      ␛[0;2mundo a file move␛[m␛[0;2m                                                         ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m r                      ␛[0;2mask relay again␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
@@ -10,7 +11,6 @@
 ␛[0;2m│␛[m ?                      ␛[0;2mthese keys␛[m␛[0;2m                                                               ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                                             ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
-
 
 
 

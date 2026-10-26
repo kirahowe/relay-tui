@@ -256,7 +256,7 @@ func TestReadyViewActsOnANotesItemOnceAndNotifies(t *testing.T) {
 	if _, err := conn.CallExtension(ctx, "_relay/ready", map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 1, "op": "revert"}); err == nil {
+	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 1, "why": "x"}); err == nil {
 		t.Errorf("a parameter it does not take was taken")
 	}
 	if _, err := conn.CallExtension(ctx, "_relay/messages/act", map[string]any{"message": 9, "item": 4}); err == nil {

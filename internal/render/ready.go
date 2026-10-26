@@ -239,6 +239,7 @@ var ReadyListKeys = []KeyHelp{
 	{[]string{"up", "down", "k", "j", "tab", "shift+tab"}, "select"},
 	{[]string{"g", "G", "home", "end"}, "top, bottom"},
 	{[]string{"enter", "o"}, "open the one selected, whole"},
+	{[]string{"1-9"}, "open a daily note at that numbered item"},
 	{[]string{"a"}, "reply to a message"},
 	{[]string{"u"}, "undo a file move"},
 	{[]string{"r"}, "ask relay again"},
@@ -262,9 +263,13 @@ func readyHint(r core.Ready) string {
 		if i >= 0 && len(it.Acts) > 0 && r.Pick < len(it.Acts) {
 			a := it.Acts[r.Pick]
 			switch {
+			case a.Done == core.DoneDeclined:
+				keys = append(keys, "d drop")
 			case a.Done != "":
 			case a.Op == core.OpRevert:
 				keys = append(keys, "v revert")
+			case a.Offer:
+				keys = append(keys, "n no thanks", "d drop")
 			default:
 				keys = append(keys, "d drop")
 			}
@@ -336,11 +341,12 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	rows := []string{truncate(bar, width)}
 
-	// A refusal with no reply open may take up to three rows, so its
-	// reason (why an undo could not run, say) is read whole on a phone.
+	// A refusal with no reply open may take up to a third of the screen,
+	// at least three rows, so its reason (which files an undo left, and
+	// why) is read whole on a phone.
 	status := []string{readyStatus(r, width)}
 	if r.Input == nil && r.Failure != "" {
-		status = readyFailureRows(r, width, max(min(3, height-3), 1))
+		status = readyFailureRows(r, width, max(min(max(3, height/3), height-3), 1))
 	}
 	room := max(height-2-len(status), 0)
 	// A refusal of the reply being written has a row of its own above it:

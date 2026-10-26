@@ -2,9 +2,10 @@
 ␛[0;2m╭─␛[m keys for this one ␛[0;2m──────────────────────────────────────────────────────────────────────────────␛[m␛[0;2m╮␛[m
 ␛[0;2m│␛[m ↑ ↓ k j                         ␛[0;2mscroll␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m pgup pgdown space g G home end  ␛[0;2mpage, top, bottom␛[m␛[0;2m                                               ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m 1                               ␛[0;2mpick a numbered item of a daily note (1 to 9)␛[m␛[0;2m                   ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m 1-9                             ␛[0;2mpick a numbered item of a daily note␛[m␛[0;2m                            ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m tab ] shift+tab [               ␛[0;2mthe next or the previous numbered item␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m v                               ␛[0;2mundo the picked change␛[m␛[0;2m                                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m n                               ␛[0;2msay no to the picked suggestion's offer; it stays␛[m␛[0;2m               ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m d                               ␛[0;2mdrop the picked suggestion for good␛[m␛[0;2m                             ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m a                               ␛[0;2mreply to a message␛[m␛[0;2m                                              ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m u                               ␛[0;2mundo a file move␛[m␛[0;2m                                                ␛[m ␛[0;2m│␛[m
@@ -14,7 +15,6 @@
 ␛[0;2m│␛[m ?                               ␛[0;2mthese keys␛[m␛[0;2m                                                      ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                                             ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
-
 
 
 

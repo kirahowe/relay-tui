@@ -63,23 +63,45 @@ type ReadyItem struct {
 	// Acts are the numbered items of a daily note, each with the number
 	// the note shows and what it offers (see ReadyAct).
 	Acts []ReadyAct
+	// Sections are a message's Lines under their headings, in order, when
+	// it has headings; empty otherwise. An act's Line indexes Lines.
+	Sections []ReadySection
 }
 
-// Ops a numbered item of a daily note offers.
+// ReadySection is a message's heading, empty when it has none, and the
+// lines under it.
+type ReadySection struct {
+	Heading string
+	Lines   []string
+}
+
+// Ops a numbered item of a daily note offers, and OpDecline, a no to a
+// suggestion's offer of help that keeps the suggestion.
 const (
 	OpRevert  = "revert"
 	OpDismiss = "dismiss"
+	OpDecline = "decline"
+)
+
+// What was done with a numbered item.
+const (
+	DoneReverted  = "reverted"
+	DoneDismissed = "dismissed"
+	DoneDeclined  = "declined"
 )
 
 // ReadyAct is one numbered item of a daily note: its own number N in the
 // note, what it offers (OpRevert or OpDismiss), the index in the item's
-// Lines of the line that begins with the number, and Done, which is
-// "reverted" or "dismissed" once it was, else empty.
+// Lines of the line that begins with the number, Done, which is
+// DoneReverted, DoneDismissed or DoneDeclined once it was, from this note
+// or another, else empty, and Offer, which says a suggestion has an offer
+// of help that can be turned down on its own (OpDecline).
 type ReadyAct struct {
-	N    int
-	Op   string
-	Line int
-	Done string
+	N     int
+	Op    string
+	Line  int
+	Done  string
+	Offer bool
 }
 
 // ReplyInput is the reply being written to a message.
@@ -142,6 +164,9 @@ const (
 	NoActNote        = "Nothing to revert or drop here."
 	ActBusyNote      = "A change is on its way: wait for it."
 	ActRefusedNote   = "Not done."
+	// NotPutBackLine is the line of relay undo's answer after which come
+	// the files it left where they were.
+	NotPutBackLine = "Not put back:"
 )
 
 // Events about the view.
@@ -234,6 +259,7 @@ const (
 	ReadyPick                         // a digit: that numbered item (ReadyKey.Text)
 	ReadyRevert                       // v: revert the picked item of a daily note
 	ReadyDismiss                      // d: drop the picked item of a daily note
+	ReadyDecline                      // n: say no to the picked item's offer, keeping it
 	ReadyHelp                         // ?: the list of keys
 )
 
@@ -247,9 +273,9 @@ type (
 	// SendUndo asks relay to undo a file move (_relay/undo), as relay
 	// undo does.
 	SendUndo struct{ Move int64 }
-	// SendAct asks relay to do what item N of daily note Message offers
-	// (_relay/messages/act): revert a change, or drop a suggestion. Op is
-	// what the item offered, kept for the answer's wording.
+	// SendAct asks relay to act on item N of daily note Message
+	// (_relay/messages/act): revert a change, drop a suggestion, or say
+	// no to its offer (Op).
 	SendAct struct {
 		Message int64
 		N       int
@@ -424,6 +450,15 @@ func (r *hubReducer) ready(e Event) {
 		case len(e.Lines) > 0:
 			rd.Message = e.Lines[0]
 		}
+		// Files that stayed where they were are named, with why and what
+		// to do next, where a refusal's reason would be.
+		if i := slices.Index(e.Lines, NotPutBackLine); i >= 0 {
+			var rest []string
+			for _, l := range e.Lines[i:] {
+				rest = append(rest, strings.TrimSpace(l))
+			}
+			rd.Failure = strings.Join(rest, " ")
+		}
 	case ActDone:
 		if rd.Acting == e.Message {
 			rd.Acting = 0
@@ -432,11 +467,15 @@ func (r *hubReducer) ready(e Event) {
 			rd.Message, rd.Failure = ActRefusedNote, e.Err
 			return
 		}
-		done := "reverted"
+		done := DoneReverted
 		rd.Message, rd.Failure = fmt.Sprintf("Item %d undone.", e.N), ""
-		if e.Op == OpDismiss {
-			done = "dismissed"
+		switch e.Op {
+		case OpDismiss:
+			done = DoneDismissed
 			rd.Message = fmt.Sprintf("Item %d dropped.", e.N)
+		case OpDecline:
+			done = DoneDeclined
+			rd.Message = fmt.Sprintf("Item %d: no to its offer. It stays.", e.N)
 		}
 		// Relay sends the note changed too; this shows it at once.
 		for i, it := range rd.Items {
@@ -546,8 +585,16 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		r.undo(it, i)
 	case ReadyReplyKey:
 		r.reply(it, i)
-	case ReadyRevert, ReadyDismiss:
+	case ReadyRevert, ReadyDismiss, ReadyDecline:
 		rd.Message = OpenNoteNote
+	case ReadyPick:
+		// A digit on a note opens it at that numbered item.
+		if i < 0 || len(it.Acts) == 0 {
+			rd.Message = NoActNote
+			return
+		}
+		rd.Detail, rd.Top, rd.Follow, rd.Pick = it.ID, 0, false, firstOpenAct(it)
+		r.detailKey(e)
 	}
 }
 

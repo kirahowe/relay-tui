@@ -91,7 +91,7 @@ func (h *Hub) readyMethod(ctx context.Context, method string, raw json.RawMessag
 	case "_relay/messages/act":
 		// Item n of a daily note: its act is done as the item offers, and
 		// the note comes changed with that act done, as relay sends it.
-		if err := strict(method, params, "message", "item"); err != nil {
+		if err := strict(method, params, "message", "item", "op"); err != nil {
 			h.mu.Unlock()
 			return nil, err
 		}
@@ -113,11 +113,15 @@ func (h *Hub) readyMethod(ctx context.Context, method string, raw json.RawMessag
 			h.mu.Unlock()
 			return nil, refused(fmt.Sprintf("Item %v is not in message %v.", params["item"], params["message"]))
 		}
-		if act["done"] != nil {
+		op := fmt.Sprint(act["op"])
+		if o, ok := params["op"].(string); ok {
+			op = o
+		}
+		if act["done"] != nil && !(act["done"] == "declined" && op == "dismiss") {
 			h.mu.Unlock()
 			return nil, refused(fmt.Sprintf("Item %v was done already.", params["item"]))
 		}
-		act["done"] = map[string]string{"revert": "reverted", "dismiss": "dismissed"}[fmt.Sprint(act["op"])]
+		act["done"] = map[string]string{"revert": "reverted", "dismiss": "dismissed", "decline": "declined"}[op]
 		v.rev++
 		body := copyOf(map[string]any{"rev": v.rev, "items": []any{item}, "gone": []string{}})
 		notify := v.subscribed

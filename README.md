@@ -327,26 +327,32 @@ finding, has nobody to answer, and `a` says so. Once relay has the reply,
 the message shows "you replied" with the start of it.
 
 A daily note numbers the things it offers: a change a mailbox shaped, to
-undo, and a suggestion, to drop. Open the note and the numbers are the
-note's own. A marker shows the picked one; the number keys `1` to `9`
-pick that number and Tab, `]` and `[` step through them. `v` undoes the
-picked change and `d` drops the picked suggestion for good, each with one
-key and no question, through `_relay/messages/act`, the same as
-`relay revert` and `relay dismiss`. The wrong key for an item says which
-one is right, an item done already says so, and a done item reads
-"(undone)" or "(dropped)". One change is on its way at a time. The keys
-row names `v` or `d` for the picked item.
+undo, and a suggestion, to drop or to say no to its offer of help. Open
+the note and it keeps its headings ("Changes to check", "Coming up"), and
+the numbers are the note's own. A marker shows the picked one; the number
+keys `1` to `9` pick that number and Tab, `]` and `[` step through them.
+In the list, a number key opens the selected note at that item. `v`
+undoes the picked change, `n` says no to the picked suggestion's offer
+and keeps the suggestion, and `d` drops it for good, each with one key
+and no question, through `_relay/messages/act`, the same as `relay
+revert`, `relay decline` and `relay dismiss`. The wrong key for an item
+says which one is right, an item done already says so, and a done item
+reads "(undone)", "(dropped)" or "(offer declined)", whichever note or
+command did it. One change is on its way at a time. The keys row names
+the keys that work on the picked item.
 
 A move shows what moved where, relative to the folder you granted, one
 row per file, under a summary such as "41 files in notes, into 13
 folders". The panel shows the summary and the first few files, and a count
 of the rest; Enter lists them all. To put it back, select it and press
-`u`. relay undoes it as `relay undo` does (`_relay/undo`): everything goes
-back exactly, or nothing does, and the status line says "Put back 3
-files." When something has changed since, such as a file you edited after
-it moved, relay refuses and the view shows its reason, over up to three
-rows on a narrow screen. Once undone, the panel reads "Moved back". One
-undo is on its way at a time.
+`u`. relay undoes it as `relay undo` does (`_relay/undo`): each file that
+is as the move left it goes back exactly, and the status line says "Put
+back 3 files." A file you changed since, such as one you edited after it
+moved, stays, and the view names it, relative to your folder, with why.
+When nothing could go back, relay refuses and the view shows its reason.
+Either reason takes up to a third of the screen, so it reads whole on a
+phone. Once all of it is back, the panel reads "Moved back". One undo is
+on its way at a time.
 
 ## Several conversations (relay's hub)
 

@@ -157,7 +157,10 @@ func TestAnActsOfADailyNoteAreRead(t *testing.T) {
 }
 
 func TestActParamsAndOutcome(t *testing.T) {
-	if p := ActParams(9, 3); !reflect.DeepEqual(p, map[string]any{"message": int64(9), "item": 3}) {
+	if p := ActParams(9, 3, ""); !reflect.DeepEqual(p, map[string]any{"message": int64(9), "item": 3}) {
+		t.Errorf("%v", p)
+	}
+	if p := ActParams(9, 3, "decline"); !reflect.DeepEqual(p, map[string]any{"message": int64(9), "item": 3, "op": "decline"}) {
 		t.Errorf("%v", p)
 	}
 	if got := ActOutcome(9, 3, "dismiss", nil, t0); got != (core.ActDone{At: t0, Message: 9, N: 3, Op: "dismiss"}) {
@@ -172,6 +175,32 @@ func TestActParamsAndOutcome(t *testing.T) {
 func TestUndoSummaryIsRead(t *testing.T) {
 	got := UndoOutcome(3, json.RawMessage(`{"lines": ["Undid move 3: put back 3 of 3."], "summary": "Put back 3 files."}`), nil, t0)
 	if got.Summary != "Put back 3 files." {
+		t.Errorf("%+v", got)
+	}
+}
+
+func TestSectionsAndOffersAreRead(t *testing.T) {
+	raw := json.RawMessage(`{"rev": 4, "items": [{"id": "message:9", "kind": "message", "at": "2026-10-26T12:00:00Z",
+ "seq": 9, "title": "Daily note", "lines": ["1. A change", "2. Interview. Prep notes?"], "from": null, "outsider": false,
+ "message": 9, "acts": [{"n": 2, "op": "dismiss", "line": 1, "done": null, "offer": true}],
+ "sections": [{"heading": "Changes to check", "lines": ["1. A change"]}, {"heading": null, "lines": ["2. Interview. Prep notes?"]}]}]}`)
+	got := Ready(raw, nil, t0)
+	if len(got.Items) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	it := got.Items[0]
+	if !it.Acts[0].Offer {
+		t.Errorf("offer: %+v", it.Acts)
+	}
+	want := []core.ReadySection{{Heading: "Changes to check", Lines: []string{"1. A change"}}, {Lines: []string{"2. Interview. Prep notes?"}}}
+	if !reflect.DeepEqual(it.Sections, want) {
+		t.Errorf("sections: %+v", it.Sections)
+	}
+	// Sections that do not hold the same lines are left out, so an act's
+	// line always points at its own.
+	bad := json.RawMessage(`{"rev": 4, "items": [{"id": "message:9", "kind": "message", "lines": ["a", "b"],
+ "sections": [{"heading": "H", "lines": ["b"]}]}]}`)
+	if got := Ready(bad, nil, t0); len(got.Items) != 1 || got.Items[0].Sections != nil {
 		t.Errorf("%+v", got)
 	}
 }

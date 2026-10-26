@@ -33,16 +33,27 @@ func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) 
 	if len(it.Acts) > 0 {
 		gutter = 2
 	}
+	// A message with headings shows each above its lines, after a blank
+	// row. heads maps a line's index to the heading before it.
+	heads := map[int]string{}
+	li := 0
+	for _, sec := range it.Sections {
+		if sec.Heading != "" {
+			heads[li] = sec.Heading
+		}
+		li += len(sec.Lines)
+	}
 	for li, l := range it.Lines {
+		if h, ok := heads[li]; ok {
+			if len(rows) > 0 {
+				rows = append(rows, "")
+			}
+			rows = append(rows, wrap(styled(bold, cardLine(h, it.Outsider)), inner)...)
+		}
 		ai := slices.IndexFunc(it.Acts, func(a core.ReadyAct) bool { return a.Line == li })
 		text := l
 		if ai >= 0 {
-			switch it.Acts[ai].Done {
-			case "reverted":
-				text += " (undone)"
-			case "dismissed":
-				text += " (dropped)"
-			}
+			text = doneMark(text, it.Acts[ai].Done)
 		}
 		parts := cardLines(text, it.Outsider, max(inner-gutter, 1))
 		if ai >= 0 && ai == r.Pick {
@@ -67,6 +78,27 @@ func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) 
 		rows = append(rows, wrap(styled(faint, "↩ you replied: ")+cardLine(rp.Text, false), inner)...)
 	}
 	return rows, first, last, head, age
+}
+
+// doneMarks is how a numbered item done since reads, after its text.
+var doneMarks = map[string]string{
+	core.DoneReverted:  " (undone)",
+	core.DoneDismissed: " (dropped)",
+	core.DoneDeclined:  " (offer declined)",
+}
+
+// doneMark is a numbered item's line with the mark of what was done with
+// it, once: relay marks its lines too, and an act done here shows before
+// relay sends the note again.
+func doneMark(text, done string) string {
+	m := doneMarks[done]
+	if m == "" || strings.HasSuffix(text, m) {
+		return text
+	}
+	for _, other := range doneMarks {
+		text = strings.TrimSuffix(text, other)
+	}
+	return text + m
 }
 
 // readyDetail draws the open item as one framed panel of room rows,
@@ -111,9 +143,10 @@ func readyDetail(r core.Ready, it core.ReadyItem, now time.Time, width, room int
 var ReadyDetailKeys = []KeyHelp{
 	{[]string{"up", "down", "k", "j"}, "scroll"},
 	{[]string{"pgup", "pgdown", "space", "g", "G", "home", "end"}, "page, top, bottom"},
-	{[]string{"1"}, "pick a numbered item of a daily note (1 to 9)"},
+	{[]string{"1-9"}, "pick a numbered item of a daily note"},
 	{[]string{"tab", "]", "shift+tab", "["}, "the next or the previous numbered item"},
 	{[]string{"v"}, "undo the picked change"},
+	{[]string{"n"}, "say no to the picked suggestion's offer; it stays"},
 	{[]string{"d"}, "drop the picked suggestion for good"},
 	{[]string{"a"}, "reply to a message"},
 	{[]string{"u"}, "undo a file move"},

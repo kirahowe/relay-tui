@@ -300,11 +300,12 @@ func (a *Agent) Undo(move int64) {
 	})
 }
 
-// Act asks relay to do what item n of a daily note offers (revert a
-// change, drop a suggestion) and emits ActDone. It does not block.
+// Act asks relay to act on item n of a daily note (revert a change, drop
+// a suggestion, or say no to its offer, as op says) and emits ActDone. It
+// does not block.
 func (a *Agent) Act(message int64, n int, op string) {
 	a.enqueue(func() {
-		_, err := a.call(wire.MethodMessagesAct, wire.ActParams(message, n))
+		_, err := a.call(wire.MethodMessagesAct, wire.ActParams(message, n, op))
 		a.emit(wire.ActOutcome(message, n, op, err, time.Now()))
 	})
 }

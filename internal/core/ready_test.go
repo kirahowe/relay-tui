@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -494,12 +495,12 @@ func TestVRevertsAndDDismissesThePickedItem(t *testing.T) {
 func TestTheWrongKeyForAnItemDoesNothingAndSaysWhich(t *testing.T) {
 	h := openNote(t)
 	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyDismiss})
-	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 1: press v to undo it." {
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 1 is a change: press v to undo it." {
 		t.Errorf("%v %q", fx, h.Ready.Message)
 	}
 	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
 	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyRevert})
-	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 3: press d to drop it." {
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 3: press n to say no to its offer, or d to drop it." {
 		t.Errorf("%v %q", fx, h.Ready.Message)
 	}
 	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "9"})
@@ -595,4 +596,69 @@ func TestReadyKeysKeepTheirInvariants(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestNSaysNoToAnOfferAndKeepsTheItem(t *testing.T) {
+	it := note(7, 1)
+	it.Acts[2].Offer = true
+	h := readyHub(t, it)
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyOpenKey}, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
+	h, fx := apply(t, h, ReadyKey{At: t0, Action: ReadyDecline})
+	if got := effectsOf[SendAct](fx); len(got) != 1 || got[0] != (SendAct{Message: 7, N: 3, Op: OpDecline}) {
+		t.Fatalf("%v", fx)
+	}
+	h, _ = apply(t, h, ActDone{At: t0, Message: 7, N: 3, Op: OpDecline})
+	if h.Ready.Items[0].Acts[2].Done != DoneDeclined || h.Ready.Message != "Item 3: no to its offer. It stays." {
+		t.Errorf("%+v", h.Ready)
+	}
+	// A second no says so; a drop still goes.
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyDecline})
+	if len(effectsOf[SendAct](fx)) != 0 || !strings.Contains(h.Ready.Message, "turned down already") {
+		t.Errorf("%v %q", fx, h.Ready.Message)
+	}
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyDismiss})
+	if got := effectsOf[SendAct](fx); len(got) != 1 || got[0].Op != OpDismiss {
+		t.Errorf("%v %q", fx, h.Ready.Message)
+	}
+	// n on a suggestion with no offer, or on a change, says what to press.
+	h = openNote(t)
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyDecline})
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 1 is a change: press v to undo it." {
+		t.Errorf("%q", h.Ready.Message)
+	}
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
+	h, fx = apply(t, h, ReadyKey{At: t0, Action: ReadyDecline})
+	if len(effectsOf[SendAct](fx)) != 0 || h.Ready.Message != "Item 3 has no offer: press d to drop it." {
+		t.Errorf("%q", h.Ready.Message)
+	}
+}
+
+func TestADigitInTheListOpensTheNoteAtThatItem(t *testing.T) {
+	h := readyHub(t, note(7, 1), draft(5, 0))
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyPick, Text: "3"})
+	if h.Ready.Detail != "message:7" || h.Ready.Pick != 2 || !h.Ready.Follow {
+		t.Fatalf("%+v", h.Ready)
+	}
+	// On an item with nothing numbered it opens nothing, and says so.
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyEsc}, ReadyKey{At: t0, Action: ReadyDown}, ReadyKey{At: t0, Action: ReadyPick, Text: "1"})
+	if h.Ready.Detail != "" || h.Ready.Message != NoActNote {
+		t.Errorf("%+v", h.Ready)
+	}
+	// A number the note does not have opens it and says so.
+	h, _ = apply(t, h, ReadyKey{At: t0, Action: ReadyUp}, ReadyKey{At: t0, Action: ReadyPick, Text: "8"})
+	if h.Ready.Detail != "message:7" || h.Ready.Message != "There is no item 8 here." {
+		t.Errorf("%+v", h.Ready)
+	}
+}
+
+func TestAnUndoThatLeftFilesSaysWhichAndWhy(t *testing.T) {
+	h := readyHub(t, ReadyItem{ID: "move:3", Kind: ReadyMove, At: at(1), Title: "3 files", Move: 3, Undo: 3})
+	h, _ = apply(t, h, ReadyOpen{At: t0}, ReadyKey{At: t0, Action: ReadyUndoKey})
+	h, _ = apply(t, h, UndoDone{At: t0, Move: 3, Summary: "Put back 2 of 3 files.",
+		Lines: []string{"Undid move 3: put back 2 of 3.", "Not put back:", "  todo/todo.txt has changed since it was moved there.",
+			"Once each is as the move left it, relay undo 3 puts it back."}})
+	if h.Ready.Message != "Put back 2 of 3 files." ||
+		h.Ready.Failure != "Not put back: todo/todo.txt has changed since it was moved there. Once each is as the move left it, relay undo 3 puts it back." {
+		t.Errorf("%+v", h.Ready)
+	}
 }

@@ -318,8 +318,56 @@ func dailyNote() core.ReadyItem {
 			`3. Dentist on Thursday. Want me to book a reminder?`,
 			`Reply "not N" to drop a suggestion. It will not come back.`,
 		},
-		Acts: []core.ReadyAct{{N: 1, Op: core.OpRevert, Line: 0}, {N: 2, Op: core.OpRevert, Line: 1, Done: "reverted"}, {N: 3, Op: core.OpDismiss, Line: 2}},
+		Acts: []core.ReadyAct{{N: 1, Op: core.OpRevert, Line: 0}, {N: 2, Op: core.OpRevert, Line: 1, Done: "reverted"}, {N: 3, Op: core.OpDismiss, Line: 2, Offer: true}},
 		From: "from a mail by stranger@example.org", Outsider: true}
+}
+
+// dailyNoteWithHeadings is dailyNote as relay sends it with its sections.
+func dailyNoteWithHeadings() core.ReadyItem {
+	it := dailyNote()
+	it.Sections = []core.ReadySection{{Heading: "Changes to check", Lines: it.Lines[:2]}, {Heading: "Coming up", Lines: it.Lines[2:3]},
+		{Lines: it.Lines[3:]}}
+	return it
+}
+
+func TestAnOpenNoteKeepsItsHeadingsAndMarksWhatWasDone(t *testing.T) {
+	it := dailyNoteWithHeadings()
+	it.Lines = append([]string(nil), it.Lines...)
+	it.Lines[1] += " (undone)" // relay marks its own lines too
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0}, core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{it}},
+		core.ReadyOpen{At: t0}, core.ReadyKey{At: t0, Action: core.ReadyPick, Text: "3"})
+	plain := ansi.Strip(HubView(h, "", "", t0, 59, 40).Content)
+	for _, want := range []string{"Changes to check", "Coming up", "▸ 3. Dentist"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("%q missing:\n%s", want, plain)
+		}
+	}
+	if strings.Count(plain, "(undone)") != 1 {
+		t.Errorf("a done item is marked once:\n%s", plain)
+	}
+	if !strings.Contains(plain, "n no thanks") {
+		t.Errorf("an item with an offer offers n:\n%s", plain)
+	}
+	h = hubStep(h, core.ActDone{At: t0, Message: 9, N: 3, Op: core.OpDecline})
+	plain = ansi.Strip(HubView(h, "", "", t0, 59, 40).Content)
+	if !strings.Contains(strings.Join(strings.Fields(strings.ReplaceAll(plain, "│", " ")), " "), "(offer declined)") {
+		t.Errorf("a declined offer is marked:\n%s", plain)
+	}
+}
+
+func TestARefusedUndoIsReadWholeOnAPhone(t *testing.T) {
+	h := hubStep(core.NewHub(""), core.HubConnected{At: t0},
+		core.ReadyLoaded{At: t0, Rev: 1, Items: []core.ReadyItem{{ID: "move:22", Kind: core.ReadyMove, At: t0.Format(time.RFC3339), Title: "41 files", Move: 22, Undo: 22}}},
+		core.ReadyOpen{At: t0}, core.ReadyKey{At: t0, Action: core.ReadyUndoKey},
+		core.UndoDone{At: t0, Move: 22, Err: "Move 22 was not undone, and nothing changed: todo/todo.txt has changed since it was moved there." +
+			" recipes/soup.md has changed since it was moved there. Once each is as the move left it, relay undo 22 puts it back."})
+	plain := ansi.Strip(HubView(h, "", "", t0, 59, 22).Content)
+	flat := strings.Join(strings.Fields(plain), " ")
+	for _, want := range []string{"todo/todo.txt has changed", "recipes/soup.md has changed", "relay undo 22 puts it back."} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("%q is cut:\n%s", want, plain)
+		}
+	}
 }
 
 func noteHub() core.Hub {

@@ -2,6 +2,7 @@ package wire
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/kirahowe/relay-tui/internal/core"
@@ -20,10 +21,16 @@ const (
 	MethodMessagesAct  = "_relay/messages/act"
 )
 
-// ActParams is the parameters of _relay/messages/act: the daily note and
-// the number of one of its items, the note's own.
-func ActParams(message int64, item int) map[string]any {
-	return map[string]any{"message": message, "item": item}
+// ActParams is the parameters of _relay/messages/act: the daily note, the
+// number of one of its items, the note's own, and what to do with it
+// (core.OpRevert, OpDismiss or OpDecline); an empty op leaves it to what
+// the item offers.
+func ActParams(message int64, item int, op string) map[string]any {
+	p := map[string]any{"message": message, "item": item}
+	if op != "" {
+		p["op"] = op
+	}
+	return p
 }
 
 // ReadyParams is the parameters of _relay/ready: the newest items, as
@@ -47,34 +54,41 @@ type rawReply struct {
 }
 
 type rawAct struct {
-	N    int     `json:"n"`
-	Op   string  `json:"op"`
-	Line int     `json:"line"`
-	Done *string `json:"done"`
+	N     int     `json:"n"`
+	Op    string  `json:"op"`
+	Line  int     `json:"line"`
+	Done  *string `json:"done"`
+	Offer bool    `json:"offer"`
+}
+
+type rawSection struct {
+	Heading *string  `json:"heading"`
+	Lines   []string `json:"lines"`
 }
 
 type rawReadyItem struct {
-	ID          string     `json:"id"`
-	Kind        string     `json:"kind"`
-	At          string     `json:"at"`
-	Seq         int64      `json:"seq"`
-	Title       string     `json:"title"`
-	Lines       []string   `json:"lines"`
-	From        *string    `json:"from"`
-	Outsider    *bool      `json:"outsider"`
-	Start       string     `json:"start"`
-	End         string     `json:"end"`
-	Message     int64      `json:"message"`
-	MessageKind string     `json:"messageKind"`
-	Urgency     string     `json:"urgency"`
-	ReplyTo     *int64     `json:"replyTo"`
-	Replies     []rawReply `json:"replies"`
-	Card        int64      `json:"card"`
-	Move        int64      `json:"move"`
-	Role        string     `json:"role"`
-	Undo        *int64     `json:"undo"`
-	Undone      bool       `json:"undone"`
-	Acts        []rawAct   `json:"acts"`
+	ID          string       `json:"id"`
+	Kind        string       `json:"kind"`
+	At          string       `json:"at"`
+	Seq         int64        `json:"seq"`
+	Title       string       `json:"title"`
+	Lines       []string     `json:"lines"`
+	From        *string      `json:"from"`
+	Outsider    *bool        `json:"outsider"`
+	Start       string       `json:"start"`
+	End         string       `json:"end"`
+	Message     int64        `json:"message"`
+	MessageKind string       `json:"messageKind"`
+	Urgency     string       `json:"urgency"`
+	ReplyTo     *int64       `json:"replyTo"`
+	Replies     []rawReply   `json:"replies"`
+	Card        int64        `json:"card"`
+	Move        int64        `json:"move"`
+	Role        string       `json:"role"`
+	Undo        *int64       `json:"undo"`
+	Undone      bool         `json:"undone"`
+	Acts        []rawAct     `json:"acts"`
+	Sections    []rawSection `json:"sections"`
 }
 
 // readyItem reads one item. An item without an id is left out. A missing
@@ -100,11 +114,26 @@ func readyItem(raw json.RawMessage) (core.ReadyItem, bool) {
 		it.ReplyTo = *r.ReplyTo
 	}
 	for _, x := range r.Acts {
-		a := core.ReadyAct{N: x.N, Op: x.Op, Line: x.Line}
+		a := core.ReadyAct{N: x.N, Op: x.Op, Line: x.Line, Offer: x.Offer}
 		if x.Done != nil {
 			a.Done = *x.Done
 		}
 		it.Acts = append(it.Acts, a)
+	}
+	// Sections stand in for Lines only when they hold the same lines, so
+	// an act's Line still points at its own line.
+	var flat []string
+	var secs []core.ReadySection
+	for _, x := range r.Sections {
+		sec := core.ReadySection{Lines: x.Lines}
+		if x.Heading != nil {
+			sec.Heading = *x.Heading
+		}
+		secs = append(secs, sec)
+		flat = append(flat, x.Lines...)
+	}
+	if len(secs) > 0 && slices.Equal(flat, r.Lines) {
+		it.Sections = secs
 	}
 	for _, x := range r.Replies {
 		it.Replies = append(it.Replies, core.ReadyReply{At: x.At, Text: x.Text})
