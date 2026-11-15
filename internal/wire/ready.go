@@ -89,6 +89,7 @@ type rawReadyItem struct {
 	Undone      bool         `json:"undone"`
 	Acts        []rawAct     `json:"acts"`
 	Sections    []rawSection `json:"sections"`
+	rawLinks
 }
 
 // readyItem reads one item. An item without an id is left out. A missing
@@ -104,6 +105,7 @@ func readyItem(raw json.RawMessage) (core.ReadyItem, bool) {
 		Outsider: r.Outsider == nil || *r.Outsider, Start: r.Start, End: r.End,
 		Message: r.Message, MessageKind: r.MessageKind, Urgency: r.Urgency, Card: r.Card,
 		Seq: r.Seq, Move: r.Move, Role: r.Role, Undone: r.Undone}
+	it.Links, it.LinksLeftOut, it.Listed = r.links()
 	if r.Undo != nil {
 		it.Undo = *r.Undo
 	}

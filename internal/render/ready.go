@@ -139,6 +139,7 @@ func whenLine(it core.ReadyItem, now time.Time) string {
 // (titleRows, wrapped, at most maxRows of them), so the age never drops
 // out and a long title is not cut mid-word.
 func readyHead(it core.ReadyItem, live core.Links, now time.Time, width, maxRows int) (head, age string, titleRows []string) {
+	live = live.Of(it.Links, it.Listed)
 	age = ago(it.At, now)
 	title := cardLine(it.Title, it.Outsider, live)
 	if strings.TrimSpace(title) == "" {
@@ -167,6 +168,7 @@ func readyHead(it core.ReadyItem, live core.Links, now time.Time, width, maxRows
 // lines one row each, the rest wrapped; cut to readyBodyLines rows, the
 // last one saying how to read the rest.
 func readyListLines(it core.ReadyItem, live core.Links, inner int) []string {
+	live = live.Of(it.Links, it.Listed)
 	var rows []string
 	for _, l := range it.Lines {
 		if it.Kind == core.ReadyMove {
@@ -192,6 +194,7 @@ func capReady(rows []string, it core.ReadyItem, inner int) []string {
 
 // readyPanel is one item as a panel of exactly width columns.
 func readyPanel(it core.ReadyItem, live core.Links, now time.Time, width int, focus bool) []string {
+	live = live.Of(it.Links, it.Listed)
 	inner := framed(width)
 	head, age, lines := readyHead(it, live, now, width, 3)
 	if it.Kind == core.ReadyEvent {

@@ -27,6 +27,28 @@ type Links struct {
 	// answer: a change up to it is already in the answer.
 	Rev, LoadedRev int64
 	Live           map[string]struct{}
+	// Own and Listed are set only on the copy that draws one card or one
+	// ready item (Of): the links relay listed for that thing, and whether
+	// it sent a list at all. They are never kept in the connection's
+	// state.
+	Own    []Link
+	Listed bool
+}
+
+// Link is a live link relay attached to a card or a ready item: the
+// address, and that address as the thing's text shows it, broken. The
+// text itself holds no address to read. A terminal is given Address, and
+// only where Shown stands in the text as relay wrote it (Anchored).
+type Link struct{ Address, Shown string }
+
+// MaxOwnLinks is the most links relay lists for one thing.
+const MaxOwnLinks = 50
+
+// Of is l for drawing one thing: the connection's set, with the links
+// relay listed for that thing, and whether it listed any at all.
+func (l Links) Of(own []Link, listed bool) Links {
+	l.Own, l.Listed = own, listed
+	return l
 }
 
 // Has says addr is a live link: a member of the set, character for
@@ -170,6 +192,36 @@ const linkClosers = `)>".,;!]':?*_~`
 // maxClosers is how many closers may follow a link, as in
 // **[a fund](https://x.example/a)**.
 const maxClosers = 6
+
+// Anchored finds the link a word of a thing's text shows (a word has no
+// space in it): what stands before it, the link, and what stands after.
+// The word's run from its first "hxxp" to its end, less at most
+// maxClosers closers, has to be exactly a link's Shown. Text that runs on
+// after a broken address is part of another address, so it is never a
+// listed link with more after it. Nothing is read out of the word: the
+// address is the one relay listed. This is relay.text/anchored.
+func Anchored(word string, links []Link) (before string, link Link, after string, ok bool) {
+	if len(links) == 0 {
+		return "", Link{}, "", false
+	}
+	start := strings.Index(word, "hxxp")
+	if start < 0 {
+		return "", Link{}, "", false
+	}
+	run := word[start:]
+	for n := 0; n <= maxClosers && n < len(run); n++ {
+		cut := len(run) - n
+		if n > 0 && !strings.ContainsRune(linkClosers, rune(run[cut])) {
+			break // what follows is no longer only closers
+		}
+		for _, l := range links {
+			if l.Shown == run[:cut] {
+				return word[:start], l, run[cut:], true
+			}
+		}
+	}
+	return "", Link{}, "", false
+}
 
 var schemeRE = regexp.MustCompile(`(?i)[a-z][a-z0-9+.\-]*://`)
 

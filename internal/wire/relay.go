@@ -247,6 +247,49 @@ type rawCard struct {
 	} `json:"cells"`
 	Note *rawText `json:"note"`
 	Text string   `json:"text"`
+	rawLinks
+}
+
+// rawLinks is the live links relay lists beside a card's or a ready
+// item's text. Both members are read apart from the thing that holds
+// them, so a list this client cannot read costs the thing its links and
+// nothing else.
+type rawLinks struct {
+	Links        json.RawMessage `json:"links"`
+	LinksLeftOut json.RawMessage `json:"linksLeftOut"`
+}
+
+// links reads the list. listed says relay sent one at all, readable or
+// not: a relay from before the list sends none, and only then may a link
+// be taken from the text. An entry is kept only when its address has a
+// live link's shape and its shown form is a broken address with no space
+// or control character in it: nothing else can be written into a
+// hyperlink or found in a word. No more than relay's own limit are kept.
+func (r rawLinks) links() (own []core.Link, leftOut int, listed bool) {
+	if r.Links == nil {
+		return nil, 0, false
+	}
+	var raw []struct {
+		Address string `json:"address"`
+		Shown   string `json:"shown"`
+	}
+	if strictjson.Unmarshal(r.Links, &raw) != nil {
+		return nil, 0, true
+	}
+	for _, l := range raw {
+		if len(own) == core.MaxOwnLinks {
+			break
+		}
+		if !core.LinkShape(l.Address) || !strings.HasPrefix(l.Shown, "hxxp") || len(l.Shown) > 3*core.MaxLink ||
+			strings.ContainsFunc(l.Shown, func(c rune) bool { return c <= ' ' || c > 0x7e }) {
+			continue
+		}
+		own = append(own, core.Link{Address: l.Address, Shown: l.Shown})
+	}
+	if r.LinksLeftOut != nil && strictjson.Unmarshal(r.LinksLeftOut, &leftOut) != nil || leftOut < 0 {
+		leftOut = 0
+	}
+	return own, leftOut, true
 }
 
 func elems(raw []rawText) ([]core.CardElem, bool) {
@@ -273,6 +316,7 @@ func card(raw json.RawMessage) (core.Card, bool) {
 	if c.Status == "" {
 		c.Status = core.CardActive
 	}
+	c.Links, c.LinksLeftOut, c.Listed = r.links()
 	if r.Title != nil {
 		c.Title = r.Title.text()
 	}

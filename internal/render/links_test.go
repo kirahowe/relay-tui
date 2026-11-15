@@ -88,6 +88,148 @@ func TestNoWordSkipsTheLinkBreaker(t *testing.T) {
 	}
 }
 
+// relay lists the live links a card or a ready item shows, each with its
+// broken form, and the text holds no address. The broken form is a
+// hyperlink to the listed address where it stands as relay wrote it, and
+// only when the address is in the connection's set too. Nothing is read
+// out of the text: a broken link relay did not list is no hyperlink, live
+// or not.
+func TestALinkRelayListedIsAHyperlinkOverItsBrokenText(t *testing.T) {
+	const other = "https://bit.example/3xQ9"
+	text := "Arts fund: " + brokenA + ". Also (" + brokenOf(other) + ") and " + brokenA + "/more"
+	own := []core.Link{{Address: linkA, Shown: brokenA}}
+	card := cardChecklist
+	card.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+	note := cardNote
+	note.Note = &core.CardText{Text: "## Grants\n- " + text, Outsider: true}
+	item := core.ReadyItem{ID: "message:4", Kind: core.ReadyMessage, At: t0.Format(time.RFC3339), Title: "Two grants", Outsider: true,
+		Lines: []string{text}, From: "from the web", Message: 4}
+
+	// draw is every place that shows the text, given the things' own
+	// links and the connection's set.
+	draw := func(own []core.Link, live core.Links) map[string]string {
+		c, n, it := card, note, item
+		c.Links, n.Links, it.Links = own, own, own
+		c.Listed, n.Listed, it.Listed = true, true, true
+		out := map[string]string{}
+		for name, x := range map[string]core.Card{"a card": c, "a note card": n} {
+			s := boardState(true, x)
+			s.App.Links = live
+			out[name] = View(s, "", "", t0, 150, 30).Content
+		}
+		hub := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{it}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
+		hub.App.Links = live
+		out["a ready item"] = HubView(hub, "", "", t0, 150, 30).Content
+		out["a ready item open"] = HubView(hubStep(hub, core.ReadyKey{At: t0, Action: core.ReadyOpenKey}), "", "", t0, 150, 30).Content
+		return out
+	}
+	// shows says every word of the text is on screen as relay sent it.
+	shows := func(content string) bool {
+		plain := ansi.Strip(content)
+		for _, w := range strings.Fields(text) {
+			if !strings.Contains(plain, w) {
+				return false
+			}
+		}
+		return true
+	}
+	for name, content := range draw(own, core.LinksOf(linkA, other)) {
+		if !shows(content) {
+			t.Errorf("%s does not show the text as relay sent it:\n%s", name, ansi.Strip(content))
+		}
+		// One hyperlink, to the listed address, over exactly its broken
+		// form: the first one, which ends its word but for a full stop.
+		var over []string
+		for _, row := range strings.Split(content, "\n") {
+			for _, p := range pieces(row) {
+				if p.target != "" {
+					if p.target != linkA {
+						t.Errorf("%s: a hyperlink to %q", name, p.target)
+					}
+					over = append(over, ansi.Strip(p.text))
+				}
+			}
+		}
+		if len(over) != 1 || over[0] != brokenA {
+			t.Errorf("%s: hyperlinks over %q, want one over %q", name, over, brokenA)
+		}
+	}
+	for what, live := range map[string]core.Links{
+		"the address is not in the connection's set": core.LinksOf(other),
+		"there is no set": {},
+	} {
+		for name, content := range draw(own, live) {
+			if hasLinks(content) || !shows(content) {
+				t.Errorf("%s, when %s: %q", name, what, content)
+			}
+		}
+	}
+	// In the set, and not listed for the thing: no hyperlink is made from
+	// the text.
+	for name, content := range draw(nil, core.LinksOf(linkA, other)) {
+		if hasLinks(content) {
+			t.Errorf("%s, with nothing listed, has a hyperlink: %q", name, content)
+		}
+	}
+	// Listed with an address that is not the one its form shows: the
+	// hyperlink goes where relay said, never to what the text reads as.
+	// The address has to be in the set, so this one makes none.
+	for name, content := range draw([]core.Link{{Address: "https://evil.test/x", Shown: brokenA}}, core.LinksOf(linkA)) {
+		if hasLinks(content) {
+			t.Errorf("%s: a hyperlink for an address outside the set: %q", name, content)
+		}
+	}
+}
+
+// Where relay sent a list, the list alone says what is a link: a whole
+// address in the text is no hyperlink, in the set or not. A relay from
+// before the list sends none, and only then is a whole address that is a
+// member of the set taken from the text. Its text is broken either way.
+func TestAListedThingTakesNoLinkFromItsText(t *testing.T) {
+	live := core.LinksOf(linkA)
+	text := "Arts fund: <" + linkA + "> and " + linkA + "."
+	for name, c := range map[string]struct {
+		listed bool
+		spans  int
+	}{"with a list, empty": {true, 0}, "with no list": {false, 2}} {
+		card := cardChecklist
+		card.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+		card.Listed = c.listed
+		s := boardState(true, card)
+		s.App.Links = live
+		content := View(s, "", "", t0, 150, 30).Content
+		if got := strings.Count(content, linkOpen(linkA)); got != c.spans {
+			t.Errorf("%s: %d hyperlinks, want %d", name, got, c.spans)
+		}
+		if plain := ansi.Strip(content); strings.Contains(plain, linkA) || !strings.Contains(plain, brokenA) {
+			t.Errorf("%s: the address is not shown broken:\n%s", name, plain)
+		}
+	}
+}
+
+// fang by itself, before gate has its say: a listed link whose address is
+// not in the connection's set gets no span, and a shown form that was not
+// broken is broken where it is written.
+func TestFangHoldsAListedLinkToTheSetAndBreaksItsText(t *testing.T) {
+	own := []core.Link{{Address: linkA, Shown: brokenA}}
+	text := "see " + brokenA + " now"
+	if got := fang(text, core.LinksOf(linkB).Of(own, true)); got != text {
+		t.Errorf("not in the set: %q", got)
+	}
+	if got := fang(text, core.Links{}.Of(own, true)); got != text {
+		t.Errorf("with no set: %q", got)
+	}
+	if got, want := fang(text, core.LinksOf(linkA).Of(own, true)), "see "+linkOpen(linkA)+brokenA+linkEnd+" now"; got != want {
+		t.Errorf("in the set: %q, want %q", got, want)
+	}
+	// A list that names a form with its dots whole.
+	loose := []core.Link{{Address: linkA, Shown: "hxxps://evil.test/www.x.test"}}
+	got := fang("see hxxps://evil.test/www.x.test now", core.LinksOf(linkA).Of(loose, true))
+	if want := "see " + linkOpen(linkA) + "hxxps://evil[.]test/www[.]x[.]test" + linkEnd + " now"; got != want {
+		t.Errorf("a form that was not broken: %q, want %q", got, want)
+	}
+}
+
 // plainRows is rows as they read on screen.
 func plainRows(rows []string) []string {
 	out := make([]string, len(rows))
@@ -596,6 +738,29 @@ var (
 		"%s/more", "%s...", "_%s_", "`%s`", "# %s", "- %s", "1. %s", "%s?", "%s%s", "https://evil.test/?u=%s", "\"%s\"", "> %s"}
 )
 
+// brokenOf is an address as relay shows it broken, worked out here and
+// not by the code under test: hxxp for http and every dot in brackets.
+func brokenOf(link string) string {
+	return "hxxp" + strings.ReplaceAll(strings.TrimPrefix(link, "http"), ".", "[.]")
+}
+
+// genOwn is the links relay might list for one thing: some of the
+// addresses that may be live, one that never is, and one whose shown form
+// is another link's.
+func genOwn(t *rapid.T, label string) []core.Link {
+	var own []core.Link
+	for _, l := range goodLinks {
+		if rapid.Bool().Draw(t, label+"Own") {
+			own = append(own, core.Link{Address: l, Shown: brokenOf(l)})
+		}
+	}
+	if rapid.Bool().Draw(t, label+"Stray") {
+		own = append(own, core.Link{Address: "https://evil.test/x?d=1", Shown: brokenOf(linkA)},
+			core.Link{Address: "https://evil.test/listed", Shown: "hxxps://evil[.]test/listed"})
+	}
+	return own
+}
+
 func genLive(t *rapid.T) core.Links {
 	var set []string
 	for _, l := range goodLinks {
@@ -612,7 +777,11 @@ func genOutside(t *rapid.T, label string) string {
 	var parts []string
 	for range rapid.IntRange(1, 6).Draw(t, label+"N") {
 		var p string
-		switch rapid.IntRange(0, 5).Draw(t, label+"Kind") {
+		switch rapid.IntRange(0, 6).Draw(t, label+"Kind") {
+		case 6:
+			// A link as relay shows one, broken, which the thing's own
+			// list may or may not name.
+			p = strings.ReplaceAll(rapid.SampledFrom(around).Draw(t, label+"Around"), "%s", brokenOf(rapid.SampledFrom(goodLinks).Draw(t, label+"Shown")))
 		case 0:
 			p = rapid.SampledFrom([]string{"see", "the grant page", "due 1 Dec", "Council form:", "now"}).Draw(t, label+"Word")
 		case 1, 2:
@@ -759,7 +928,7 @@ func genOutsideCard(t *rapid.T, id int64) core.Card {
 	}
 	c := core.Card{ID: id, Status: core.CardActive, Rev: 2, Title: text("title"), Text: genOutside(t, "text"),
 		Kind:   rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, "kanban"}).Draw(t, "kind"),
-		Labels: core.Labels{Contaminated: true}}
+		Labels: core.Labels{Contaminated: true}, Links: genOwn(t, "card"), Listed: rapid.Bool().Draw(t, "cardListed")}
 	elems := func(label string) []core.CardElem {
 		var out []core.CardElem
 		for i := range rapid.IntRange(1, 3).Draw(t, label) {
@@ -798,7 +967,7 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		// The ready view: the list, and an item open whole.
 		item := core.ReadyItem{ID: "message:4", Kind: rapid.SampledFrom([]string{core.ReadyMessage, core.ReadyMove, core.ReadyFinding, "other"}).Draw(t, "kind"),
 			At: t0.Add(-time.Minute).Format(time.RFC3339), Title: genOutside(t, "readyTitle"), Outsider: true,
-			From: genOutside(t, "from"), Message: 4, ReplyTo: 4,
+			From: genOutside(t, "from"), Message: 4, ReplyTo: 4, Links: genOwn(t, "item"), Listed: rapid.Bool().Draw(t, "itemListed"),
 			Lines:   []string{genOutside(t, "line1"), genOutside(t, "line2")},
 			Replies: []core.ReadyReply{{At: t0.Format(time.RFC3339), Text: "ok"}}}
 		if rapid.Bool().Draw(t, "sections") {

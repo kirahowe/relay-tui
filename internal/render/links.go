@@ -73,16 +73,37 @@ var wordRE = regexp.MustCompile(`\S+`)
 // says what a link is, and no second test decides which words it sees.
 // Defang changes nothing in a word it or relay broke already, so text
 // relay made safe is drawn as it came.
+//
+// live.Own is the links relay listed for the thing t belongs to, when it
+// is a card's or a ready item's text, and live.Listed says it listed any
+// at all (core.Links.Of).
 func fang(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
+		// A link relay listed for this thing, where its broken form
+		// stands in the word as relay wrote it. No address is read out of
+		// the word: the target is the one relay listed, and only when it
+		// is in the connection's set too.
+		if before, own, after, ok := core.Anchored(w, live.Own); ok && live.Has(own.Address) {
+			return breakDots(Defang(before), true) + anchor(own) + after
+		}
+		// A whole address that is a member of the set, where relay sent
+		// no list: a reply's own text, and a card from a relay that does
+		// not list links yet. Where there is a list, it alone says what
+		// is a link.
 		before, link, after, ok := core.LinkIn(w, live)
-		if !ok {
+		if !ok || live.Listed {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)
 		return breakDots(Defang(before), true) + span(link) + after
 	})
 }
+
+// anchor is a link relay listed for a thing, as fang writes it: a
+// hyperlink to the address over the text relay showed for it. The text
+// goes through Defang like any other, so a form that was not broken is
+// broken here.
+func anchor(l core.Link) string { return linkOpen(l.Address) + Defang(l.Shown) + linkEnd }
 
 // fangSource is fang for Markdown source: a live link stays as text, in
 // Markdown's own angle brackets, so the parser reads it as a link and the

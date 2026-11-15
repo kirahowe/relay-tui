@@ -17,6 +17,7 @@ import (
 // that shows the picked one with a marker. first and last are the rows of
 // the picked numbered item, or -1.
 func readyDetailRows(r core.Ready, it core.ReadyItem, live core.Links, now time.Time, width int) (rows []string, first, last int, head, age string) {
+	live = live.Of(it.Links, it.Listed)
 	inner := framed(width)
 	head, age, titleRows := readyHead(it, live, now, width, 0)
 	first, last = -1, -1
@@ -106,6 +107,7 @@ func doneMark(text, done string) string {
 // says so). It returns the rows, the first row of the item shown, how far
 // it can scroll and how many rows a page is.
 func readyDetail(r core.Ready, it core.ReadyItem, live core.Links, now time.Time, width, room int) (out []string, top, maxTop, page int) {
+	live = live.Of(it.Links, it.Listed)
 	all, first, last, head, age := readyDetailRows(r, it, live, now, width)
 	// The panel is as tall as what it holds, up to the room.
 	h := max(min(room-2, len(all)), 1)

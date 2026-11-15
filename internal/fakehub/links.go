@@ -6,13 +6,15 @@ package fakehub
 //
 // A config with "links" (addresses, possibly none) has the set; one
 // without answers these methods method-not-found, as a relay from before
-// them does. Keeping a link makes it whole, between angle brackets,
-// wherever a card or a ready item holds its broken form, and dropping it
-// breaks it again; the client is sent the set's change first and then
-// what reads differently, as relay sends them. Each call is logged as
-// "links", "link-keep <params>" or "link-drop <params>". The control
-// file's "keep-link <address>" and "drop-link <address>" do the same from
-// outside, as relay link does.
+// them does. Text is sent as the config has it, and relay sends outside
+// text with every link broken. Beside it each card and each ready item
+// carries "links", the live links its text shows, each {"address",
+// "shown"} with its broken form, and "linksLeftOut". Keeping or dropping
+// a link changes those lists and nothing in the text; the client is sent
+// the set's change first and then each thing whose list changed, as relay
+// sends them. Each call is logged as "links", "link-keep <params>" or
+// "link-drop <params>". The control file's "keep-link <address>" and
+// "drop-link <address>" do the same from outside, as relay link does.
 
 import (
 	"context"
@@ -106,7 +108,7 @@ func (h *Hub) linkMethod(ctx context.Context, method string, raw json.RawMessage
 }
 
 // setLink keeps or drops a link and tells the client what changed: the
-// set first, then each card and ready item that reads differently.
+// set first, then each card and ready item whose own list changed.
 func (h *Hub) setLink(ctx context.Context, address string, keep bool) (bool, error) {
 	link := mend(address)
 	if !core.LinkShape(link) || strings.ContainsAny(link, "[]") {
@@ -120,7 +122,6 @@ func (h *Hub) setLink(ctx context.Context, address string, keep bool) (bool, err
 	}
 	l.rev++
 	body := map[string]any{"rev": l.rev, "live": []string{}, "gone": []string{}}
-	from, to := broken(link), "<"+link+">"
 	if keep {
 		l.live = append(l.live, link)
 		sort.Strings(l.live)
@@ -128,31 +129,16 @@ func (h *Hub) setLink(ctx context.Context, address string, keep bool) (bool, err
 	} else {
 		l.live = slices.DeleteFunc(l.live, func(x string) bool { return x == link })
 		body["gone"] = []string{link}
-		from, to = to, from
 	}
 	notify := l.subscribed && conn != nil
-	var cards, items []map[string]any
-	if b := h.board; b != nil {
-		for _, c := range b.cards {
-			if reword(c, from, to) && b.subscribed {
-				cards = append(cards, c)
-			}
-		}
-	}
+	cards, items := h.relink()
 	var cardsBody, readyBody json.RawMessage
-	if len(cards) > 0 {
+	if len(cards) > 0 && h.board.subscribed {
 		cardsBody = copyOf(map[string]any{"rev": h.board.rev, "cards": cards})
 	}
-	if v := h.ready; v != nil {
-		for _, it := range v.items {
-			if reword(it, from, to) && v.subscribed {
-				items = append(items, it)
-			}
-		}
-		if len(items) > 0 {
-			v.rev++
-			readyBody = copyOf(map[string]any{"rev": v.rev, "items": items, "gone": []string{}})
-		}
+	if len(items) > 0 && h.ready.subscribed {
+		h.ready.rev++
+		readyBody = copyOf(map[string]any{"rev": h.ready.rev, "items": items, "gone": []string{}})
 	}
 	linksBody := copyOf(body)
 	h.mu.Unlock()
@@ -171,31 +157,65 @@ func (h *Hub) setLink(ctx context.Context, address string, keep bool) (bool, err
 	return true, nil
 }
 
-// reword replaces from by to in every string a wire form holds, and says
-// whether any changed.
-func reword(v any, from, to string) bool {
-	changed := false
-	switch x := v.(type) {
-	case map[string]any:
-		for k, e := range x {
-			if s, ok := e.(string); ok {
-				if n := strings.ReplaceAll(s, from, to); n != s {
-					x[k], changed = n, true
-				}
-				continue
+// relink gives every card and ready item its own list of live links, and
+// returns the ones whose list changed. The caller holds the lock. With
+// no set, or a config that says "unlisted" (each a relay from before the
+// list), nothing carries one.
+func (h *Hub) relink() (cards, items []map[string]any) {
+	if h.links == nil || h.unlisted {
+		return nil, nil
+	}
+	if b := h.board; b != nil {
+		for _, c := range b.cards {
+			if ownLinks(c, h.links.live) {
+				cards = append(cards, c)
 			}
-			changed = reword(e, from, to) || changed
-		}
-	case []any:
-		for i, e := range x {
-			if s, ok := e.(string); ok {
-				if n := strings.ReplaceAll(s, from, to); n != s {
-					x[i], changed = n, true
-				}
-				continue
-			}
-			changed = reword(e, from, to) || changed
 		}
 	}
-	return changed
+	if v := h.ready; v != nil {
+		for _, it := range v.items {
+			if ownLinks(it, h.links.live) {
+				items = append(items, it)
+			}
+		}
+	}
+	return cards, items
+}
+
+// ownLinks sets a wire form's "links" to the live links whose broken form
+// one of its strings holds, and "linksLeftOut" to 0. It says whether the
+// list changed.
+func ownLinks(v map[string]any, live []string) bool {
+	own := []any{}
+	for _, link := range live {
+		if holds(v, broken(link)) {
+			own = append(own, map[string]any{"address": link, "shown": broken(link)})
+		}
+	}
+	old, _ := json.Marshal(v["links"])
+	now, _ := json.Marshal(own)
+	v["links"], v["linksLeftOut"] = own, 0
+	return string(old) != string(now)
+}
+
+// holds says some string in a wire form, other than its list of links,
+// holds s.
+func holds(v any, s string) bool {
+	switch x := v.(type) {
+	case string:
+		return strings.Contains(x, s)
+	case map[string]any:
+		for k, e := range x {
+			if k != "links" && holds(e, s) {
+				return true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if holds(e, s) {
+				return true
+			}
+		}
+	}
+	return false
 }

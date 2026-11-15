@@ -176,10 +176,19 @@ keeps a set of live links: addresses it can say came from somewhere it
 takes links from, because the web showed one to a scout or you called it
 safe. relay-tui asks relay for that set (`_relay/links`). A link whose
 address is in the set, character for character, is drawn underlined, in
-its broken form, as an OSC 8 hyperlink to the address. That holds on a
-card, in a ready item and in an agent's reply alike. Any other link is
+its broken form, as an OSC 8 hyperlink to the address. Any other link is
 plain broken text. Against a plain ACP agent, or a relay without
 `_relay/links`, they all are.
+
+On a card and in a ready item relay-tui reads no address out of the
+text. relay sends the text with every link broken and, beside it, the
+live links that text shows (`links`, each an address and its broken
+form). Where a broken form stands in the text as relay wrote it, with
+nothing after it in its word but closing marks, it becomes the hyperlink
+to the address relay listed. An agent's reply comes as the agent wrote
+it and has no such list, so a whole address in it that is in the set is
+drawn the same way. A relay from before the list sends a live link whole
+on a card, and relay-tui still takes that for now.
 
 The address travels only as the hyperlink's target, so what a click
 opens does not depend on how your terminal reads text. Terminals find

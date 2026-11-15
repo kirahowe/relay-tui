@@ -49,10 +49,16 @@ type ReadyItem struct {
 	// under, or 0 when it came from relay itself and there is nobody to
 	// answer.
 	Message, ReplyTo int64
-	MessageKind      string
-	Urgency          string
-	Replies          []ReadyReply
-	Card             int64
+	// Links are the live links the item's outside text shows, as relay
+	// listed them, and LinksLeftOut how many more it did not list. Listed
+	// says relay sent a list at all; a relay from before it does not.
+	Links        []Link
+	LinksLeftOut int
+	Listed       bool
+	MessageKind  string
+	Urgency      string
+	Replies      []ReadyReply
+	Card         int64
 	// Move is a file move's number, and Role the role that made it. Undo
 	// is the number to undo it under, or 0 when nothing is left to undo;
 	// Undone says all of it is back.

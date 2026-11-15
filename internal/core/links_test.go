@@ -264,3 +264,95 @@ func TestTheHubHoldsTheLiveLinksWithOrWithoutAConversation(t *testing.T) {
 		t.Fatalf("with a conversation in focus: %v", linksOfState(h.App))
 	}
 }
+
+// relay's own cases for relay.text/anchored, sent by the session that
+// wrote it: one link is listed, and each text is one string of a thing.
+func TestAnchored(t *testing.T) {
+	const address = "https://grants.example.org/fund?year=2027"
+	const shown = "hxxps://grants[.]example[.]org/fund?year=2027"
+	links := []Link{{Address: "https://other.example/a", Shown: "hxxps://other[.]example/a"}, {Address: address, Shown: shown}}
+	// anchors is every word of text that shows a listed link, as
+	// before|shown|after.
+	anchors := func(text string, links []Link) []string {
+		var out []string
+		for _, w := range strings.Fields(text) {
+			if before, l, after, ok := Anchored(w, links); ok {
+				if l.Address != address || before+l.Shown+after != w {
+					t.Errorf("%q: anchored to %q, as %q %q %q", w, l.Address, before, l.Shown, after)
+				}
+				out = append(out, before+"|"+l.Shown+"|"+after)
+			}
+		}
+		return out
+	}
+	for text, want := range map[string]string{
+		"Apply at " + shown + ". Also hxxps://evil[.]example/x": "|" + shown + "|.",
+		"(" + shown + ").":               "(|" + shown + "|).",
+		"[the fund](" + shown + ")":      "fund](|" + shown + "|)",
+		"**" + shown + "**":              "**|" + shown + "|**",
+		shown + "?":                      "|" + shown + "|?",
+		shown + ":":                      "|" + shown + "|:",
+		"<" + shown + ">,":               "<|" + shown + "|>,",
+		"x=" + shown:                     "x=|" + shown + "|",
+		"evil[.]example/SECRET/" + shown: "evil[.]example/SECRET/|" + shown + "|",
+		shown + ")**.":                   "|" + shown + "|)**.",
+		shown:                            "|" + shown + "|",
+		"see " + shown + " and " + shown + " now.": "|" + shown + "|,|" + shown + "|",
+	} {
+		if got := strings.Join(anchors(text, links), ","); got != want {
+			t.Errorf("%q: anchors %q, want %q", text, got, want)
+		}
+	}
+	for _, text := range []string{
+		shown + "/x", shown + "[.]html", shown + "&d=SECRET", shown + "SECRET", // text runs on after it
+		shown + ".......",                              // seven closers
+		"hxxps://evil[.]example/x",                     // not listed
+		"hxxps://grant[.]example[.]org/fund?year=2027", // one letter off
+		"See " + address,                               // the whole address is never an anchor
+		"hxxps://evil[.]example/?u=" + shown,           // it is the tail of another address
+		"HXXPS://GRANTS[.]EXAMPLE[.]ORG/FUND?YEAR=2027",
+		"",
+	} {
+		if got := anchors(text, links); len(got) != 0 {
+			t.Errorf("%q: anchors %q, want none", text, got)
+		}
+	}
+	// With nothing listed, nothing is anchored.
+	for _, none := range [][]Link{nil, {}} {
+		if got := anchors("Apply at "+shown+".", none); len(got) != 0 {
+			t.Errorf("with no links: %q", got)
+		}
+	}
+}
+
+// Whatever the word and whatever is listed, an anchor is a listed link
+// whose shown form is in the word whole, with only closers after it.
+func TestAnchoredOnlyFindsWhatIsListed(t *testing.T) {
+	shown := []string{"hxxps://a[.]example/x", "hxxp://b[.]example", "hxxps://a[.]example/x/y", "hxxps://c[.]example/?q=1"}
+	part := rapid.SampledFrom(append([]string{"(", ")", ".", ",", "**", "<", ">", "see:", "x=", "/", "?", "[.]", "hxxp", "hxxps://", "://", "evil[.]test/", "SECRET", "'", "~", "_"}, shown...))
+	rapid.Check(t, func(t *rapid.T) {
+		var links []Link
+		for i, s := range shown {
+			if rapid.Bool().Draw(t, "listed") {
+				links = append(links, Link{Address: "https://listed.example/" + string(rune('a'+i)), Shown: s})
+			}
+		}
+		word := strings.Join(rapid.SliceOfN(part, 1, 8).Draw(t, "parts"), "")
+		before, l, after, ok := Anchored(word, links)
+		if !ok {
+			return
+		}
+		if !slices.Contains(links, l) {
+			t.Fatalf("%q: anchored to %v, which is not listed", word, l)
+		}
+		if before+l.Shown+after != word {
+			t.Fatalf("%q: read as %q %q %q", word, before, l.Shown, after)
+		}
+		if strings.Contains(before, "hxxp") {
+			t.Fatalf("%q: the link is not the word's first broken address", word)
+		}
+		if len(after) > maxClosers || strings.Trim(after, linkClosers) != "" {
+			t.Fatalf("%q: %q follows the link", word, after)
+		}
+	})
+}

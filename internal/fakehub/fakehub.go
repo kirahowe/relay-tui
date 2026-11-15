@@ -73,6 +73,9 @@ type Config struct {
 	// Links is relay's live links (see links.go). Without it their
 	// methods are not found, and the client breaks every link.
 	Links []string `json:"links"`
+	// Unlisted plays a relay that has the set but lists no links beside
+	// a card or a ready item: one from before the lists.
+	Unlisted bool `json:"unlisted"`
 }
 
 // RoleConfig is one role.
@@ -146,6 +149,7 @@ type Hub struct {
 	unbusy    chan struct{} // closed and replaced when a role stops being busy
 	now       func() time.Time
 	keeps     bool
+	unlisted  bool
 	// lag is how long after a prompt's answer the roster says the turn
 	// ended, as relay's does.
 	lag time.Duration
@@ -160,7 +164,7 @@ type Hub struct {
 // New returns a hub with the config's roles. log receives one line per
 // client action.
 func New(cfg Config, log io.Writer) *Hub {
-	h := &Hub{log: log, unbusy: make(chan struct{}), gone: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond}
+	h := &Hub{log: log, unbusy: make(chan struct{}), gone: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, unlisted: cfg.Unlisted, lag: 30 * time.Millisecond}
 	b, err := newBoard(cfg.Cards)
 	if err != nil {
 		fmt.Fprintf(log, "config: cards: %v\n", err)
@@ -172,6 +176,7 @@ func New(cfg Config, log io.Writer) *Hub {
 	}
 	h.ready = rv
 	h.links = newLinks(cfg.Links)
+	h.relink()
 	for _, rc := range cfg.Roles {
 		r := &role{RoleConfig: rc}
 		if rc.Live != nil {
