@@ -178,7 +178,7 @@ func TestA2UINameIsSafe(t *testing.T) {
 		if r, bad := surfaceControl(l); bad {
 			t.Fatalf("control or format character %U in %q", r, l)
 		}
-		if linkable(ansiPlain(l)) {
+		if followable(ansiPlain(l)) {
 			t.Fatalf("live link in %q", l)
 		}
 	})
@@ -189,7 +189,7 @@ func TestA2UIDefangsLinks(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genSurface(t)
 		for _, l := range A2UI(s, 80, nil) {
-			if linkable(ansiPlain(l)) {
+			if followable(ansiPlain(l)) {
 				t.Fatalf("live link in %q", l)
 			}
 		}

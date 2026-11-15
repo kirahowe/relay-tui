@@ -84,7 +84,7 @@ func TestDefangedEntries(t *testing.T) {
 					t.Fatalf("kind %v: an escape other than SGR in %q", e.Kind, out)
 				}
 				plain := strings.ToLower(strings.ReplaceAll(ansi.Strip(out), "\n", ""))
-				if defang && width >= 20 && (linkable(plain) || strings.Contains(plain, "www.")) {
+				if defang && width >= 20 && (followable(plain) || strings.Contains(plain, "www.")) {
 					t.Fatalf("kind %v width %d: a live URL in %q (from %q)", e.Kind, width, plain, text)
 				}
 			}

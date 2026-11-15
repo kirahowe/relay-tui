@@ -132,7 +132,7 @@ func TestOutsiderTextIsMarked(t *testing.T) {
 					t.Fatalf("outside text not in the warning colour: %q", l)
 				}
 			}
-			if linkable(plain) {
+			if followable(plain) {
 				t.Fatalf("a live link:\n%s", plain)
 			}
 		}
