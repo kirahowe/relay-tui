@@ -1,6 +1,7 @@
 package render
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -60,12 +61,13 @@ func surfaceDrawing(s a2ui.Surface, outsider bool, live core.Links, width int, f
 func drawSurface(s a2ui.Surface, outsider bool, live core.Links, width int, focus *a2ui.Focus) (rows []string, selA, selB int, d *surfaceDraw) {
 	width = max(width, 1)
 	d = &surfaceDraw{s: s, outsider: outsider, live: live, focus: focus,
-		budget: a2ui.MaxNodes, wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}}
+		budget: a2ui.MaxNodes, wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}, needing: map[a2ui.Child]bool{}}
 	if _, ok := s.Root(); !ok {
 		d.placeholders++
 		return []string{truncate(styled(faint, "waiting for the root component"), width)}, 0, 0, d
 	}
 	rows, selA, selB = d.node(a2ui.Child{ID: "root"}, width, 0)
+	d.raw = append([]string(nil), rows...)
 	return fit(drawn(rows, outsider), width), selA, selB, d
 }
 
@@ -90,7 +92,9 @@ type surfaceDraw struct {
 	placeholders int                 // placeholder lines drawn so far
 	wanted       map[a2ui.Child]int  // widths components asked for, by want
 	leasts       map[a2ui.Child]int  // narrowest widths, by least
+	raw          []string            // the rows before drawn and fit
 	measuring    map[a2ui.Child]bool // components want is working out
+	needing      map[a2ui.Child]bool // components least is working out
 }
 
 // text is a string from the surface, safe to print. It may hold line
@@ -202,20 +206,21 @@ func (d *surfaceDraw) want(ch a2ui.Child, depth int) int {
 }
 
 // least is the narrowest a component can be drawn without losing text. A
-// checkbox needs its mark, a space and room for one wide character, a
-// text room for one, a box its child and four, a column its widest child.
-// A row can stack its children, so it needs no more than its widest. The
-// answers are kept, and a component being worked out asks for one.
+// leaf needs the narrowest width at which what it shows keeps every
+// non-space character (leafLeast), a box its child and four, a column its
+// widest child. A row can stack its children, so it needs no more than its
+// widest. The answers are kept, and a component being worked out asks for
+// one.
 func (d *surfaceDraw) least(ch a2ui.Child, depth int) int {
 	if w, ok := d.leasts[ch]; ok {
 		return w
 	}
-	if depth > a2ui.MaxDepth || d.measuring[ch] {
+	if depth > a2ui.MaxDepth || d.needing[ch] {
 		return 1
 	}
-	d.measuring[ch] = true
+	d.needing[ch] = true
 	w := d.needs(ch, depth)
-	delete(d.measuring, ch)
+	delete(d.needing, ch)
 	d.leasts[ch] = w
 	return w
 }
@@ -246,10 +251,39 @@ func (d *surfaceDraw) needs(ch a2ui.Child, depth int) int {
 			return len("button") + 4
 		}
 		return widest + 4
-	case "CheckBox", "TextField", "ChoicePicker":
-		return 4
 	}
-	return 2
+	return d.leafLeast(ch, d.want(ch, depth))
+}
+
+// words is the runs of non-space characters in rows, in order, with styles
+// and links taken out.
+func words(rows []string) []string {
+	return strings.Fields(osc8RE.ReplaceAllString(ansiPlain(strings.Join(rows, "\n")), ""))
+}
+
+// leafLeast is the narrowest width, up to want, at which a leaf drawn and
+// cut to that width still has every word, whole and in order, that it has
+// at width want. A word split over two rows has the same characters but
+// not the same words, so a hanging marker or a squeezed label does not
+// count as whole. It is found by bisection, and then checked: if whole is
+// not monotone for some text, the width steps up until it holds.
+func (d *surfaceDraw) leafLeast(ch a2ui.Child, want int) int {
+	held := d.placeholders
+	defer func() { d.placeholders = held }()
+	ref := words(d.leaf(ch, wantRoom))
+	whole := func(w int) bool { return slices.Equal(words(fit(d.leaf(ch, w), w)), ref) }
+	lo, hi := 1, max(want, 1)
+	for lo < hi {
+		if mid := (lo + hi) / 2; whole(mid) {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	for lo < want+8 && !whole(lo) {
+		lo++
+	}
+	return lo
 }
 
 func (d *surfaceDraw) asks(ch a2ui.Child, depth int) int {
@@ -410,8 +444,8 @@ func (d *surfaceDraw) row(kids []a2ui.Child, width, depth int) (out []string, se
 	weight := make([]float64, n)
 	for i, k := range kids {
 		weight[i] = d.weightOf(k.ID)
-		wants[i] = d.want(k, depth+1)
-		floors[i] = min(d.least(k, depth+1), wants[i])
+		floors[i] = d.least(k, depth+1)
+		wants[i] = max(d.want(k, depth+1), floors[i])
 	}
 	if avail < sum(floors) {
 		// A child squeezed to less than it needs would lose text, so the
@@ -652,6 +686,12 @@ func (d *surfaceDraw) choices(c a2ui.Component, sc a2ui.Scope, width int) []stri
 	}
 	return out
 }
+
+// OutsideLine is s as one line of outside text, safe to print: what does
+// not print is escaped, line breaks are shown as \n, and every link is
+// broken. It is for a message that quotes a string from outside, such as
+// an error about a file.
+func OutsideLine(s string) string { return cardLine(s, true, core.Links{}) }
 
 // A2UIName is the line that names surface s, for a view that shows more
 // than one. The id is a string from the surface, so it is escaped and

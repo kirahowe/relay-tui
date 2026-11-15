@@ -4,7 +4,8 @@
 //
 // The file holds one A2UI v1.0 message per line. The messages are folded in
 // order, and each surface that is left is drawn at the given width. A line
-// that does not decode or apply is reported on stderr and skipped, and the
+// that does not decode or apply is reported on stderr, as outside text on
+// one line since its error can quote the file, and skipped, and the
 // exit status is 1 when any was. Output keeps its colours when stdout is a
 // terminal and is plain text when it is not.
 package main
@@ -60,13 +61,13 @@ func run(in io.Reader, out, errs io.Writer, width int, color bool) bool {
 				ss, derr = a2ui.Apply(ss, m)
 			}
 			if derr != nil {
-				fmt.Fprintf(errs, "line %d: %v\n", n, derr)
+				fmt.Fprintln(errs, render.OutsideLine(fmt.Sprintf("line %d: %v", n, derr)))
 				ok = false
 			}
 		}
 		if err != nil {
 			if err != io.EOF {
-				fmt.Fprintf(errs, "line %d: %v\n", n, err)
+				fmt.Fprintln(errs, render.OutsideLine(fmt.Sprintf("line %d: %v", n, err)))
 				ok = false
 			}
 			break

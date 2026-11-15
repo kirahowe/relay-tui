@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
@@ -520,6 +521,79 @@ func TestSurfaceRowsKeepEveryLabel(t *testing.T) {
 			if !strings.Contains(plain, "✓ "+in.Label) && !strings.Contains(plain, "○ "+in.Label) {
 				t.Fatalf("width %d: label %q is not after a mark:\n%s", width, in.Label, plain)
 			}
+		}
+	})
+}
+
+// What a child of a Row needs comes from what it draws: a cluster of four
+// cells, or a list line whose body hangs beside its marker. At a narrow
+// width the drawing holds every character the wide one does.
+func TestSurfaceRowsStackChildrenWhoseContentNeedsTheRoom(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		comps string
+		width int
+		want  []string
+	}{
+		{"an emoji cluster beside a word", `[{"id":"root","component":"Row","children":["b","t"]},
+ {"id":"b","component":"CheckBox","label":"👍🏽","value":false},
+ {"id":"t","component":"Text","text":"abcdefgh"}]`, 10, []string{"○ 👍🏽", "abcdefgh"}},
+		{"a list line beside a word", `[{"id":"root","component":"Row","children":["a","z"]},
+ {"id":"a","component":"Text","text":"- abc"},
+ {"id":"z","component":"Text","text":"zzzz"}]`, 6, []string{"abc", "zzzz"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := surfaceOf(t, a2ui.RelayCatalogID, c.comps, "")
+			rows, _, _ := surfaceRows(s, false, core.Links{}, c.width, nil)
+			wide, _, _ := surfaceRows(s, false, core.Links{}, 200, nil)
+			plain := ansiPlain(strings.Join(rows, "\n"))
+			for _, want := range c.want {
+				if !strings.Contains(plain, want) {
+					t.Fatalf("lacks %q:\n%s", want, plain)
+				}
+			}
+			if solidRunes(rows) != solidRunes(wide) || strings.Contains(ansiPlain(strings.Join(rows, "\n")), "…") {
+				t.Fatalf("narrow drawing lost text:\n%s", strings.Join(rows, "\n"))
+			}
+		})
+	}
+}
+
+// solidRunes is the non-space characters of rows, with styles, links and
+// the glyphs of boxes and rules taken out, in order of their code points.
+// A box and a rule have as many glyphs as the width gives them.
+func solidRunes(rows []string) string {
+	var out []rune
+	for _, r := range osc8RE.ReplaceAllString(ansiPlain(strings.Join(rows, "\n")), "") {
+		if unicode.IsSpace(r) || (r >= 0x2500 && r <= 0x257f) {
+			continue
+		}
+		out = append(out, r)
+	}
+	slices.Sort(out)
+	return string(out)
+}
+
+// A surface drawn at any width from the narrowest it asks for holds every
+// character it holds at a wide width, before drawn breaks a row, so no
+// row loses text to a squeeze, whatever the text.
+func TestSurfaceRowsLoseNothingAtOrAboveTheirLeast(t *testing.T) {
+	text := rapid.Map(rapid.SliceOfN(rapid.OneOf(genSurfaceText(),
+		rapid.SampledFrom([]string{"👍🏽", "世界", "é́", "- ", "# ", "**", "- x", "**b**", "# h", "a b c", "abcdefgh"})), 0, 4),
+		func(p []string) string { return strings.Join(p, "") })
+	rapid.Check(t, func(t *rapid.T) {
+		s := a2uitest.GenResolved(t, text)
+		outsider := rapid.Bool().Draw(t, "outsider")
+		live := rapid.SampledFrom(liveSets).Draw(t, "live")
+		_, _, _, wide := drawSurface(s, outsider, live, 4000, nil)
+		want := solidRunes(wide.raw)
+		d := &surfaceDraw{s: s, outsider: outsider, live: live, budget: a2ui.MaxNodes,
+			wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}, needing: map[a2ui.Child]bool{}}
+		from := d.least(a2ui.Child{ID: "root"}, 0)
+		width := rapid.IntRange(from, max(from, 120)).Draw(t, "width")
+		_, _, _, got := drawSurface(s, outsider, live, width, nil)
+		if g := solidRunes(fit(append([]string(nil), got.raw...), width)); g != want {
+			t.Fatalf("width %d (least %d): drew %q, wide drawing holds %q", width, from, g, want)
 		}
 	})
 }

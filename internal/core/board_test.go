@@ -1050,6 +1050,120 @@ func TestAChangedListOfBoxesMovesTheCursorWhileAFailureShows(t *testing.T) {
 	}
 }
 
+// textBox is a row of a test surface: a Text, and a CheckBox beside it.
+type textBox struct {
+	Text string
+	box
+}
+
+// captionedCard is a card of kind surface whose surface is a Column of a
+// caption and a Row for each textBox, as relay would send it.
+func captionedCard(t testing.TB, id, rev int64, caption string, rows ...textBox) Card {
+	t.Helper()
+	comps := map[string]a2ui.Component{
+		"cap": {ID: "cap", Type: "Text", Props: map[string]any{"text": caption, "variant": "caption"}},
+	}
+	kids := []any{"cap"}
+	var data any = map[string]any{}
+	for i, r := range rows {
+		n := strconv.Itoa(i)
+		kids = append(kids, "row"+n)
+		comps["row"+n] = a2ui.Component{ID: "row" + n, Type: "Row", Props: map[string]any{"children": []any{"t" + n, "b" + n}}}
+		comps["t"+n] = a2ui.Component{ID: "t" + n, Type: "Text", Props: map[string]any{"text": r.Text}}
+		var err error
+		if data, err = a2ui.Set(data, r.Path, r.On); err != nil {
+			t.Fatal(err)
+		}
+		comps["b"+n] = a2ui.Component{ID: "b" + n, Type: "CheckBox", Props: map[string]any{"label": r.Label, "value": map[string]any{"@path": r.Path}}}
+	}
+	comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": kids}}
+	s := a2ui.Surface{ID: "card_" + strconv.FormatInt(id, 10), CatalogID: a2ui.RelayCatalogID, Components: comps, Data: data}
+	if err := a2ui.Resolved(s); err != nil {
+		t.Fatal(err)
+	}
+	return Card{ID: id, Kind: CardSurface, Status: CardActive, Rev: rev, Title: txt("Pack", id), Surface: &RoleSurface{A2UI: s}}
+}
+
+func noOp(t *testing.T, s Single) {
+	t.Helper()
+	if _, fx := boardKeys(s, PaneMark); len(effectsOf[SendCardOp](fx)) != 0 {
+		t.Fatalf("x sent %v", fx)
+	}
+}
+
+// Two rows that differ only in their text, each with a box labelled the
+// same: when a role swaps the text, the paths, labels and values are the
+// same and the box under the cursor is another row's.
+func TestTheCursorLeavesABoxWhenARoleEditsTheTextAroundIt(t *testing.T) {
+	rows := func(a, b string) []textBox {
+		return []textBox{{a, box{"/items/0/done", "Done", false}}, {b, box{"/items/1/done", "Done", false}}}
+	}
+	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows("Tent", "Stove")...))
+	s, _ = boardKeys(s, PaneEnter, PaneDown) // Tent's box
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "0 of 2 done", rows("Stove", "Tent")...)}})
+	if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
+		t.Fatalf("line %d, message %q", b.Line, b.Message)
+	}
+	noOp(t, s)
+}
+
+// A copy that is not a surface, then a surface with another box: the line
+// the operator had stays gone.
+func TestALineThatStoppedExistingDoesNotComeBack(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}, box{"/b", "Map", false}))
+	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	broken := Card{ID: 10, Kind: "surface?", Status: CardActive, Rev: 11, Title: txt("Pack", 10), Text: "Card 10"}
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{broken}})
+	if s.Board.Line != 0 {
+		t.Fatalf("line %d on a card with one line", s.Board.Line)
+	}
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 102, Cards: []Card{surfaceCard(t, 10, 12, box{"/c", "Stove", false})}})
+	if s.Board.Line != 0 {
+		t.Fatalf("line %d came back", s.Board.Line)
+	}
+	noOp(t, s)
+}
+
+func TestTheCursorStaysWhenRelaysAnswerToTheOperatorsOwnTickChangesTheCaption(t *testing.T) {
+	rows := func(on bool) []textBox {
+		return []textBox{{"Tent", box{"/i/0", "Done", on}}, {"Stove", box{"/i/1", "Done", false}}}
+	}
+	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false)...))
+	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneMark)
+	if len(effectsOf[SendCardOp](fx)) != 1 {
+		t.Fatal("no op sent")
+	}
+	answer := captionedCard(t, 10, 11, "1 of 2 done", rows(true)...)
+	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &answer})
+	if b := s.Board; b.Line != 1 || b.Message != "" {
+		t.Fatalf("line %d, message %q", b.Line, b.Message)
+	}
+	_, fx = boardKeys(s, PaneMark)
+	if ops := effectsOf[SendCardOp](fx); len(ops) != 1 || *ops[0].Op.Path != "/i/0" || *ops[0].Op.Value {
+		t.Fatalf("ops %+v", ops)
+	}
+}
+
+func TestAnotherClientsTickThatChangesTheCaptionSendsTheCursorToTheTitle(t *testing.T) {
+	rows := func(a, b bool) []textBox {
+		return []textBox{{"Tent", box{"/i/0", "Done", a}}, {"Stove", box{"/i/1", "Done", b}}}
+	}
+	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false, false)...))
+	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "1 of 2 done", rows(false, true)...)}})
+	if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
+		t.Fatalf("line %d, message %q", b.Line, b.Message)
+	}
+	noOp(t, s)
+	// A change of values alone keeps the cursor.
+	s = onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false, false)...))
+	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "0 of 2 done", rows(false, true)...)}})
+	if b := s.Board; b.Line != 1 || b.Message != "" {
+		t.Fatalf("data only: line %d, message %q", b.Line, b.Message)
+	}
+}
+
 // insertAbove is c with a new box drawn before every other, or with its
 // first input taken out of the list that holds it. It is how relay's
 // newer copy of a surface differs when a role adds or removes an item.
@@ -1086,9 +1200,41 @@ func insertAbove(c Card, remove bool, n int) Card {
 	return c
 }
 
-// Over any surface and any run of keys and answers, every op sent for the
-// card is an input op for the input the cursor was on in the card as held
-// at that moment, with the opposite value and the held rev.
+// editText is c with the text of one Text of its surface changed, or with
+// a Text added above everything when it has none. No input changes.
+func editText(c Card, n int) Card {
+	s := c.Surface.A2UI
+	comps := maps.Clone(s.Components)
+	done := false
+	for _, id := range slices.Sorted(maps.Keys(comps)) {
+		if k := comps[id]; k.Type == "Text" {
+			props := maps.Clone(k.Props)
+			props["text"] = "edited " + strconv.Itoa(n)
+			comps[id] = a2ui.Component{ID: id, Type: "Text", Props: props}
+			done = true
+			break
+		}
+	}
+	if !done {
+		key, oldRoot := "txt"+strconv.Itoa(n), "old_root"+strconv.Itoa(n)
+		comps[key] = a2ui.Component{ID: key, Type: "Text", Props: map[string]any{"text": "added"}}
+		old := comps["root"]
+		old.ID = oldRoot
+		comps[oldRoot] = old
+		comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": []any{key, oldRoot}}}
+	}
+	s.Components = comps
+	c.Surface = &RoleSurface{Outsider: c.Surface.Outsider, A2UI: s}
+	return c
+}
+
+// Over any surface and any run of keys, answers, role edits, malformed
+// copies and recoveries, an op is only sent for the box the cursor is on,
+// with the opposite value and the held rev, and only while the card's
+// components are the ones the cursor arrived on by a key press, or the
+// card has since been replaced only by relay's answers to the operator's
+// own inputs that left the list of boxes as it was, or by copies with the
+// components it held.
 func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		sc := a2uitest.GenResolved(t, rapid.String())
@@ -1096,35 +1242,49 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 		if len(sc.Inputs()) == 0 {
 			t.Skip()
 		}
-		card := Card{ID: 10, Kind: CardSurface, Status: CardActive, Rev: 10, Title: txt("T", 10), Surface: &RoleSurface{A2UI: sc}}
+		rev := int64(10)
+		card := Card{ID: 10, Kind: CardSurface, Status: CardActive, Rev: rev, Title: txt("T", 10), Surface: &RoleSurface{A2UI: sc}}
 		s := onBoard(card)
 		s, _ = boardKeys(s, PaneEnter)
+		lastValid := card
 		var inFlight *CardOp
-		// set when the list of inputs changed under the cursor: no op is
-		// sent until the cursor has been moved again.
-		var mustMove bool
-		changed := func(before, after Card) {
-			if BoardLine(s.Board, before) > 0 && !slices.Equal(before.inputKeys(), after.inputKeys()) {
-				mustMove = true
+		// base is the components the cursor arrived on by a key press, and
+		// clean says the card has only been replaced since by relay's
+		// answers to the operator's own inputs with the same boxes.
+		base := card.Surface.A2UI.Components
+		clean := true
+		replaced := func(before Card, own bool, next Card) {
+			sameList := before.Kind == CardSurface && next.Kind == CardSurface && slices.Equal(before.inputKeys(), next.inputKeys())
+			same := next.Surface != nil && before.Surface != nil && reflect.DeepEqual(before.Surface.A2UI.Components, next.Surface.A2UI.Components)
+			if !(own && sameList) && !same {
+				clean = false
+			}
+			if next.Kind == CardSurface {
+				lastValid = next
 			}
 		}
-		for i := range rapid.IntRange(1, 40).Draw(t, "steps") {
+		for i := range rapid.IntRange(1, 50).Draw(t, "steps") {
 			held, _ := BoardCard(s.Board)
 			line := BoardLine(s.Board, held)
-			switch step := rapid.SampledFrom([]string{"up", "down", "mark", "answer", "notify"}).Draw(t, "step"); step {
+			rev++
+			switch step := rapid.SampledFrom([]string{"up", "down", "mark", "answer", "notify", "edit", "malformed", "recover"}).Draw(t, "step"); step {
 			case "up", "down":
 				a := PaneUp
 				if step == "down" {
 					a = PaneDown
 				}
 				s, _ = boardKeys(s, a)
-				mustMove = false
+				if now, _ := BoardCard(s.Board); now.Surface != nil {
+					base, clean = now.Surface.A2UI.Components, true
+				} else {
+					base, clean = nil, false
+				}
 			case "mark":
 				busy := s.Board.Sending != 0
 				var fx []Effect
 				s, fx = boardKeys(s, PaneMark)
 				ops := effectsOf[SendCardOp](fx)
-				if busy || line == 0 || mustMove {
+				if busy || line == 0 {
 					if len(ops) != 0 {
 						t.Fatalf("sent while busy %v or on the title %v", busy, line == 0)
 					}
@@ -1138,30 +1298,53 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 					op.Value == nil || *op.Value != !in.On || op.Seen == nil || *op.Seen != held.Rev {
 					t.Fatalf("op %+v for input %+v of rev %d", op, in, held.Rev)
 				}
+				if !clean && !reflect.DeepEqual(held.Surface.A2UI.Components, base) {
+					t.Fatalf("an op was sent for a box on a card whose components are not the ones the cursor arrived on")
+				}
 				inFlight = &op
 			case "answer":
 				if inFlight == nil || s.Board.Sending == 0 {
 					break
 				}
-				next := held
-				next.Rev++
-				data, err := a2ui.Set(held.Surface.A2UI.Data, *inFlight.Path, *inFlight.Value)
+				next := lastValid
+				next.Rev = rev
+				data, err := a2ui.Set(lastValid.Surface.A2UI.Data, *inFlight.Path, *inFlight.Value)
 				if err != nil {
 					t.Fatal(err)
 				}
-				next.Surface = &RoleSurface{A2UI: held.Surface.A2UI}
+				next.Surface = &RoleSurface{A2UI: lastValid.Surface.A2UI}
 				next.Surface.A2UI.Data = data
 				if rapid.Bool().Draw(t, "shift") {
 					next = insertAbove(next, rapid.Bool().Draw(t, "remove"), i)
 				}
-				changed(held, next)
+				if rapid.Bool().Draw(t, "caption") {
+					next = editText(next, i)
+				}
+				replaced(held, true, next)
 				s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &next})
 				inFlight = nil
 			case "notify":
-				next := insertAbove(held, rapid.Bool().Draw(t, "remove"), i)
-				next.Rev++
-				changed(held, next)
-				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: next.Rev, Cards: []Card{next}})
+				next := insertAbove(lastValid, rapid.Bool().Draw(t, "remove"), i)
+				next.Rev = rev
+				replaced(held, false, next)
+				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: rev, Cards: []Card{next}})
+			case "edit":
+				next := editText(lastValid, i)
+				next.Rev = rev
+				replaced(held, false, next)
+				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: rev, Cards: []Card{next}})
+			case "malformed":
+				next := Card{ID: 10, Kind: "surface?", Status: CardActive, Rev: rev, Title: txt("T", 10), Text: "Card 10"}
+				replaced(held, false, next)
+				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: rev, Cards: []Card{next}})
+			case "recover":
+				next := lastValid
+				next.Rev = rev
+				if rapid.Bool().Draw(t, "different") {
+					next = insertAbove(next, false, i)
+				}
+				replaced(held, false, next)
+				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: rev, Cards: []Card{next}})
 			}
 		}
 	})

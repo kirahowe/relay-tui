@@ -2,6 +2,7 @@ package core
 
 import (
 	"maps"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -337,7 +338,9 @@ type boardAnchor struct {
 	card         int64
 	line, col    int
 	elem, column int
-	inputs       []inputKey // a surface card's inputs, in order
+	inputs       []inputKey   // a surface card's inputs, in order
+	surface      *RoleSurface // the surface held, when the cursor is on a box
+	own          bool         // the event is relay's answer to this client's own input
 }
 
 // inputKey is an input as the cursor knows it: no input has an id, and a
@@ -363,6 +366,9 @@ func anchorOf(b Board) (boardAnchor, bool) {
 	a := boardAnchor{card: c.ID, line: BoardLine(b, c), col: BoardCol(b, c)}
 	if c.Kind == CardSurface {
 		a.inputs = c.inputKeys()
+		if a.line > 0 {
+			a.surface = c.Surface
+		}
 	} else if elems := c.lineElems(); a.line > 0 {
 		a.elem = elems[a.line-1].ID
 	}
@@ -395,15 +401,24 @@ func (c Card) lineElems() []CardElem {
 func (r *reducer) reanchor(a boardAnchor, was bool) {
 	b := &r.a.Board
 	c, i := BoardCard(*b)
-	if !was || !b.Detail || i < 0 || c.ID != a.card {
+	if !b.Detail || i < 0 {
+		return
+	}
+	// Whatever the copy is, a stored line or column it has no room for
+	// does not wait to come back when a later copy has one.
+	b.Line = min(max(b.Line, 0), c.Lines()-1)
+	if c.Kind == CardTracker && len(c.Columns) > 0 {
+		b.Col = min(max(b.Col, 0), len(c.Columns)-1)
+	}
+	if !was || c.ID != a.card {
 		return
 	}
 	gone := ""
-	if c.Kind == CardSurface && a.line > 0 && !slices.Equal(c.inputKeys(), a.inputs) {
+	if a.surface != nil && !r.cursorStays(a, c) {
 		// A box has no id, and a path into a list is a position, so a
-		// changed list of boxes cannot say which box the cursor was on.
-		// The cursor goes to the title, where no key acts on a box, and
-		// the operator chooses again.
+		// copy that is not the same layout cannot say which box the
+		// cursor was on. It goes to the title, where no key acts on a
+		// box, and the operator chooses again.
 		b.Line = 0
 		if b.Failure == "" {
 			b.Message = "The card's boxes changed; select one again."
@@ -436,9 +451,30 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 	}
 }
 
+// cursorStays says the cursor, on a box of the surface held in a, stays
+// where it was when card c replaces it. It does in two cases: c is relay's
+// answer to the operator's own input and the list of boxes is the same, or
+// c has the same components as the held surface, and only the data model
+// differs.
+func (r *reducer) cursorStays(a boardAnchor, c Card) bool {
+	if c.Kind != CardSurface || c.Surface == nil {
+		return false
+	}
+	if c.Surface == a.surface {
+		return true
+	}
+	if a.own && slices.Equal(c.inputKeys(), a.inputs) {
+		return true
+	}
+	return reflect.DeepEqual(c.Surface.A2UI.Components, a.surface.A2UI.Components)
+}
+
 func (r *reducer) board(e Event) {
 	b := &r.a.Board
 	anchor, anchored := anchorOf(*b)
+	if d, ok := e.(CardOpDone); ok && d.Err == "" && b.Sending == d.CardID && b.SendingOp == "input" {
+		anchor.own = true
+	}
 	defer func() { r.reanchor(anchor, anchored) }()
 	defer r.keepConfirm()
 	switch e := e.(type) {
