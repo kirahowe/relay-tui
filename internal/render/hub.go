@@ -118,8 +118,10 @@ var hubLegend = []string{
 }
 
 // roleName is a role's title as text that may be shown: its controls and
-// invisible characters made visible.
-func roleName(r core.Role) string { return paneLine(r.Title, false) }
+// invisible characters made visible, and every link in it broken. A role
+// that may add roles names them, and it may have read text from outside
+// first, so a title is not known to be the operator's own.
+func roleName(r core.Role) string { return paneLine(r.Title, true) }
 
 // marks are the indicators beside a role, styled. They are in the order
 // of how much they need the operator.
@@ -299,7 +301,7 @@ func listScreen(h core.Hub, now time.Time, width, height int) []string {
 	lines = append(lines, note...)
 	foot := styled(faint, truncate(modeTag(true)+" · enter open · ↑↓ move · "+readyKey(h)+" · ? keys", width))
 	if h.Notice != "" {
-		foot = styled(faint, truncate("! "+oneLine(h.Notice), width))
+		foot = styled(faint, truncate("! "+said(h.Notice), width))
 	}
 	lines = lines[:min(len(lines), room)]
 	return append(lines, foot)
@@ -399,7 +401,7 @@ func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	lines := []string{truncate(head, width)}
 	var foot []string
 	if h.Notice != "" {
-		foot = append(foot, styled(faint, truncate("! "+oneLine(h.Notice), width)))
+		foot = append(foot, styled(faint, truncate("! "+said(h.Notice), width)))
 	}
 	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
 	lines = append(append(lines, pane...), foot...)
@@ -506,7 +508,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		bottom = append(bottom, styled(faint, truncate("queued › "+first, width)))
 	}
 	if h.Notice != "" {
-		bottom = append(bottom, styled(faint, truncate("! "+oneLine(h.Notice), width)))
+		bottom = append(bottom, styled(faint, truncate("! "+said(h.Notice), width)))
 	}
 	bottom = append(bottom, "")
 	inputAt, x := 0, 0

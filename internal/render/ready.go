@@ -29,10 +29,12 @@ const readyBodyLines = 5
 
 var labelWords = regexp.MustCompile(`(?i)contaminated|untrusted|private`)
 
-// readyFrom is where an item came from, as relay said, safe to print. A
-// word that names a label is never printed: it reads "from outside".
+// readyFrom is where an item came from, as relay said, safe to print,
+// with every link in it broken: it names a page or a mail's sender, which
+// an outsider chose. A word that names a label is never printed: it reads
+// "from outside".
 func readyFrom(it core.ReadyItem) string {
-	from := oneLine(core.EscapeNonPrinting(strings.TrimSpace(it.From)))
+	from := said(core.EscapeNonPrinting(strings.TrimSpace(it.From)))
 	switch {
 	case labelWords.MatchString(from):
 		return "from outside"
@@ -355,9 +357,9 @@ func readyStatus(r core.Ready, width int) string {
 		}
 		return truncate(" "+lead+text+styled(accent, "▌"), width)
 	case r.Failure != "":
-		return truncate(" "+styled(warnColour, r.Message)+" "+styled(faint, oneLine(core.EscapeNonPrinting(r.Failure))), width)
+		return truncate(" "+styled(warnColour, said(core.EscapeNonPrinting(r.Message)))+" "+styled(faint, said(core.EscapeNonPrinting(r.Failure))), width)
 	case r.Message != "":
-		return truncate(" "+styled(faint, r.Message), width)
+		return truncate(" "+styled(faint, said(core.EscapeNonPrinting(r.Message))), width)
 	}
 	return ""
 }
@@ -387,7 +389,7 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	// the words come back, and the reason must not hide behind them.
 	note := ""
 	if r.Input != nil && r.Failure != "" && room > 0 {
-		note = truncate(" "+styled(warnColour, r.Message)+" "+styled(faint, oneLine(core.EscapeNonPrinting(r.Failure))), width)
+		note = truncate(" "+styled(warnColour, said(core.EscapeNonPrinting(r.Message)))+" "+styled(faint, said(core.EscapeNonPrinting(r.Failure))), width)
 		room--
 	}
 	var body []string
@@ -454,7 +456,7 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 // readyFailureRows is a refusal over at most n rows, wrapped, the last
 // row cut when it is longer still.
 func readyFailureRows(r core.Ready, width, n int) []string {
-	text := styled(warnColour, r.Message) + " " + styled(faint, oneLine(core.EscapeNonPrinting(r.Failure)))
+	text := styled(warnColour, said(core.EscapeNonPrinting(r.Message))) + " " + styled(faint, said(core.EscapeNonPrinting(r.Failure)))
 	rows := wrap(text, max(width-1, 1))
 	if len(rows) > n {
 		rows = rows[:n]

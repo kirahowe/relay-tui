@@ -48,18 +48,18 @@ func StatusText(l core.StatusLine, hint string, now time.Time, width int) string
 		case !l.Detail:
 			add("working")
 		case l.Tools == 1:
-			add("running " + oneLine(l.Tool))
+			add("running " + said(l.Tool))
 		default:
 			add(fmt.Sprintf("running %d tools", l.Tools))
 		}
 	case core.StatusRetrying:
 		add("retrying in " + Duration((l.RetryIn + time.Second - 1).Truncate(time.Second))) // round up: never "0s" with time left
-		add(oneLine(l.Reason))
+		add(said(l.Reason))
 	case core.StatusCancelling:
 		lead = " "
 		add("cancelling")
 	}
-	add(oneLine(l.Message))
+	add(said(l.Message))
 	if l.Remote == core.TurnQueued {
 		add("waiting for the role's scheduled work")
 	}

@@ -65,6 +65,14 @@ func joinColumns(lines, pane []string, left int) []string {
 	return out
 }
 
+// said is one line of words that are not the operator's own and carry
+// no mark of where they came from: relay's about something (a refusal,
+// what an undo did, a notice) or an agent's about its work (the tool it
+// is running). Such a line can quote text from outside, a page's name or
+// an address a call was given, and nothing in one needs a link that can
+// be followed, so every link in it is broken.
+func said(text string) string { return Defang(oneLine(text)) }
+
 // line is text on one line, safe to print.
 func paneLine(text string, defang bool) string {
 	t := core.EscapeLabel(text)

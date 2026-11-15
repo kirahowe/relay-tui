@@ -316,6 +316,77 @@ func TestALiveLinkIsNeverShownAsItIs(t *testing.T) {
 	}
 }
 
+// A role that may add roles names them, and it may have read text from
+// outside first. relay sends the title as it was written, so the roster
+// breaks every link in one, live or not.
+func TestARolesTitleHasItsLinksBroken(t *testing.T) {
+	evil := "https://evil.test/?d=CANARY"
+	for _, live := range []core.Links{{}, core.LinksOf(evil)} {
+		h := hubStep(hubFixture(), core.RosterUpdate{At: t0, Roles: []core.Role{{ID: "dev", Title: evil}, {ID: "helper", Title: "see www.evil.test"}}})
+		h.App.Links = live
+		for _, hub := range []core.Hub{h, hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})} {
+			for _, width := range []int{60, 100, 160} {
+				content := HubView(hub, "", "", t0, width, 30).Content
+				plain := ansi.Strip(content)
+				if linkable(plain) || hasLinks(content) {
+					t.Fatalf("at %d a role's title can be followed:\n%s", width, plain)
+				}
+				// A narrow screen shows the role in focus alone.
+				if !strings.Contains(plain, "hxxps://evil[.]") || (width > 60 && !strings.Contains(plain, "www[.]evil")) {
+					t.Fatalf("at %d the titles are not shown broken:\n%s", width, plain)
+				}
+			}
+		}
+	}
+}
+
+// Where a ready item came from, and why relay refused something, are
+// relay's words about text from outside: a page's name, a mail's sender.
+// Every link in them is broken.
+func TestRelaysOwnWordsAboutOutsideTextHaveTheirLinksBroken(t *testing.T) {
+	it := core.ReadyItem{ID: "message:4", Kind: core.ReadyMessage, At: t0.Format(time.RFC3339), Title: "Two grants", Outsider: true,
+		Lines: []string{"A line."}, From: "Drew on: the web page www.evil.test/?d=1 and https://evil.test/x", Message: 4, ReplyTo: 4}
+	list := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{it}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
+	refused := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyReplyKey})
+	refused.Ready.Message, refused.Ready.Failure = core.ReplyRefusedNote, "No reply to http://evil.test/y is possible."
+	for name, hub := range map[string]core.Hub{"the list": list, "an item open": hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyOpenKey}), "a refusal": refused} {
+		for _, width := range []int{50, 100, 160} {
+			content := HubView(hub, "", "", t0, width, 30).Content
+			if plain := ansi.Strip(content); linkable(plain) || hasLinks(content) {
+				t.Fatalf("%s at %d can be followed:\n%s", name, width, plain)
+			}
+		}
+	}
+	plain := ansi.Strip(HubView(refused, "", "", t0, 160, 30).Content)
+	for _, want := range []string{"www[.]evil[.]test", "hxxps://evil[.]test/x", "hxxp://evil[.]test/y"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("%q is not on screen:\n%s", want, plain)
+		}
+	}
+
+	// What an undo did, a notice at the foot, and the status line's
+	// words for a running tool and for a retry.
+	undone := list
+	undone.Ready.Message = "Put back https://evil.test/a.pdf"
+	noticed := hubFixture()
+	noticed.Notice = "No role called https://evil.test/r is here."
+	for name, got := range map[string]string{
+		"an undo":   HubView(undone, "", "", t0, 120, 30).Content,
+		"a notice":  HubView(noticed, "", "", t0, 120, 30).Content,
+		"a tool":    StatusText(core.StatusLine{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: "web_get https://evil.test/?d=1"}, "", t0, 120),
+		"a retry":   StatusText(core.StatusLine{Kind: core.StatusRetrying, RetryIn: time.Second, Reason: "https://evil.test/ said no"}, "", t0, 120),
+		"a message": StatusText(core.StatusLine{Kind: core.StatusIdle, Message: "see www.evil.test"}, "", t0, 120),
+	} {
+		plain := ansi.Strip(got)
+		if linkable(plain) || hasLinks(got) {
+			t.Fatalf("%s can be followed:\n%s", name, plain)
+		}
+		if !strings.Contains(plain, "evil[.]test") {
+			t.Fatalf("%s does not show its link broken:\n%s", name, plain)
+		}
+	}
+}
+
 // An outsider's column name is drawn as it was sent. The operator's own
 // is in capitals.
 func TestAnOutsidersColumnNameKeepsItsCase(t *testing.T) {
@@ -526,7 +597,7 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		// The ready view: the list, and an item open whole.
 		item := core.ReadyItem{ID: "message:4", Kind: rapid.SampledFrom([]string{core.ReadyMessage, core.ReadyMove, core.ReadyFinding, "other"}).Draw(t, "kind"),
 			At: t0.Add(-time.Minute).Format(time.RFC3339), Title: genOutside(t, "readyTitle"), Outsider: true,
-			From: "from the web", Message: 4, ReplyTo: 4,
+			From: genOutside(t, "from"), Message: 4, ReplyTo: 4,
 			Lines:   []string{genOutside(t, "line1"), genOutside(t, "line2")},
 			Replies: []core.ReadyReply{{At: t0.Format(time.RFC3339), Text: "ok"}}}
 		if rapid.Bool().Draw(t, "sections") {
@@ -535,9 +606,36 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		list := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{item}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
 		open := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyOpenKey})
 		replying := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyReplyKey})
-		for _, hub := range []core.Hub{list, open, replying} {
+		// relay's own words can quote text from outside: where an item
+		// came from above, and here why a reply was refused.
+		refused := replying
+		refused.Ready.Message, refused.Ready.Failure = core.ReplyRefusedNote, genOutside(t, "failure")
+		// What an undo did is relay's line too, and it names files.
+		undone := list
+		undone.Ready.Message = genOutside(t, "undone")
+		for _, hub := range []core.Hub{list, open, replying, refused, undone} {
 			hub.App.Links = live
 			checkFollowed(t, "the ready view", HubView(hub, "", "", t0, w, h).Content, live)
+		}
+
+		// The roster: a role's title is what the role that added it wrote.
+		titled := hubStep(hubFixture(), core.RosterUpdate{At: t0, Roles: []core.Role{
+			{ID: "dev", Title: genOutside(t, "title1")}, {ID: "mail", Title: genOutside(t, "title2")}}})
+		titled.App.Links = live
+		// A notice at the foot is relay's reason for something.
+		titled.Notice = genOutside(t, "notice")
+		for _, hub := range []core.Hub{titled, hubStep(titled, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})} {
+			checkFollowed(t, "the roster", HubView(hub, "", "", t0, w, h).Content, live)
+		}
+
+		// The status line names the tool that is running, by the title
+		// the agent gave the call, and says why a turn is being retried.
+		for _, l := range []core.StatusLine{
+			{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: genOutside(t, "tool")},
+			{Kind: core.StatusRetrying, RetryIn: time.Second, Reason: genOutside(t, "reason")},
+			{Kind: core.StatusIdle, Message: genOutside(t, "message")},
+		} {
+			checkFollowed(t, "the status line", StatusText(l, "", t0, w), live)
 		}
 
 		// A conversation in a contaminated session, every kind of entry

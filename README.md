@@ -163,6 +163,13 @@ notices, tool names, arguments and output) show defanged, as
 itself is never shown, and nothing is held or withheld because of it.
 relay-tui never sends `resource_link` blocks.
 
+Some lines carry no mark of where their words came from, and those have
+their links broken always: a role's title, which another role may have
+written, the status line's name for the tool that is running and its
+reason for a retry, the notice at the foot of the hub, and relay's own
+lines in the ready view (where a thing came from, why a reply or an undo
+was refused, what an undo did).
+
 A link in text from outside is always shown broken, and no address is
 put on screen as text. What differs is whether you can click it. relay
 keeps a set of live links: addresses it can say came from somewhere it
