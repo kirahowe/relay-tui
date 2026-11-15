@@ -404,7 +404,7 @@ func noRelay(fx []Effect) []Effect {
 	var out []Effect
 	for _, f := range fx {
 		switch f.(type) {
-		case RequestItems, RequestResolve, RequestCards:
+		case RequestItems, RequestResolve, RequestCards, RequestLinks:
 		default:
 			out = append(out, f)
 		}

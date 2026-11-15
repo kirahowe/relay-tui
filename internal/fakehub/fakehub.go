@@ -70,6 +70,9 @@ type Config struct {
 	// Ready is what is ready for the operator, as wire items (see
 	// ready.go). Without it the view's methods are not found.
 	Ready []json.RawMessage `json:"ready"`
+	// Links is relay's live links (see links.go). Without it their
+	// methods are not found, and the client breaks every link.
+	Links []string `json:"links"`
 }
 
 // RoleConfig is one role.
@@ -150,6 +153,8 @@ type Hub struct {
 	// is ready, or nil for none.
 	board *board
 	ready *readyView
+	// links is relay's live links, or nil for a relay without them.
+	links *links
 }
 
 // New returns a hub with the config's roles. log receives one line per
@@ -166,6 +171,7 @@ func New(cfg Config, log io.Writer) *Hub {
 		fmt.Fprintf(log, "config: ready: %v\n", err)
 	}
 	h.ready = rv
+	h.links = newLinks(cfg.Links)
 	for _, rc := range cfg.Roles {
 		r := &role{RoleConfig: rc}
 		if rc.Live != nil {
@@ -531,6 +537,9 @@ func (h *Hub) HandleExtensionMethod(ctx context.Context, method string, params j
 	if slices.Contains(readyMethods, method) {
 		return h.readyMethod(ctx, method, params)
 	}
+	if slices.Contains(linkMethods, method) {
+		return h.linkMethod(ctx, method, params)
+	}
 	var p struct {
 		SessionID string `json:"sessionId"`
 		Turn      int    `json:"turn"`
@@ -621,6 +630,12 @@ func (h *Hub) control(ctx context.Context, line string) {
 	cmd, id := fields[0], fields[1]
 	if cmd == "archive-card" {
 		h.archiveCard(ctx, id)
+		return
+	}
+	if cmd == "keep-link" || cmd == "drop-link" {
+		if _, err := h.setLink(ctx, id, cmd == "keep-link"); err != nil {
+			h.logf("control: %s %s: %v", cmd, id, err)
+		}
 		return
 	}
 	h.mu.Lock()

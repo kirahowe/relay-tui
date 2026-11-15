@@ -199,6 +199,33 @@ func TestGateLetsOnlyALiveLinkThrough(t *testing.T) {
 	}
 }
 
+// A hard wrap can fall between a broken link's scheme and its "://", and
+// the next row then starts with "://host[.]tld". Nothing can follow that
+// text, but the row check counts any "://" without a broken scheme before
+// it. The worst either check does with such a row is break it once more.
+func TestARowThatStartsInsideABrokenSchemeIsOnlyBrokenAgain(t *testing.T) {
+	live := core.LinksOf(linkB)
+	for _, tail := range []string{"://evil[.]test/x", "s://evil[.]test/x", "ps://evil[.]test/x"} {
+		rows := drawn([]string{"hxxp", tail}, true)
+		if got := ansi.Strip(rows[1]); linkable(got) || !strings.Contains(got, "evil[.]test/x") {
+			t.Errorf("drawn left %q of %q", got, tail)
+		}
+		if strings.Contains(rows[1], "\x1b]") {
+			t.Errorf("drawn made a hyperlink of %q: %q", tail, rows[1])
+		}
+	}
+	// The same tail as a piece of a live link shown broken: the hyperlink
+	// keeps its target, and the text stays inside the cells it had.
+	piece := linkOpen(linkB) + "://artscouncil[.]example/apply/s" + linkEnd
+	out := gate(piece, live)
+	if s := spansOn(t, out); len(s) != 1 || s[0] != linkB {
+		t.Fatalf("the piece links to %q", s)
+	}
+	if plain := ansi.Strip(out); linkable(plain) || Width(out) > Width(piece) {
+		t.Fatalf("gate left %q, %d cells for %d", plain, Width(out), Width(piece))
+	}
+}
+
 // --- the property: whatever outside text relay or an agent sends, and
 // whatever relay's live links are, nothing drawn can be followed but a
 // live link.

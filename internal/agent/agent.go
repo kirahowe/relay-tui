@@ -272,6 +272,15 @@ func (a *Agent) CardOp(card int64, op core.CardOp) {
 	})
 }
 
+// Links asks relay for its live links and emits LinksLoaded. The set is
+// the connection's, about no conversation. It does not block.
+func (a *Agent) Links() {
+	a.enqueue(func() {
+		raw, err := a.call(wire.MethodLinks, wire.LinksParams())
+		a.emit(wire.Links(raw, err, time.Now()))
+	})
+}
+
 // Ready asks relay for what is ready for the operator and emits
 // ReadyLoaded. It is the connection's, about no conversation. It does not
 // block.
@@ -323,6 +332,11 @@ func (c client) HandleExtensionMethod(_ context.Context, method string, params j
 		return nil, nil
 	case wire.MethodReadyChanged:
 		if e, ok := wire.ReadyChanged(params, time.Now()); ok {
+			c.a.emit(e)
+		}
+		return nil, nil
+	case wire.MethodLinksChanged:
+		if e, ok := wire.LinksChanged(params, time.Now()); ok {
 			c.a.emit(e)
 		}
 		return nil, nil

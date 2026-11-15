@@ -428,7 +428,7 @@ func (r *hubReducer) apply(e Event) {
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, Replayed,
 		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited,
-		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone:
+		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, LinksLoaded, LinksChanged:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -440,7 +440,9 @@ func (r *hubReducer) apply(e Event) {
 		// The board is the connection's: it is asked for now, before any
 		// conversation opens.
 		h.App.Live = true
-		r.withApp(func(rd *reducer) { rd.askCards() })
+		// The live links first, so what the board and the ready view
+		// hold can be drawn against them at once.
+		r.withApp(func(rd *reducer) { rd.askLinks(); rd.askCards() })
 		r.askReady()
 		if h.Open != "" {
 			r.focus(h.Open, true, e.At)
@@ -450,7 +452,7 @@ func (r *hubReducer) apply(e Event) {
 		r.roster(e)
 	case Routed:
 		r.routed(e)
-	case CardsLoaded, CardsChanged, CardOpDone:
+	case CardsLoaded, CardsChanged, CardOpDone, LinksLoaded, LinksChanged:
 		r.toApp(e, false)
 	case ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, ReadyOpen, ReadyKey:
 		r.ready(e)
@@ -727,7 +729,7 @@ func (r *hubReducer) withApp(f func(*reducer)) {
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
-	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo, SendAct:
+	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo, SendAct, RequestLinks:
 		// The board's and the ready view's calls are the connection's,
 		// about no conversation.
 		r.emit(f)

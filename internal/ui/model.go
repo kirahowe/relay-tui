@@ -32,6 +32,9 @@ type Conn interface {
 	// notifications of changed cards, come back as events.
 	Cards()
 	CardOp(card int64, op core.CardOp)
+	// Links asks relay for its live links, the connection's too. The
+	// answer, and each change relay sends after, come back as events.
+	Links()
 	// Ready and Reply are relay's ready view, also the connection's: what
 	// is ready for the operator, and an answer to one of the messages in
 	// it.
@@ -467,6 +470,8 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 	switch f := f.(type) {
 	case core.RequestCards:
 		m.conn.Cards()
+	case core.RequestLinks:
+		m.conn.Links()
 	case core.SendCardOp:
 		m.conn.CardOp(f.Card, f.Op)
 	case core.InsertInput:

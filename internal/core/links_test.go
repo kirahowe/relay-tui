@@ -1,6 +1,7 @@
 package core
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,4 +147,120 @@ func TestLinkInFindsOnlyLiveLinks(t *testing.T) {
 			t.Fatalf("a scheme before the link: %q in %q", before, word)
 		}
 	})
+}
+
+// --- the set as the connection holds it
+
+func linksOfState(a App) []string {
+	var out []string
+	for l := range a.Links.Live {
+		out = append(out, l)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func TestTheLiveLinksAreAskedForOnceTheConnectionIsUp(t *testing.T) {
+	// Against a single agent: once the session exists, and before the
+	// board, so the board's links can be held to them as soon as it draws.
+	_, fx := feedS(Single{}, Connected{At: t0})
+	var asked []string
+	for _, f := range fx {
+		switch f.(type) {
+		case RequestLinks:
+			asked = append(asked, "links")
+		case RequestCards:
+			asked = append(asked, "cards")
+		}
+	}
+	if !slices.Equal(asked, []string{"links", "cards"}) {
+		t.Fatalf("asked %v, want the links and then the board", asked)
+	}
+	// In hub mode: as soon as the hub is connected, with no conversation.
+	_, fx = ReduceHub(NewHub(""), HubConnected{At: t0})
+	if len(effectsOf[RequestLinks](fx)) != 1 {
+		t.Fatalf("the hub asked %d times: %#v", len(effectsOf[RequestLinks](fx)), fx)
+	}
+}
+
+func TestTheLiveLinksFollowRelay(t *testing.T) {
+	a, b, c := "https://x.example/a", "https://x.example/b", "https://x.example/c"
+	x, _ := feedS(Single{}, Connected{At: t0})
+	if !x.Links.Empty() || x.Links.Loaded {
+		t.Fatalf("links before relay answered: %+v", x.Links)
+	}
+	x, _ = feedS(x, LinksLoaded{At: t0, Rev: 5, Live: []string{a, b, "javascript:alert(1)", "https://x.example/a(b)"}})
+	if got := linksOfState(x.App); !slices.Equal(got, []string{a, b}) || !x.Links.Loaded {
+		t.Fatalf("after the answer: %v", got)
+	}
+	// What is not in a link's shape is never held, from a change either.
+	before := x.Links
+	x, _ = feedS(x, LinksChanged{At: t0, Rev: 6, Live: []string{c, "https://x.example/\x07"}, Gone: []string{a}})
+	if got := linksOfState(x.App); !slices.Equal(got, []string{b, c}) {
+		t.Fatalf("after a change: %v", got)
+	}
+	// The set a frame was drawn from is not changed under it.
+	if !before.Has(a) || before.Has(c) {
+		t.Fatal("a change rewrote the set an earlier state holds")
+	}
+	// A change the answer already holds is not applied again.
+	x, _ = feedS(x, LinksChanged{At: t0, Rev: 5, Live: []string{a}})
+	if x.Links.Has(a) {
+		t.Fatal("a change older than the answer was applied")
+	}
+}
+
+func TestAnAnswerOlderThanAChangeIsAskedForAgain(t *testing.T) {
+	a, b := "https://x.example/a", "https://x.example/b"
+	x, _ := feedS(Single{}, Connected{At: t0})
+	// The change overtook the answer: relay counts it as sent.
+	x, _ = feedS(x, LinksChanged{At: t0, Rev: 9, Live: []string{b}})
+	x, fx := feedS(x, LinksLoaded{At: t0, Rev: 8, Live: []string{a}})
+	if len(effectsOf[RequestLinks](fx)) != 1 {
+		t.Fatalf("the stale answer was not asked for again: %#v", fx)
+	}
+	if !x.Links.Has(b) {
+		t.Fatal("the stale answer undid the change")
+	}
+	x, _ = feedS(x, LinksLoaded{At: t0, Rev: 9, Live: []string{a, b}})
+	if got := linksOfState(x.App); !slices.Equal(got, []string{a, b}) {
+		t.Fatalf("after the current answer: %v", got)
+	}
+}
+
+func TestWithoutTheMethodEveryLinkStaysBroken(t *testing.T) {
+	x, _ := feedS(Single{}, Connected{At: t0})
+	x, _ = feedS(x, LinksLoaded{At: t0, Unavailable: true})
+	if !x.Links.Unavailable || !x.Links.Empty() {
+		t.Fatalf("%+v", x.Links)
+	}
+	// Nothing asks again: the agent has no such method.
+	x.Board.Loaded = true
+	_, fx := feedS(x, key(t0, PaneRefresh))
+	if len(effectsOf[RequestLinks](fx)) != 0 {
+		t.Fatalf("asked again: %#v", fx)
+	}
+	// A call that failed another way is tried again on a reload.
+	y, _ := feedS(Single{}, Connected{At: t0})
+	y, _ = feedS(y, LinksLoaded{At: t0, Err: "timed out"})
+	y.PaneFocus = true
+	_, fx = feedS(y, key(t0, PaneRefresh))
+	if len(effectsOf[RequestLinks](fx)) != 1 {
+		t.Fatalf("a reload did not ask again: %#v", fx)
+	}
+}
+
+func TestTheHubHoldsTheLiveLinksWithOrWithoutAConversation(t *testing.T) {
+	a := "https://x.example/a"
+	h, _ := ReduceHub(NewHub(""), HubConnected{At: t0})
+	h, _ = ReduceHub(h, LinksLoaded{At: t0, Rev: 3, Live: []string{a}})
+	if !h.App.Links.Has(a) {
+		t.Fatal("no conversation: the set was not kept")
+	}
+	h, _ = ReduceHub(h, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1")}})
+	h, _ = ReduceHub(h, Attached{At: t0, Role: "dev", Session: "s1"})
+	h, _ = ReduceHub(h, LinksChanged{At: t0, Rev: 4, Gone: []string{a}, Live: []string{"https://x.example/b"}})
+	if h.App.Links.Has(a) || !h.App.Links.Has("https://x.example/b") {
+		t.Fatalf("with a conversation in focus: %v", linksOfState(h.App))
+	}
 }

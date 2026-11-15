@@ -603,6 +603,7 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		move(len(rd.Items) - 1)
 	case ReadyRefresh:
 		rd.Asked = false
+		r.withApp(func(a *reducer) { a.retryLinks() })
 		r.askReady()
 	case ReadyHelp:
 		rd.Help = true

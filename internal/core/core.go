@@ -331,6 +331,9 @@ func (r *reducer) apply(e Event) {
 			r.refresh()
 			// The session exists, so the board can be asked for.
 			r.a.Live = true
+			// The live links first, so the board's links can be held to
+			// them as soon as it is drawn.
+			r.askLinks()
 			r.askCards()
 			r.sendQueue(e.At)
 		}
@@ -348,6 +351,8 @@ func (r *reducer) apply(e Event) {
 		}
 	case ItemsLoaded, CitationResolved, PaneKey, CardsLoaded, CardsChanged, CardOpDone:
 		r.pane(e)
+	case LinksLoaded, LinksChanged:
+		r.links(e)
 	case LabelsSeen:
 		s.Labels = s.Labels.Union(e.Labels)
 	case UserChunk, ConvAttached, RemoteIdle, ReplayEnd:

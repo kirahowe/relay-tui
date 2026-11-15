@@ -18,6 +18,7 @@ func (nopConn) Cancel(string)             {}
 func (nopConn) Items(string)              {}
 func (nopConn) Resolve(string, string)    {}
 func (nopConn) Cards()                    {}
+func (nopConn) Links()                    {}
 func (nopConn) CardOp(int64, core.CardOp) {}
 func (nopConn) Attach(string, string)     {}
 func (nopConn) End(string)                {}

@@ -214,6 +214,50 @@ func UndoOutcome(move int64, raw json.RawMessage, err error, at time.Time) core.
 	return core.UndoDone{At: at, Move: move, Lines: r.Lines, Summary: r.Summary}
 }
 
+// relay's live links: _relay/links, read once the connection is up, and
+// then _relay/links/changed. The client holds every link it draws in
+// outside text to this set (core.Links).
+const (
+	MethodLinks        = "_relay/links"
+	MethodLinksChanged = "_relay/links/changed"
+)
+
+// LinksParams is the parameters of _relay/links: none.
+func LinksParams() map[string]any { return map[string]any{} }
+
+// Links translates the answer to _relay/links. A plain agent, or a relay
+// from before it, answers method-not-found: no link is live.
+func Links(raw json.RawMessage, err error, at time.Time) core.LinksLoaded {
+	if err != nil {
+		if notFound(err) {
+			return core.LinksLoaded{At: at, Unavailable: true}
+		}
+		return core.LinksLoaded{At: at, Err: errText(err)}
+	}
+	var r struct {
+		Rev  int64    `json:"rev"`
+		Live []string `json:"live"`
+	}
+	if strictjson.Unmarshal(raw, &r) != nil || r.Live == nil {
+		return core.LinksLoaded{At: at, Err: "relay's answer could not be read"}
+	}
+	return core.LinksLoaded{At: at, Rev: r.Rev, Live: r.Live}
+}
+
+// LinksChanged translates a _relay/links/changed notification. ok is
+// false when it cannot be read.
+func LinksChanged(params json.RawMessage, at time.Time) (core.LinksChanged, bool) {
+	var r struct {
+		Rev  int64    `json:"rev"`
+		Live []string `json:"live"`
+		Gone []string `json:"gone"`
+	}
+	if strictjson.Unmarshal(params, &r) != nil {
+		return core.LinksChanged{}, false
+	}
+	return core.LinksChanged{At: at, Rev: r.Rev, Live: r.Live, Gone: r.Gone}, true
+}
+
 // ActOutcome translates the answer to _relay/messages/act on item n of
 // message, which did op: a JSON-RPC error's message is relay's refusal.
 func ActOutcome(message int64, n int, op string, err error, at time.Time) core.ActDone {

@@ -556,6 +556,7 @@ func (r *reducer) boardKey(e PaneKey) {
 		r.toggleBoard()
 	case PaneRefresh:
 		b.Asked = false
+		r.retryLinks()
 		r.askCards()
 	case PaneUp, PaneDown, PagePrev, PageNext:
 		d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -scrollPage, PageNext: scrollPage}[e.Action]

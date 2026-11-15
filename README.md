@@ -161,8 +161,28 @@ Once the session has read text from outside (the agent reports it in
 notices, tool names, arguments and output) show defanged, as
 `hxxps://host[.]tld/path`, so a click cannot carry data out. The label
 itself is never shown, and nothing is held or withheld because of it.
-relay-tui never writes OSC 8 hyperlinks and never sends `resource_link`
-blocks.
+relay-tui never sends `resource_link` blocks.
+
+The one link relay-tui lets your terminal follow in text from outside is
+a live link of relay's: an address relay can say came from somewhere it
+takes links from, because the web showed it to a scout or you called it
+safe. relay-tui asks relay for that set (`_relay/links`) and holds every
+link it draws to it. A link is drawn as an OSC 8 hyperlink, between
+angle brackets and underlined, only when its address is in the set,
+character for character. That holds on a card, in a ready item and in an
+agent's reply alike. Every other link stays broken, whatever the text
+around it looks like. Against a plain ACP agent, or a relay without
+`_relay/links`, they all do.
+
+A live link that fits its row shows whole. One longer than its row
+shows in the broken form, and every piece of it still opens the whole
+address: the hyperlink carries the address, so the text does not have
+to. No row ever shows the start of an address, which would be another
+address, one nobody judged. For a click to work your terminal has to
+pass OSC 8 on (cmd+click in Ghostty and iTerm2). tmux does from 3.4,
+with `hyperlinks` in `terminal-features` for the terminal it runs in.
+Where it does not get through there is nothing to click, and a link
+that fits its row can still be opened as text.
 
 Where a thing came from is said in plain words, where it is shown: "from
 the web" for an item with a web source, "from outside" for any other text
@@ -282,8 +302,9 @@ it, unless a turn is running, which it stops.
 Card text is shown as relay sent it. relay has already made hidden
 characters visible and defanged links in text from outside, which it
 marks as such. relay-tui shows that text in the warning colour, and the
-bottom border of a card that holds any says `from outside`. Links are
-never clickable, and relay-tui fetches nothing.
+bottom border of a card that holds any says `from outside`. A link in it
+can be clicked only when it is one of relay's live links (see The look),
+and relay-tui fetches nothing.
 
 ## What is ready for you
 
@@ -549,7 +570,10 @@ agent `core.Single` holds the app and the one conversation, and
 split. `core` holds its state and the board's cards, `wire` reads relay's `_meta`, its
 `_relay/items`, `_relay/resolve`, `_relay/cards` and
 `_relay/cards/op` answers and its `_relay/cards/changed` notifications,
-and `render` draws it all. The `agent` package makes the calls one at a
+and `render` draws it all. relay's live links are the connection's too
+(`core.Links`, from `_relay/links` and `_relay/links/changed`), and
+`render/links.go` is the one place that decides what a terminal is given
+to follow. The `agent` package makes the calls one at a
 time and in order.
 
 The two questions live in `core/authority.go`. `core.authorityOf` says

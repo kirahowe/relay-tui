@@ -19,7 +19,9 @@ import (
 
 // urlRE finds a URL: a scheme and "://", or "www.", then everything up to
 // a space or a character that usually closes a URL in prose or markdown.
-var urlRE = regexp.MustCompile("(?i)(?:[a-z][a-z0-9+.\\-]*://|www\\.)[^\\s<>\"'`)\\]\\x1b]*")
+// A dot that is already broken, [.], is part of it, so a URL broken once
+// is found whole and Defang leaves it as it is.
+var urlRE = regexp.MustCompile("(?i)(?:[a-z][a-z0-9+.\\-]*://|www\\.)(?:\\[\\.\\]|[^\\s<>\"'`)\\]\\x1b])*")
 
 // schemeName is a scheme by itself, as it stands before "://".
 var schemeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.\-]*$`)

@@ -45,6 +45,7 @@ func (c callConn) Items(string)                   {}
 func (c callConn) Seen(string, int)               {}
 func (c callConn) Resolve(string, string)         {}
 func (c callConn) Cards()                         {}
+func (c callConn) Links()                         {}
 func (c callConn) Shutdown()                      {}
 
 // surfaceHub is a hub model typing on Dev at the test's clock, with the

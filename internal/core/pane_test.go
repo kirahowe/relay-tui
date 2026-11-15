@@ -184,7 +184,7 @@ func TestPaneKeysSendNothingButTheListRequest(t *testing.T) {
 			s, fx = ReduceSingle(s, e)
 			for _, f := range fx {
 				switch f.(type) {
-				case RequestItems, RequestResolve, RequestCards:
+				case RequestItems, RequestResolve, RequestCards, RequestLinks:
 				default:
 					t.Fatalf("%T gave %#v", e, f)
 				}

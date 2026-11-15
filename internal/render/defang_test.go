@@ -25,6 +25,11 @@ func TestDefangKnown(t *testing.T) {
 		"www.evil.test/?u=http://x.test/a": "www[.]evil[.]test/?u=http[:]//x[.]test/a",
 		"seewww.evil.test/xhttps://a.io":   "seewww[.]evil[.]test/xhttps[:]//a[.]io",
 		"www.x-y.io://foo.bar":             "www[.]x-y[.]io[:]//foo[.]bar",
+		// What is broken already stays as it is, and the tail a cut
+		// leaves of a broken scheme is broken without doubling a bracket.
+		"hxxps://evil[.]test/x?d=a[.]b": "hxxps://evil[.]test/x?d=a[.]b",
+		"s://evil[.]test/x":             "s[:]//evil[.]test/x",
+		"://evil[.]test/x":              "[:]//evil[.]test/x",
 	} {
 		if got := Defang(in); got != want {
 			t.Errorf("Defang(%q) = %q, want %q", in, got, want)
@@ -44,6 +49,17 @@ func genURLText(t *rapid.T) string {
 	}
 	around := rapid.SampledFrom([]string{"%s", "see %s now", "www.evil.test/?u=%s", "www.evil.io://%s", "**%s**", "_%s_", "[l](%s)", "<%s>", "`%s`", "```\n%s\n```", "- %s\n- %s", "a\x1b]8;;%s\x07click\x1b]8;;\x07", "h\x1bttp://%s", "http:*/*/%s", "https:/\u200b/%s"}).Draw(t, "around")
 	return strings.ReplaceAll(around, "%s", url)
+}
+
+// Defang changes nothing in text it has already been through, so a row
+// that is checked twice reads the same.
+func TestDefangIsIdempotent(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		once := Defang(sanitize(genURLText(t)))
+		if twice := Defang(once); twice != once {
+			t.Fatalf("Defang(%q) = %q", once, twice)
+		}
+	})
 }
 
 // P-defang1: in a contaminated session no rendered agent text keeps a
