@@ -13,19 +13,22 @@ import (
 
 // Entries renders transcript entries. prev is the entry just before es,
 // already shown, or nil at the start; it decides the spacing above the
-// first one. now picks the spinner frame for a running tool.
+// first one. now picks the spinner frame for a running tool. It knows no
+// live links, so every link in text from outside is broken.
 func Entries(prev *core.Entry, es []core.Entry, width int, now time.Time) []string {
-	return entriesAs(prev, es, expand{}, width, now)
+	return entriesAs(prev, es, expand{}, core.Links{}, width, now)
 }
 
 // expand says which kinds of block show in full, as in the transcript
 // view.
 type expand struct{ tools, thinking bool }
 
-func entriesAs(prev *core.Entry, es []core.Entry, x expand, width int, now time.Time) []string {
+// entriesAs is Entries with blocks shown as x says and relay's live
+// links, which a reply written under contamination keeps whole.
+func entriesAs(prev *core.Entry, es []core.Entry, x expand, live core.Links, width int, now time.Time) []string {
 	var out []string
 	for i := range es {
-		lines := entryAs(es[i], x, width, now)
+		lines := entryAs(es[i], x, live, width, now)
 		if len(lines) == 0 {
 			continue
 		}
@@ -45,20 +48,24 @@ func blankBetween(prev, e core.Entry) bool {
 	return e.Kind != core.Note || prev.Kind == core.User || prev.Kind == core.Banner
 }
 
-func entry(e core.Entry, width int, now time.Time) []string {
-	return entryAs(e, expand{}, width, now)
+func entry(e core.Entry, live core.Links, width int, now time.Time) []string {
+	return entryAs(e, expand{}, live, width, now)
 }
 
-func entryAs(e core.Entry, x expand, width int, now time.Time) []string {
+func entryAs(e core.Entry, x expand, live core.Links, width int, now time.Time) []string {
 	if e.Defang {
+		// Text from a contaminated session: its links are broken in the
+		// source, all but a reply's live links, which the Markdown
+		// renderer then draws as link spans; the drawn lines are checked
+		// once more.
 		e.Defang = false
-		return defangLines(entryAs(defanged(e), x, width, now))
+		return defangLines(entryAs(defanged(e, live), x, live, width, now))
 	}
 	switch e.Kind {
 	case core.User:
 		return userLines(e.Text, width)
 	case core.Agent:
-		return Markdown(e.Text, width)
+		return markdown(e.Text, live, width)
 	case core.Tool:
 		if x.tools {
 			return detailLines(e.Calls, width, now)

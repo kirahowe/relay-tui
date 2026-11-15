@@ -63,12 +63,12 @@ func TestDefangedEntries(t *testing.T) {
 			x := expand{tools: rapid.Bool().Draw(t, "tools"), thinking: rapid.Bool().Draw(t, "thinking")}
 			for _, defang := range []bool{true, false} {
 				e.Defang = defang
-				out := strings.Join(entriesAs(nil, []core.Entry{e}, x, width, t0), "\n")
+				out := strings.Join(entriesAs(nil, []core.Entry{e}, x, core.Links{}, width, t0), "\n")
 				if strings.Contains(out, "\x1b]") || strings.ContainsRune(sgrRE.ReplaceAllString(out, ""), 0x1b) || strings.ContainsRune(out, 0x07) {
 					t.Fatalf("kind %v: an escape other than SGR in %q", e.Kind, out)
 				}
 				plain := strings.ToLower(strings.ReplaceAll(ansi.Strip(out), "\n", ""))
-				if defang && width >= 20 && (live(plain) || strings.Contains(plain, "www.")) {
+				if defang && width >= 20 && (linkable(plain) || strings.Contains(plain, "www.")) {
 					t.Fatalf("kind %v width %d: a live URL in %q (from %q)", e.Kind, width, plain, text)
 				}
 			}

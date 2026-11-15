@@ -198,20 +198,34 @@ func parseSGR(seq string) style {
 }
 
 // selfContained makes each line open the style the previous line left
-// on, and reset at its end.
+// on, and reset at its end. A hyperlink a line leaves open is ended there
+// and started again on the next, so no line's link runs into whatever is
+// drawn beside it.
 func selfContained(lines []string) []string {
 	var cur style
+	link := ""
 	out := make([]string, len(lines))
 	for i, l := range lines {
-		open := cur
+		open, was := cur, link
 		for _, seq := range sgrRE.FindAllString(l, -1) {
 			cur = parseSGR(seq)
+		}
+		if hasLinks(l) {
+			for _, m := range osc8RE.FindAllStringSubmatch(l, -1) {
+				link = m[1]
+			}
+		}
+		if was != "" {
+			l = linkOpen(was) + l
 		}
 		if open != 0 {
 			l = sgr(open) + l
 		}
 		if cur != 0 {
 			l += sgr(0)
+		}
+		if link != "" {
+			l += linkEnd
 		}
 		out[i] = l
 	}
@@ -267,15 +281,23 @@ func expandTabs(line string) string {
 
 // wrap word-wraps styled text to width and returns self-contained lines.
 // ansi.Wrap can leave a line too wide (it does with "  -  ·   -" at 8
-// columns), so any such line is then cut hard.
+// columns), so any such line is then cut hard. A live link stays whole on
+// one row when its word fits a row, and shows broken when it does not
+// (fitLinks).
 func wrap(s string, width int) []string {
 	width = max(width, 1)
+	s, held := fitLinks(s, width)
 	var lines []string
 	for _, l := range strings.Split(Method.Wrap(s, width, ""), "\n") {
 		if Method.StringWidth(l) > width {
 			lines = append(lines, hardwrap(l, width)...)
 		} else {
 			lines = append(lines, l)
+		}
+	}
+	if held {
+		for i, l := range lines {
+			lines[i] = strings.ReplaceAll(l, hyphenStand, "-")
 		}
 	}
 	return selfContained(lines)
@@ -299,10 +321,12 @@ func hardwrap(s string, width int) []string {
 // truncate cuts one line to width, ending it with … when cut. ansi's
 // Truncate can measure a cluster differently from StringWidth (it did
 // with "A" and U+FE0F), so the result is measured and cut again if needed.
+// A live link the cut would fall inside is shown broken first (cutLinks).
 func truncate(s string, width int) string {
 	if Method.StringWidth(s) <= width {
 		return s
 	}
+	s = cutLinks(s, width)
 	for n := width; n > 0; n-- {
 		r := selfContained([]string{Method.Truncate(s, n, "…")})[0]
 		if Method.StringWidth(r) <= width {

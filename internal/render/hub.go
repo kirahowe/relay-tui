@@ -325,6 +325,13 @@ func HubInputWidth(h core.Hub, width int) int {
 // HubView draws the whole screen at width, height rows. input is the text
 // area as already drawn, InputWidth(HubMainWidth(width)) wide.
 func HubView(h core.Hub, input, hint string, now time.Time, width, height int) HubFrame {
+	f := hubScreen(h, input, hint, now, width, height)
+	// Everything that goes to the terminal passes the gate.
+	f.Content = gate(f.Content, h.App.Links)
+	return f
+}
+
+func hubScreen(h core.Hub, input, hint string, now time.Time, width, height int) HubFrame {
 	height = max(height, 2)
 	wide := HubWide(width)
 	// What has the keys is what is drawn as active: core.HubSurface
@@ -589,7 +596,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		lines = []string{styled(faint, "No conversation with "+title+" yet.")}
 	default:
 		ex := expand{tools: s.Transcript.Tools, thinking: s.Transcript.Thinking}
-		lines = entriesAs(nil, s.Entries, ex, width, now)
+		lines = entriesAs(nil, s.Entries, ex, h.App.Links, width, now)
 		if conv.Truncated {
 			// relay's word, not the agent's: set apart by a rule on each
 			// side, in italics, where no agent text is.

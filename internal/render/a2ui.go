@@ -23,10 +23,10 @@ const rowGap = 2
 
 // surfaceText is a string from a surface, safe to print and defanged. It
 // may hold line breaks.
-func surfaceText(s string) string { return cardText(s, true) }
+func surfaceText(s string) string { return cardText(s, true, core.Links{}) }
 
 // surfaceLine is a string from a surface on one line.
-func surfaceLine(s string) string { return cardLine(s, true) }
+func surfaceLine(s string) string { return cardLine(s, true, core.Links{}) }
 
 // A2UI draws surface s in lines at most width wide. focus, when it names
 // a component the root reaches, shows that component on the selection
@@ -97,7 +97,7 @@ func (d *surfaceDraw) node(ch a2ui.Child, width, depth int, measure bool) []stri
 	case "CheckBox":
 		label := d.s.String(ch.Scope, c.Props["label"])
 		done, _ := d.s.Bool(ch.Scope, c.Props["value"])
-		lines = checkLines(core.CardElem{CardText: core.CardText{Text: surfaceText(label)}, Done: done}, width)
+		lines = checkLines(core.CardElem{CardText: core.CardText{Text: surfaceText(label)}, Done: done}, core.Links{}, width)
 	case "Button":
 		lines = d.button(c, ch.Scope, width, depth)
 	case "TextField":
@@ -454,7 +454,7 @@ func (d *surfaceDraw) tracker(c a2ui.Component, sc a2ui.Scope, width int) []stri
 			card.Cells = append(card.Cells, core.Cell{Row: r, Column: k, State: x.State})
 		}
 	}
-	lines, _, _ := cardLinesFor(core.Board{}, card, width, true, false)
+	lines, _, _ := cardLinesFor(core.Board{}, card, core.Links{}, width, true, false)
 	return lines
 }
 

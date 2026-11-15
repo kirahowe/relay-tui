@@ -45,6 +45,21 @@ type Frame struct {
 //
 // With s.Help the list of keys takes the transcript's place.
 func View(x core.Single, input, hint string, now time.Time, width, height int) Frame {
+	f := singleFrame(x, input, hint, now, width, height)
+	// Everything that goes to the terminal passes the gate: the frame,
+	// and the lines that go into scrollback.
+	f.Content = gate(f.Content, x.App.Links)
+	if len(f.Print) > 0 {
+		printed := make([]string, len(f.Print))
+		for i, l := range f.Print {
+			printed[i] = gate(l, x.App.Links)
+		}
+		f.Print = printed
+	}
+	return f
+}
+
+func singleFrame(x core.Single, input, hint string, now time.Time, width, height int) Frame {
 	a, s := x.App, x.State
 	// What has the keys is what is drawn as active: core.SingleSurface
 	// decides it, and nothing here decides it again.
@@ -89,7 +104,7 @@ func View(x core.Single, input, hint string, now time.Time, width, height int) F
 // the transcript would have had; paneHint says the status line names the
 // pane's key.
 func view(a core.App, s core.State, surf core.Surface, input, hint string, now time.Time, width, height int, over func(room int) []string, need int, paneHint bool) Frame {
-	lines, at := transcript(s, width, now)
+	lines, at := transcript(s, a.Links, width, now)
 
 	var bottom []string
 	for _, q := range s.Queue {
@@ -188,7 +203,7 @@ type place struct {
 // An entry's lines include the blank line above it, if any. After a
 // resize the cursor can point past the end of an entry; the rest of that
 // entry is then taken as printed.
-func transcript(s core.State, width int, now time.Time) ([]string, []place) {
+func transcript(s core.State, live core.Links, width int, now time.Time) ([]string, []place) {
 	var lines []string
 	var at []place
 	var prev *core.Entry
@@ -196,13 +211,13 @@ func transcript(s core.State, width int, now time.Time) ([]string, []place) {
 	// The entry above decides the blank line between: the last one that
 	// shows, as in Entries.
 	for i := min(s.Printed.Entry, len(s.Entries)) - 1; i >= 0; i-- {
-		if len(entry(s.Entries[i], width, now)) > 0 {
+		if len(entry(s.Entries[i], live, width, now)) > 0 {
 			prev = &s.Entries[i]
 			break
 		}
 	}
 	for i := s.Printed.Entry; i < len(s.Entries); i++ {
-		el := Entries(prev, s.Entries[i:i+1], width, now)
+		el := entriesAs(prev, s.Entries[i:i+1], expand{}, live, width, now)
 		final = final && s.Entries[i].Final
 		if len(el) == 0 {
 			continue

@@ -20,12 +20,31 @@ var parser = goldmark.DefaultParser()
 // and the markers go; code is indented and faint; quotes get a bar; lists
 // get bullets. Tables and raw HTML are shown as written.
 func Markdown(md string, width int) []string {
+	return markdown(md, core.Links{}, width)
+}
+
+// markdown is Markdown for text whose links are already broken but for
+// relay's live links (fangSource): a link the parser finds whose address
+// is one of them is drawn as a link span.
+func markdown(md string, live core.Links, width int) []string {
 	src := []byte(listBreaks(md))
-	m := &mdRenderer{src: src}
+	m := &mdRenderer{src: src, live: live}
 	return m.blocks(parser.Parse(text.NewReader(src)), width, 0, false)
 }
 
-type mdRenderer struct{ src []byte }
+type mdRenderer struct {
+	src  []byte
+	live core.Links
+}
+
+// link is an address the parser read as a link's, as it is drawn: a
+// link span when it is a live link, else its text.
+func (m *mdRenderer) link(addr string) string {
+	if m.live.Has(addr) {
+		return span(addr)
+	}
+	return oneLine(addr)
+}
 
 // orderedItem matches a line that starts an ordered list item with
 // some text after the marker.
@@ -230,12 +249,12 @@ func (m *mdRenderer) inline(n ast.Node, base style) string {
 				label := m.plain(c)
 				walk(c, st)
 				if dest := string(c.Destination); dest != label {
-					put(st, " ("+oneLine(dest)+")")
+					put(st, " ("+m.link(dest)+")")
 				}
 			case *ast.Image:
 				put(st, "[image: "+m.plain(c)+"] ("+oneLine(string(c.Destination))+")")
 			case *ast.AutoLink:
-				put(st, oneLine(string(c.URL(m.src))))
+				put(st, m.link(string(c.URL(m.src))))
 			case *ast.RawHTML:
 				for i := range c.Segments.Len() {
 					seg := c.Segments.At(i)

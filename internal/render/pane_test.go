@@ -326,7 +326,7 @@ func TestContaminatedItemsSayWhereTheyCameFrom(t *testing.T) {
 			t.Fatalf("no %q (detail %v):\n%s", want, s.Pane.Detail, plain)
 		}
 		for _, l := range strings.Split(plain, "\n") {
-			if live(l) {
+			if linkable(l) {
 				t.Fatalf("live link in %q", l)
 			}
 		}

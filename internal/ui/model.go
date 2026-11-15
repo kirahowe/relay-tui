@@ -591,7 +591,7 @@ func (m Model) frame(now time.Time) render.Frame {
 }
 
 func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
-	return render.TranscriptView(m.one.State, now, m.width(), max(m.h, 2))
+	return render.TranscriptView(m.one.State, m.one.App.Links, now, m.width(), max(m.h, 2))
 }
 
 func (m Model) View() tea.View {

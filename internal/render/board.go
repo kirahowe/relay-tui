@@ -16,38 +16,51 @@ import (
 // has already made every text safe: hidden characters made visible, and
 // outside text defanged and flagged outsider. The board draws that text
 // as it came, in the warning colour and under "from outside" where a card
-// holds any. It
-// still escapes anything that does not print, and defangs a link left
-// live in outside text, so a mistake upstream cannot reach the terminal. It never writes a hyperlink and never
-// fetches anything.
+// holds any. It still escapes anything that does not print, and breaks
+// every link in outside text but relay's live links (links.go), so a
+// mistake upstream cannot reach the terminal. It never fetches anything.
 
 // cardLine is a piece of card text on one line, safe to print.
-func cardLine(t string, outsider bool) string {
-	return strings.ReplaceAll(cardText(t, outsider), "\n", `\n`)
+func cardLine(t string, outsider bool, live core.Links) string {
+	return strings.ReplaceAll(cardText(t, outsider, live), "\n", `\n`)
 }
 
-// cardText is card text that may run over several lines, safe to print.
-// relay has defanged outside text already, so it shows as sent; only a
-// link still live in it, which relay would never send, is defanged here.
-func cardText(t string, outsider bool) string {
+// cardText is text relay sent, which may run over several lines, safe to
+// print: a card's, a ready item's, or any other that comes with relay's
+// word on whether an outsider may have written it. Outside text has its
+// links broken here whatever relay did to it, all but the live links
+// relay sent this connection, which become link spans (fang). Text that
+// is not from outside shows as sent.
+func cardText(t string, outsider bool, live core.Links) string {
 	t = core.EscapeNonPrinting(strings.ReplaceAll(strings.ReplaceAll(t, "\r\n", "\n"), "\t", "    "))
-	if outsider && live(t) {
-		t = Defang(t)
+	if outsider {
+		t = fang(t, live)
 	}
 	return t
 }
 
 // cardLines is cardText wrapped to width, keeping its line breaks.
-func cardLines(t string, outsider bool, width int) []string {
+func cardLines(t string, outsider bool, live core.Links, width int) []string {
 	var out []string
-	for _, l := range strings.Split(cardText(t, outsider), "\n") {
+	for _, l := range strings.Split(cardText(t, outsider, live), "\n") {
 		if l == "" {
 			out = append(out, "")
 			continue
 		}
 		out = append(out, wrap(l, width)...)
 	}
-	return out
+	return drawn(out, outsider)
+}
+
+// drawn is the last step for rows of outside text, after everything that
+// decides what they show: a row that shows something a terminal could
+// follow, other than a whole live link in its span, is shown plain and
+// broken (defangLines). Rows that are not from outside pass as they are.
+func drawn(rows []string, outsider bool) []string {
+	if !outsider {
+		return rows
+	}
+	return defangLines(rows)
 }
 
 // outside colours a card text from outside, so it stands out from the
@@ -94,11 +107,11 @@ func kindColour(kind string) style {
 
 // cardTitle is the card's title for its panel's border: bold, in its
 // kind's colour or as outside text, or a stand-in when it is empty.
-func cardTitle(c core.Card) string {
+func cardTitle(c core.Card, live core.Links) string {
 	if strings.TrimSpace(c.Title.Text) == "" {
 		return styled(faint, "(untitled)")
 	}
-	t := cardLine(c.Title.Text, c.Title.Outsider)
+	t := cardLine(c.Title.Text, c.Title.Outsider, live)
 	if c.Title.Outsider {
 		return styled(bold|warnColour, t)
 	}
@@ -117,7 +130,7 @@ func cardRight(b core.Board, c core.Card) string {
 	case c.Kind == core.CardChecklist || c.Kind == core.CardTracker:
 		w = fmt.Sprintf("%d of %d", c.Done, c.Total)
 	default:
-		w = cardLine(c.Kind, true)
+		w = cardLine(c.Kind, true, core.Links{})
 	}
 	return styled(faint, w)
 }
@@ -137,11 +150,11 @@ const listItems, listNoteLines = 6, 12
 
 // checkLines is a checklist item: a green tick and struck-through text
 // when it is done, a ring when it is not, the text hanging beside it.
-func checkLines(it core.CardElem, width int) []string {
+func checkLines(it core.CardElem, live core.Links, width int) []string {
 	if it.Done {
-		return hang(styled(okColour, "✓")+" ", outside(it.CardText, styled(faint|strike, cardLine(it.Text, it.Outsider))), width)
+		return drawn(hang(styled(okColour, "✓")+" ", outside(it.CardText, styled(faint|strike, cardLine(it.Text, it.Outsider, live))), width), it.Outsider)
 	}
-	return hang(styled(faint, "○")+" ", outside(it.CardText, cardLine(it.Text, it.Outsider)), width)
+	return drawn(hang(styled(faint, "○")+" ", outside(it.CardText, cardLine(it.Text, it.Outsider, live)), width), it.Outsider)
 }
 
 var (
@@ -153,29 +166,41 @@ var (
 // noteLines draws a note's text, width wide, line by line as it was
 // written: every line break stays. A # heading is bold, **text** is bold,
 // and a list line's marker is faint with its text hanging beside it.
-// text is safe to print already (cardText).
-func noteLines(text string, width int) []string {
+//
+// text is as relay sent it. The marks are read first, and what is left
+// to draw is made safe piece by piece (cardText), so a mark never sits
+// inside a link span and a span is never rewritten. Taking a mark out can
+// still put an address together from its pieces ("https:/**/**x.test"),
+// so the rows of outside text are checked once more as drawn.
+func noteLines(text string, outsider bool, live core.Links, width int) []string {
+	safe := func(s string) string { return cardText(s, outsider, live) }
 	inline := func(s string) string {
-		return noteBold.ReplaceAllStringFunc(s, func(m string) string {
-			return styled(bold, noteBold.FindStringSubmatch(m)[1])
-		})
+		var b strings.Builder
+		at := 0
+		for _, m := range noteBold.FindAllStringSubmatchIndex(s, -1) {
+			b.WriteString(safe(s[at:m[0]]))
+			b.WriteString(styled(bold, safe(s[m[2]:m[3]])))
+			at = m[1]
+		}
+		b.WriteString(safe(s[at:]))
+		return b.String()
 	}
 	var out []string
-	for _, l := range strings.Split(text, "\n") {
+	for _, l := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		switch {
 		case strings.TrimSpace(l) == "":
 			out = append(out, "")
 		case noteHeading.MatchString(l):
-			out = append(out, wrap(styled(bold, noteHeading.FindStringSubmatch(l)[1]), width)...)
+			out = append(out, wrap(styled(bold, safe(noteHeading.FindStringSubmatch(l)[1])), width)...)
 		case noteItem.MatchString(l):
 			m := noteItem.FindStringSubmatch(l)
-			lead := strings.Repeat(" ", min(len(m[1]), 8)) + styled(faint, m[2]) + " "
+			lead := strings.Repeat(" ", min(len(m[1]), 8)) + styled(faint, safe(m[2])) + " "
 			out = append(out, hang(lead, inline(m[3]), width)...)
 		default:
 			out = append(out, wrap(inline(l), width)...)
 		}
 	}
-	return out
+	return drawn(out, outsider)
 }
 
 // cellGlyph is how a tracker cell shows: a dot when done, a cross when
@@ -197,17 +222,17 @@ func cellGlyph(state string) string {
 // column's name, up to colMax. It is nil when the grid is wider than
 // width, and the caller lists the tracker another way. sel and col pick
 // the selected row (1 on) and column (0 on), when focus is on the card.
-func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []string, selA, selB int, ok bool) {
+func trackerGrid(c core.Card, live core.Links, width int, line, col int, focus bool) (out []string, selA, selB int, ok bool) {
 	const colMax = 6
 	nameW := 0
 	for _, r := range c.Rows {
-		nameW = max(nameW, Method.StringWidth(cardLine(r.Text, r.Outsider)))
+		nameW = max(nameW, Method.StringWidth(cardLine(r.Text, r.Outsider, live)))
 	}
 	nameW = min(nameW, max(width/3, 8))
 	cols := make([]int, len(c.Columns))
 	total := nameW
 	for i, k := range c.Columns {
-		cols[i] = min(max(Method.StringWidth(cardLine(k.Text, k.Outsider)), 1), colMax)
+		cols[i] = min(max(Method.StringWidth(cardLine(k.Text, k.Outsider, live)), 1), colMax)
 		total += 1 + cols[i]
 	}
 	if total > width {
@@ -215,7 +240,7 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 	}
 	head := strings.Repeat(" ", nameW)
 	for i, k := range c.Columns {
-		name := truncate(strings.ToUpper(cardLine(k.Text, k.Outsider)), cols[i])
+		name := truncate(cardLine(strings.ToUpper(k.Text), k.Outsider, live), cols[i])
 		name += strings.Repeat(" ", cols[i]-Method.StringWidth(name))
 		st := faint
 		if focus && i == col {
@@ -225,7 +250,7 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 	}
 	out = append(out, head)
 	for i, r := range c.Rows {
-		name := truncate(cardLine(r.Text, r.Outsider), nameW)
+		name := truncate(cardLine(r.Text, r.Outsider, live), nameW)
 		l := outside(r.CardText, name) + strings.Repeat(" ", nameW-Method.StringWidth(name))
 		for j, k := range c.Columns {
 			g := cellGlyph(c.CellState(r.ID, k.ID))
@@ -247,7 +272,7 @@ func trackerGrid(c core.Card, width int, line, col int, focus bool) (out []strin
 // board's list (full false) a long checklist or note is cut short. In a
 // card's detail (full true) everything shows, and with focus the selected
 // line is on a tinted bar; selA and selB are its rows.
-func cardLinesFor(b core.Board, c core.Card, width int, full, focus bool) (out []string, selA, selB int) {
+func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
 	line := core.BoardLine(b, c)
 	col := core.BoardCol(b, c)
 	add := func(i int, lines []string) {
@@ -272,14 +297,14 @@ func cardLinesFor(b core.Board, c core.Card, width int, full, focus bool) (out [
 				out = append(out, styled(faint, fmt.Sprintf("+%d more", len(c.Items)-listItems)))
 				break
 			}
-			add(i+1, checkLines(it, width))
+			add(i+1, checkLines(it, live, width))
 		}
 	case core.CardTracker:
 		if len(c.Rows) == 0 || len(c.Columns) == 0 {
 			out = append(out, styled(faint, "no rows or columns yet"))
 			break
 		}
-		if grid, a, z, ok := trackerGrid(c, width, line, col, full && focus); ok {
+		if grid, a, z, ok := trackerGrid(c, live, width, line, col, full && focus); ok {
 			if full && focus && line > 0 {
 				selA, selB = len(out)+a, len(out)+z
 			}
@@ -290,15 +315,15 @@ func cardLinesFor(b core.Board, c core.Card, width int, full, focus bool) (out [
 		for i, r := range c.Rows {
 			var cells []string
 			for _, k := range c.Columns {
-				cells = append(cells, outside(k.CardText, cardLine(k.Text, k.Outsider))+" "+cellGlyph(c.CellState(r.ID, k.ID)))
+				cells = append(cells, outside(k.CardText, cardLine(k.Text, k.Outsider, live))+" "+cellGlyph(c.CellState(r.ID, k.ID)))
 			}
-			name := hang("", outside(r.CardText, cardLine(r.Text, r.Outsider)), width)
+			name := hang("", outside(r.CardText, cardLine(r.Text, r.Outsider, live)), width)
 			add(i+1, append(name, hang("  ", strings.Join(cells, styled(faint, " · ")), width)...))
 		}
 	case core.CardNote:
 		var lines []string
 		if c.Note != nil {
-			lines = noteLines(cardText(c.Note.Text, c.Note.Outsider), width)
+			lines = noteLines(c.Note.Text, c.Note.Outsider, live, width)
 			if c.Note.Outsider {
 				for i := range lines {
 					lines[i] = recolour(lines[i], warnColour)
@@ -311,7 +336,7 @@ func cardLinesFor(b core.Board, c core.Card, width int, full, focus bool) (out [
 		out = append(out, lines...)
 	default:
 		// A kind this client does not know shows relay's text form.
-		lines := cardLines(c.Text, c.Labels.Contaminated, width)
+		lines := cardLines(c.Text, c.Labels.Contaminated, live, width)
 		if !full && len(lines) > listNoteLines {
 			lines = lines[:listNoteLines]
 		}
@@ -323,9 +348,9 @@ func cardLinesFor(b core.Board, c core.Card, width int, full, focus bool) (out [
 // cardPanel is a card in its panel, width wide, as tall as it needs. Its
 // frame is in the accent colour when it has the keys; in a card's detail,
 // with the title the selected line, the title sits on a tinted bar.
-func cardPanel(b core.Board, c core.Card, width int, full, focus bool) (out []string, selA, selB int) {
-	body, a, z := cardLinesFor(b, c, framed(width), full, focus)
-	title := cardTitle(c)
+func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
+	body, a, z := cardLinesFor(b, c, live, framed(width), full, focus)
+	title := cardTitle(c, live)
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
@@ -340,22 +365,22 @@ func cardPanel(b core.Board, c core.Card, width int, full, focus bool) (out []st
 }
 
 // cellLine names the selected tracker cell and its state.
-func cellLine(b core.Board, c core.Card, width int) []string {
+func cellLine(b core.Board, c core.Card, live core.Links, width int) []string {
 	line, col := core.BoardLine(b, c), core.BoardCol(b, c)
 	if c.Kind != core.CardTracker || line == 0 || col < 0 {
 		return nil
 	}
 	r, k := c.Rows[line-1], c.Columns[col]
 	st := c.CellState(r.ID, k.ID)
-	return hang("", styled(faint, "cell: ")+outside(r.CardText, cardLine(r.Text, r.Outsider))+styled(faint, " × ")+
-		outside(k.CardText, cardLine(k.Text, k.Outsider))+styled(faint, " · ")+cardLine(st, true), width)
+	return hang("", styled(faint, "cell: ")+outside(r.CardText, cardLine(r.Text, r.Outsider, live))+styled(faint, " × ")+
+		outside(k.CardText, cardLine(k.Text, k.Outsider, live))+styled(faint, " · ")+cardLine(st, true, core.Links{}), width)
 }
 
 // cardName is how a prompt names a card: its title, quoted.
 func cardName(b core.Board, id int64) string {
 	for _, c := range b.Cards {
 		if c.ID == id && strings.TrimSpace(c.Title.Text) != "" {
-			return "“" + cardLine(c.Title.Text, c.Title.Outsider) + "”"
+			return "“" + cardLine(c.Title.Text, c.Title.Outsider, core.Links{}) + "”"
 		}
 	}
 	return "card " + strconv.FormatInt(id, 10)
@@ -364,6 +389,7 @@ func cardName(b core.Board, id int64) string {
 // boardParts lays out the board view.
 func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	b := a.Board
+	live := a.Links
 	focus := a.PaneFocus
 	var pr parts
 	count := -1
@@ -382,7 +408,7 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
 	case b.Detail && sel >= 0:
-		pr.body, pr.selA, pr.selB = cardPanel(b, c, width, true, focus)
+		pr.body, pr.selA, pr.selB = cardPanel(b, c, live, width, true, focus)
 	case len(b.Cards) == 0:
 		pr.body = []string{styled(faint, "no cards")}
 	default:
@@ -390,7 +416,7 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 			if i > 0 {
 				pr.body = append(pr.body, "")
 			}
-			lines, _, _ := cardPanel(b, x, width, false, focus && i == sel)
+			lines, _, _ := cardPanel(b, x, live, width, false, focus && i == sel)
 			if i == sel {
 				pr.selA, pr.selB = len(pr.body), len(pr.body)+len(lines)
 			}
@@ -403,13 +429,13 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.keys = PaneKey + " to focus, then b for the workspace"
 	case b.Input != nil:
 		in := b.Input
-		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false)+" › ")+cardLine(in.Text, false)+styled(reverse, " "), width)
+		pr.foot = hang("", styled(bold, cardLine(in.Prompt, false, live)+" › ")+cardLine(in.Text, false, live)+styled(reverse, " "), width)
 		pr.foot = append(pr.foot, hint("enter send · esc cancel")...)
 	case b.Confirm != 0:
 		pr.foot = hang("", styled(bold, "Archive "+cardName(b, b.Confirm)+"?"), width)
 		pr.foot = append(pr.foot, hint("y archive · any other key keeps it")...)
 	case b.Detail && sel >= 0:
-		pr.foot = cellLine(b, c, width)
+		pr.foot = cellLine(b, c, live, width)
 		switch c.Kind {
 		case core.CardChecklist:
 			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
@@ -427,9 +453,9 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.keys = "r reload · b workspace · esc back"
 	}
 	if b.Message != "" {
-		msg := wrap(styled(bold, cardLine(b.Message, false)), width)
+		msg := wrap(styled(bold, cardLine(b.Message, false, live)), width)
 		if b.Failure != "" {
-			msg = append(msg, hang("  ", cardLine(b.Failure, true), width)...)
+			msg = append(msg, hang("  ", cardLine(b.Failure, true, core.Links{}), width)...)
 		}
 		pr.foot = append(msg, pr.foot...)
 	}

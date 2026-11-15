@@ -192,7 +192,7 @@ func TestWidthBound(t *testing.T) {
 			{Kind: core.Thought, Text: text},
 		}
 		checkWidth(t, "entries", Entries(nil, es, width, now), width)
-		checkWidth(t, "entries in full", entriesAs(nil, es, expand{tools: true, thinking: true}, width, now), width)
+		checkWidth(t, "entries in full", entriesAs(nil, es, expand{tools: true, thinking: true}, core.Links{}, width, now), width)
 		checkWidth(t, "keys", HelpLines(false, width, 40), width)
 		checkWidth(t, "moving keys", HelpLines(true, width, 40), width)
 		l := core.StatusLine{
@@ -220,7 +220,7 @@ func TestWidthBound(t *testing.T) {
 		}
 		s.Transcript = core.Transcript{Open: true, Tools: rapid.Bool().Draw(t, "tools"), Thinking: rapid.Bool().Draw(t, "thinking"), Scroll: rapid.IntRange(0, 100).Draw(t, "scroll")}
 		s.Help = rapid.Bool().Draw(t, "help")
-		tf := TranscriptView(s, now, width, height)
+		tf := TranscriptView(s, core.Links{}, now, width, height)
 		tv := strings.Split(tf.Content, "\n")
 		checkWidth(t, "transcript", tv, width)
 		if len(tv) != max(height, 2) || tf.Max < 0 || tf.Page < 1 {
@@ -414,7 +414,7 @@ func TestFramePrintsTranscriptOnce(t *testing.T) {
 			}
 			step(core.PromptDone{At: t0, Stop: core.EndTurn})
 		}
-		rest, _ := transcript(s, width, t0)
+		rest, _ := transcript(s, core.Links{}, width, t0)
 		got := plainLines(append(printed, rest...))
 		want := plainLines(Entries(nil, s.Entries, width, t0))
 		if got != want {

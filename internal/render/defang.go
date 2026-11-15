@@ -13,8 +13,9 @@ import (
 // shaped by an outsider, and a link in it is a way to carry data out: a
 // click sends the URL, query string and all. So such text shows its URLs
 // defanged, https://evil.com/x.html?d=1 as hxxps://evil[.]com/x[.]html?d=1,
-// which no terminal turns into a link. Nothing here ever writes an OSC 8
-// hyperlink; sanitize drops the ESC that would start one.
+// which no terminal turns into a link. The one exception is a live link
+// of relay's (links.go), the only thing here that is ever written as an
+// OSC 8 hyperlink; sanitize drops the ESC that would start any other.
 
 // urlRE finds a URL: a scheme and "://", or "www.", then everything up to
 // a space or a character that usually closes a URL in prose or markdown.
@@ -72,35 +73,30 @@ var schemeSepRE = regexp.MustCompile("(?i)hxxps?://|://")
 
 // defangLines is a last check on rendered lines: markdown can put a
 // "://" together from pieces (an emphasis mark between the slashes), which
-// Defang on the source did not see. A line that has one is shown plain
-// and defanged.
+// Defang on the source did not see. A line that shows one anywhere but in
+// a whole live link's span is shown plain and defanged.
 func defangLines(lines []string) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {
-		plain := ansi.Strip(l)
-		if live(plain) {
-			l = styled(faint, Defang(plain))
+		if unsafeRow(l) {
+			l = styled(faint, Defang(ansi.Strip(l)))
 		}
 		out[i] = l
 	}
 	return out
 }
 
-// live says whether text still holds a URL a terminal could link: a
-// "://" that is not a defanged http scheme's, or a www. host.
-func live(plain string) bool {
-	for _, m := range schemeSepRE.FindAllString(plain, -1) {
-		if len(m) == 3 {
-			return true
-		}
-	}
-	return strings.Contains(strings.ToLower(plain), "www.")
-}
-
-// defanged is e with its agent-written text defanged.
-func defanged(e core.Entry) core.Entry {
+// defanged is e with its agent-written text defanged. A reply keeps its
+// live links, for the Markdown renderer to draw (fangSource); a call's
+// name, arguments and output, and the agent's thinking, keep none.
+func defanged(e core.Entry, live core.Links) core.Entry {
 	d := func(s string) string { return Defang(sanitize(s)) }
-	e.Text, e.Detail = d(e.Text), d(e.Detail)
+	if e.Kind == core.Agent {
+		e.Text = fangSource(sanitize(e.Text), live)
+	} else {
+		e.Text = d(e.Text)
+	}
+	e.Detail = d(e.Detail)
 	calls := make([]core.Call, len(e.Calls))
 	for i, c := range e.Calls {
 		c.Name, c.Title, c.Input, c.Output = d(c.Name), d(c.Title), d(c.Input), d(c.Output)

@@ -20,10 +20,10 @@ type TranscriptFrame struct {
 // footer: the session's labels, what the agent is doing, and the keys.
 // The transcript is bottom-aligned, as inline, and ends Scroll lines
 // above its last line. With s.Help the list of keys covers its bottom.
-func TranscriptView(s core.State, now time.Time, width, height int) TranscriptFrame {
+func TranscriptView(s core.State, live core.Links, now time.Time, width, height int) TranscriptFrame {
 	rows := max(height-1, 1)
 	x := expand{tools: s.Transcript.Tools, thinking: s.Transcript.Thinking}
-	lines := entriesAs(nil, s.Entries, x, width, now)
+	lines := entriesAs(nil, s.Entries, x, live, width, now)
 	mx := max(len(lines)-rows, 0)
 	scroll := min(s.Transcript.Scroll, mx)
 	end := len(lines) - scroll
@@ -35,7 +35,7 @@ func TranscriptView(s core.State, now time.Time, width, height int) TranscriptFr
 	}
 	pad := make([]string, max(rows-len(lines), 0))
 	all := append(append(pad, lines...), transcriptFooter(s, now, scroll, width))
-	return TranscriptFrame{Content: strings.Join(all, "\n"), Max: mx, Page: max(rows-1, 1)}
+	return TranscriptFrame{Content: gate(strings.Join(all, "\n"), live), Max: mx, Page: max(rows-1, 1)}
 }
 
 // transcriptFooter is the view's status line.

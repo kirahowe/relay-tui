@@ -1,0 +1,460 @@
+package render
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"pgregory.net/rapid"
+
+	"github.com/kirahowe/relay-tui/internal/core"
+)
+
+const (
+	linkA = "https://artsfund.example/grants/2027"
+	linkB = "https://artscouncil.example/apply/spring-round?year=2027&ref=newsletter"
+)
+
+func TestFang(t *testing.T) {
+	live := core.LinksOf(linkA)
+	for in, want := range map[string]string{
+		"see " + linkA + " now":   "see " + span(linkA) + " now",
+		"see <" + linkA + "> now": "see " + span(linkA) + " now",
+		"(" + linkA + ").":        "(" + span(linkA) + ").",
+		"**<" + linkA + ">**":     "**" + span(linkA) + "**",
+		// What stands before a live link in its word has its dots broken.
+		"x.y/" + linkA: "x[.]y/" + span(linkA),
+		// Text run on after a live link makes another address.
+		linkA + "/more":         "hxxps://artsfund[.]example/grants/2027/more",
+		"https://evil.test/x":   "hxxps://evil[.]test/x",
+		"<https://evil.test/x>": "<hxxps://evil[.]test/x>",
+		"www.evil.test":         "www[.]evil[.]test",
+		// What relay broke already is left as it is.
+		"hxxps://evil[.]test/x": "hxxps://evil[.]test/x",
+		"no links here. Really": "no links here. Really",
+	} {
+		if got := fang(in, live); got != want {
+			t.Errorf("fang(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := fang("see "+linkA, core.Links{}); got != "see hxxps://artsfund[.]example/grants/2027" {
+		t.Errorf("with no live links: %q", got)
+	}
+}
+
+// plainRows is rows as they read on screen.
+func plainRows(rows []string) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = ansi.Strip(r)
+	}
+	return out
+}
+
+// spansOn is the targets of the hyperlinks on a row, and whether each is
+// both started and ended there.
+func spansOn(t *testing.T, row string) []string {
+	t.Helper()
+	var targets []string
+	open := ""
+	for _, m := range osc8RE.FindAllStringSubmatch(row, -1) {
+		switch {
+		case m[1] != "" && open != "":
+			t.Fatalf("a link starts inside another on %q", row)
+		case m[1] != "":
+			open = m[1]
+			targets = append(targets, m[1])
+		case open == "":
+			t.Fatalf("a link ends that never started on %q", row)
+		default:
+			open = ""
+		}
+	}
+	if open != "" {
+		t.Fatalf("a link is left open at the end of %q", row)
+	}
+	return targets
+}
+
+func TestWrapKeepsALiveLinkOnOneRow(t *testing.T) {
+	rows := wrap("Arts fund spring round, due 1 Dec: "+span(linkA)+" and", 38)
+	want := []string{"Arts fund spring round, due 1 Dec:", "<" + linkA + ">", "and"}
+	if got := plainRows(rows); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("rows %q, want %q", got, want)
+	}
+	if got := spansOn(t, rows[1]); len(got) != 1 || got[0] != linkA {
+		t.Fatalf("the link's row links to %q", got)
+	}
+	// The wrapper breaks a word at a hyphen. A live link is not one to
+	// break: it goes to the next row whole.
+	hy := "https://x.example/a-b-c-d-e"
+	rows = wrap("one two three four "+span(hy)+" five", 30)
+	if got := plainRows(rows); got[1] != "<"+hy+">" {
+		t.Fatalf("rows %q", got)
+	}
+	for _, r := range rows {
+		if strings.Contains(r, hyphenStand) {
+			t.Fatalf("the stand-in for a hyphen is left in %q", r)
+		}
+	}
+}
+
+func TestWrapShowsALinkLongerThanARowBroken(t *testing.T) {
+	rows := wrap("Council form: "+span(linkB), 38)
+	got := plainRows(rows)
+	want := []string{"Council form:", "<hxxps://artscouncil[.]example/apply/s", "pring-round?year=2027&ref=newsletter>"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("rows %q, want %q", got, want)
+	}
+	// Every piece still opens the whole address, and each row ends its
+	// own link.
+	for _, r := range rows[1:] {
+		if s := spansOn(t, r); len(s) != 1 || s[0] != linkB {
+			t.Fatalf("row %q links to %q", r, s)
+		}
+	}
+	for _, r := range got {
+		if linkable(r) {
+			t.Fatalf("row %q can be followed as text", r)
+		}
+	}
+}
+
+func TestTruncateBreaksALinkTheCutFallsIn(t *testing.T) {
+	s := "see " + span(linkA) + " and more"
+	cut := truncate(s, 24)
+	if got := ansi.Strip(cut); got != "see <hxxps://artsfund[.…" {
+		t.Fatalf("cut to %q", got)
+	}
+	if s := spansOn(t, cut); len(s) != 1 || s[0] != linkA {
+		t.Fatalf("the cut link links to %q", s)
+	}
+	// A cut that leaves the link whole leaves it as it is.
+	whole := truncate(s, len("see <"+linkA+">")+1)
+	if got := ansi.Strip(whole); got != "see <"+linkA+">…" {
+		t.Fatalf("cut to %q", got)
+	}
+	// One column less and the cut falls on its closing bracket.
+	if got := ansi.Strip(truncate(s, len("see <"+linkA+">"))); linkable(got) {
+		t.Fatalf("a cut address is left: %q", got)
+	}
+}
+
+func TestGateDressesALiveLink(t *testing.T) {
+	live := core.LinksOf(linkA)
+	out := gate("see "+span(linkA)+" now", live)
+	want := "see " + linkOpen(linkA) + sgr(linkStyle(0)) + "<" + linkA + ">" + sgr(0) + linkEnd + " now"
+	if out != want {
+		t.Fatalf("gate gave %q, want %q", out, want)
+	}
+	// Inside styled text the link keeps the style's attributes, takes
+	// its own colour, and hands the style back after it.
+	st := bold | warnColour
+	out = gate(styled(st, "see "+span(linkA)+" now"), live)
+	want = sgr(st) + "see " + linkOpen(linkA) + sgr(linkStyle(st)) + "<" + linkA + ">" + sgr(st) + linkEnd + " now" + sgr(0)
+	if out != want {
+		t.Fatalf("gate gave %q, want %q", out, want)
+	}
+	// Text with no link span passes untouched.
+	if plain := styled(bold, "nothing here"); gate(plain, live) != plain {
+		t.Fatal("gate changed text with no link in it")
+	}
+}
+
+func TestGateLetsOnlyALiveLinkThrough(t *testing.T) {
+	live := core.LinksOf(linkA)
+	evil := "https://evil.test/x?d=1"
+	for name, in := range map[string]string{
+		"a target that is not live":       "see " + span(evil) + " now",
+		"a target rewritten on the way":   "see " + strings.ToUpper(span(linkA)) + " now",
+		"a target with more run on":       "see " + linkOpen(linkA+"/more") + "<" + linkA + ">" + linkEnd,
+		"a target out of a link's shape":  "see " + linkOpen("javascript:alert(1)") + "click" + linkEnd,
+		"a live target over other text":   "see " + linkOpen(linkA) + "<" + evil + ">" + linkEnd,
+		"a live target over a cut of it":  "see " + linkOpen(linkA) + "<https://artsfund.exa" + linkEnd,
+		"a live target over a www. host":  "see " + linkOpen(linkA) + "www.evil.test" + linkEnd,
+		"a link span inside another's":    "see " + linkOpen(evil) + span(linkA) + linkEnd,
+		"a link started and never ended":  "see " + linkOpen(evil) + "<" + evil + ">",
+		"a link over styled outside text": "see " + linkOpen(evil) + styled(bold, "<"+evil+">") + linkEnd,
+	} {
+		out := gate(in, live)
+		for _, m := range osc8RE.FindAllStringSubmatch(out, -1) {
+			if m[1] != "" && m[1] != linkA {
+				t.Errorf("%s: a hyperlink to %q got through: %q", name, m[1], out)
+			}
+		}
+		for _, p := range pieces(out) {
+			plain := ansi.Strip(p.text)
+			if p.target == linkA && plain == whole(linkA) {
+				continue
+			}
+			if linkable(plain) {
+				t.Errorf("%s: %q can be followed as text in %q", name, plain, out)
+			}
+		}
+		if Width(out) > Width(in) {
+			t.Errorf("%s: the row grew from %d to %d cells", name, Width(in), Width(out))
+		}
+	}
+}
+
+// --- the property: whatever outside text relay or an agent sends, and
+// whatever relay's live links are, nothing drawn can be followed but a
+// live link.
+
+var (
+	// Addresses in a live link's shape, any of which may be live.
+	goodLinks = []string{linkA, linkB, "https://x.example/a-b-c", "http://y.example", "https://x.example/a.",
+		"https://z.example/p?q=1&r=*a*&s=_b_&t=**c**", "https://x.example/" + strings.Repeat("long-", 30)}
+	// Addresses that are never live: out of shape, or not in the set.
+	badLinks = []string{"https://evil.test/x?d=1", "HTTPS://evil.test/x", "https://evil.test/a(b)", "ftp://evil.test/f",
+		"www.evil.test/x", "ssh://evil.test", "https://x.example/A-B-C", "https://user@evil.test/", "evil.test/x"}
+	// Ways text puts an address together from pieces, or hides one.
+	tricks = []string{"https:/**/**evil.test/x", "ht**tp**s://evil.test/x", "http:*/*/evil.test", "https:/\u200b/evil.test",
+		"**https:**//evil.test", "# https:/**/**evil.test", "- https:/**/**evil.test/x", "h\x1bttp://evil.test",
+		"a\x1b]8;;https://evil.test\x07click\x1b]8;;\x07", "<https://evil.test/x>", "ww**w.**evil.test"}
+	around = []string{"%s", "<%s>", "(%s).", "**%s**", "**<%s>**", "[a fund](%s)", "[a fund](<%s>)", "see:%s", "x.y/%s",
+		"%s/more", "%s...", "_%s_", "`%s`", "# %s", "- %s", "1. %s", "%s?", "%s%s", "https://evil.test/?u=%s", "\"%s\"", "> %s"}
+)
+
+func genLive(t *rapid.T) core.Links {
+	var set []string
+	for _, l := range goodLinks {
+		if rapid.Bool().Draw(t, "live") {
+			set = append(set, l)
+		}
+	}
+	return core.LinksOf(set...)
+}
+
+// genOutside is text an outsider might send: words, addresses that may be
+// live and ones that never are, each in some wrapping, and tricks.
+func genOutside(t *rapid.T, label string) string {
+	var parts []string
+	for range rapid.IntRange(1, 6).Draw(t, label+"N") {
+		var p string
+		switch rapid.IntRange(0, 5).Draw(t, label+"Kind") {
+		case 0:
+			p = rapid.SampledFrom([]string{"see", "the grant page", "due 1 Dec", "Council form:", "now"}).Draw(t, label+"Word")
+		case 1, 2:
+			p = strings.ReplaceAll(rapid.SampledFrom(around).Draw(t, label+"Around"), "%s", rapid.SampledFrom(goodLinks).Draw(t, label+"Good"))
+		case 3:
+			p = strings.ReplaceAll(rapid.SampledFrom(around).Draw(t, label+"Around"), "%s", rapid.SampledFrom(badLinks).Draw(t, label+"Bad"))
+		case 4:
+			p = rapid.SampledFrom(tricks).Draw(t, label+"Trick")
+		case 5:
+			p = rapid.SampledFrom(nasty).Draw(t, label+"Nasty")
+		}
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, rapid.SampledFrom([]string{" ", " ", "\n", ""}).Draw(t, label+"Sep"))
+}
+
+// brokenTails is what a row can start with when a wrap or a cut fell
+// inside the scheme of a broken link: the end of hxxp or hxxps. None is a
+// scheme anything answers to, and the address after it has its dots
+// broken, so no terminal follows it.
+var brokenTails = map[string]bool{"xxp": true, "xxps": true, "xp": true, "xps": true, "p": true, "ps": true, "s": true, "": true}
+
+var schemeBefore = regexp.MustCompile(`([A-Za-z0-9+.\-]*)://`)
+
+// followable says a row's text holds something a terminal's own link
+// finder would take: a "://" after anything but a broken scheme (hxxp,
+// hxxps, with or without text run on before it) or the tail a cut left
+// of one, or a www. host.
+func followable(plain string) bool {
+	for _, m := range schemeBefore.FindAllStringSubmatch(plain, -1) {
+		run := strings.ToLower(m[1])
+		if strings.HasSuffix(run, "hxxp") || strings.HasSuffix(run, "hxxps") || brokenTails[run] {
+			continue
+		}
+		return true
+	}
+	return strings.Contains(strings.ToLower(plain), "www.")
+}
+
+// checkFollowed fails when a drawn frame gives a terminal anything to
+// follow that is not a live link: a hyperlink to any other target, or
+// text outside a whole live link's span that a terminal's own link
+// finder would take. It also fails on any escape that is neither a style
+// nor a hyperlink.
+func checkFollowed(t *rapid.T, what, content string, live core.Links) {
+	t.Helper()
+	for _, m := range osc8RE.FindAllStringSubmatch(content, -1) {
+		if m[1] != "" && !live.Has(m[1]) {
+			t.Fatalf("%s: a hyperlink to %q, which is not a live link, in\n%q", what, m[1], content)
+		}
+	}
+	if rest := osc8RE.ReplaceAllString(sgrRE.ReplaceAllString(content, ""), ""); strings.ContainsAny(rest, "\x1b\x07") {
+		t.Fatalf("%s: an escape that is neither a style nor a hyperlink in\n%q", what, content)
+	}
+	for _, row := range strings.Split(content, "\n") {
+		open := false
+		for _, m := range osc8RE.FindAllStringSubmatch(row, -1) {
+			open = m[1] != ""
+		}
+		if open {
+			t.Fatalf("%s: a hyperlink is left open at the end of row %q", what, row)
+		}
+		for _, p := range pieces(row) {
+			plain := ansi.Strip(p.text)
+			if p.target != "" && plain == whole(p.target) {
+				continue
+			}
+			if followable(plain) {
+				t.Fatalf("%s: %q can be followed as text, on row %q", what, plain, row)
+			}
+		}
+	}
+}
+
+func genOutsideCard(t *rapid.T, id int64) core.Card {
+	text := func(label string) core.CardText {
+		return core.CardText{Text: genOutside(t, label), Outsider: true, Rev: 1}
+	}
+	c := core.Card{ID: id, Status: core.CardActive, Rev: 2, Title: text("title"), Text: genOutside(t, "text"),
+		Kind:   rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, "kanban"}).Draw(t, "kind"),
+		Labels: core.Labels{Contaminated: true}}
+	elems := func(label string) []core.CardElem {
+		var out []core.CardElem
+		for i := range rapid.IntRange(1, 3).Draw(t, label) {
+			out = append(out, core.CardElem{ID: i + 1, CardText: text(label + "Text"), Done: rapid.Bool().Draw(t, label+"Done")})
+		}
+		return out
+	}
+	switch c.Kind {
+	case core.CardChecklist:
+		c.Items = elems("items")
+	case core.CardTracker:
+		c.Rows, c.Columns = elems("rows"), elems("columns")
+	case core.CardNote:
+		n := text("note")
+		c.Note = &n
+	}
+	return c
+}
+
+func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		live := genLive(t)
+		w := rapid.IntRange(20, 140).Draw(t, "width")
+		h := rapid.IntRange(6, 50).Draw(t, "height")
+
+		// The board: in the pane's list, and one card open.
+		card := genOutsideCard(t, 7)
+		for _, s := range []core.Single{boardState(true, card), detail(boardState(true, card), card.ID, rapid.IntRange(0, 3).Draw(t, "line"), 0)} {
+			s.App.Links = live
+			if rapid.Bool().Draw(t, "question") {
+				s.Board.Confirm, s.Board.ConfirmRev = card.ID, card.Rev
+			}
+			checkFollowed(t, "the board", View(s, "", "", t0, w, h).Content, live)
+		}
+
+		// The ready view: the list, and an item open whole.
+		item := core.ReadyItem{ID: "message:4", Kind: rapid.SampledFrom([]string{core.ReadyMessage, core.ReadyMove, core.ReadyFinding, "other"}).Draw(t, "kind"),
+			At: t0.Add(-time.Minute).Format(time.RFC3339), Title: genOutside(t, "readyTitle"), Outsider: true,
+			From: "from the web", Message: 4, ReplyTo: 4,
+			Lines:   []string{genOutside(t, "line1"), genOutside(t, "line2")},
+			Replies: []core.ReadyReply{{At: t0.Format(time.RFC3339), Text: "ok"}}}
+		if rapid.Bool().Draw(t, "sections") {
+			item.Sections = []core.ReadySection{{Heading: genOutside(t, "heading"), Lines: item.Lines}}
+		}
+		list := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{item}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
+		open := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyOpenKey})
+		replying := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyReplyKey})
+		for _, hub := range []core.Hub{list, open, replying} {
+			hub.App.Links = live
+			checkFollowed(t, "the ready view", HubView(hub, "", "", t0, w, h).Content, live)
+		}
+
+		// A conversation in a contaminated session, every kind of entry
+		// the agent writes: inline, in the hub, and in the transcript.
+		text := genOutside(t, "said")
+		st := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true}, Entries: []core.Entry{
+			{Kind: core.Agent, Text: text, Final: true, Defang: true},
+			{Kind: core.Note, Text: text, Detail: text, Final: true, Defang: true},
+			{Kind: core.Thought, Text: text, Final: true, Defang: true},
+			{Kind: core.Tool, Calls: []core.Call{{ID: "1", Name: "web_fetch", Title: text, Input: `{"url":"` + text + `"}`, Output: text, Status: core.OK}}, Final: true, Defang: true},
+		}}
+		st.Transcript.Tools, st.Transcript.Thinking = rapid.Bool().Draw(t, "tools"), rapid.Bool().Draw(t, "thinking")
+		f := View(core.Single{App: core.App{Live: true, Links: live, Board: core.Board{Items: true}}, State: st}, "", "", t0, w, h)
+		checkFollowed(t, "the conversation", f.Content+"\n"+strings.Join(f.Print, "\n"), live)
+		hub := hubOf(st)
+		hub.App.Links = live
+		checkFollowed(t, "the conversation in the hub", HubView(hub, "", "", t0, w, h).Content, live)
+		checkFollowed(t, "the transcript", TranscriptView(st, live, t0, w, h).Content, live)
+	})
+}
+
+// With a live link in the set, each place that draws outside text shows
+// it whole, as a hyperlink to exactly that address, beside a link that is
+// not live and stays broken.
+func TestALiveLinkIsWholeWhereOutsideTextIsDrawn(t *testing.T) {
+	live := core.LinksOf(linkA)
+	evil := "hxxps://evil[.]test/x"
+	text := "Arts fund: <" + linkA + "> and " + evil
+	shows := func(t *testing.T, content string) {
+		t.Helper()
+		plain := ansi.Strip(content)
+		if !strings.Contains(plain, "<"+linkA+">") {
+			t.Fatalf("the live link is not whole:\n%s", plain)
+		}
+		if !strings.Contains(content, linkOpen(linkA)) {
+			t.Fatalf("no hyperlink to the live link:\n%q", content)
+		}
+		for _, m := range osc8RE.FindAllStringSubmatch(content, -1) {
+			if m[1] != "" && m[1] != linkA {
+				t.Fatalf("a hyperlink to %q:\n%q", m[1], content)
+			}
+		}
+		if !strings.Contains(plain, evil) {
+			t.Fatalf("the other link is not shown broken:\n%s", plain)
+		}
+	}
+	t.Run("a card", func(t *testing.T) {
+		c := cardChecklist
+		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+		s := boardState(true, c)
+		s.App.Links = live
+		shows(t, View(s, "", "", t0, 140, 30).Content)
+	})
+	t.Run("a note card", func(t *testing.T) {
+		c := cardNote
+		c.Note = &core.CardText{Text: "## Grants\n- **Arts fund:** <" + linkA + "> and " + evil, Outsider: true}
+		s := boardState(true, c)
+		s.App.Links = live
+		shows(t, View(s, "", "", t0, 140, 30).Content)
+	})
+	t.Run("a ready item", func(t *testing.T) {
+		it := core.ReadyItem{ID: "message:4", Kind: core.ReadyMessage, At: t0.Format(time.RFC3339), Title: "Two grants", Outsider: true,
+			Lines: []string{text}, From: "from the web", Message: 4}
+		hub := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{it}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
+		hub.App.Links = live
+		shows(t, HubView(hub, "", "", t0, 100, 30).Content)
+		shows(t, HubView(hubStep(hub, core.ReadyKey{At: t0, Action: core.ReadyOpenKey}), "", "", t0, 100, 30).Content)
+	})
+	t.Run("a reply in a contaminated session", func(t *testing.T) {
+		for _, said := range []string{
+			"Arts fund: " + linkA + " and https://evil.test/x",
+			"Arts fund: <" + linkA + "> and https://evil.test/x",
+			"Arts **fund**: [the page](" + linkA + ") and https://evil.test/x",
+		} {
+			st := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true},
+				Entries: []core.Entry{{Kind: core.Agent, Text: said, Final: true, Defang: true}}}
+			hub := hubOf(st)
+			hub.App.Links = live
+			shows(t, HubView(hub, "", "", t0, 100, 30).Content)
+			shows(t, TranscriptView(st, live, t0, 100, 30).Content)
+		}
+	})
+	// The same text with no live links is all broken, as before.
+	t.Run("with no live links", func(t *testing.T) {
+		c := cardChecklist
+		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+		got := View(boardState(true, c), "", "", t0, 140, 30).Content
+		if hasLinks(got) || linkable(ansi.Strip(got)) {
+			t.Fatalf("a link got through with no live links:\n%q", got)
+		}
+	})
+}

@@ -16,8 +16,9 @@ import (
 // right, how long ago; its bottom border says where the thing came from,
 // in words relay chose, in the warning colour when it came from outside.
 // relay has made every text safe already; this draws it as sent, still
-// escaping anything that does not print and defanging a link left live in
-// outside text. It names no label, and it fetches nothing.
+// escaping anything that does not print and breaking every link in
+// outside text but relay's live links (links.go). It names no label, and
+// it fetches nothing.
 
 // readyMaxWidth is the widest a panel is drawn: a wide screen keeps the
 // text a readable length.
@@ -135,9 +136,9 @@ func whenLine(it core.ReadyItem, now time.Time) string {
 // keeps the kind and the age and the title goes to rows of its own
 // (titleRows, wrapped, at most maxRows of them), so the age never drops
 // out and a long title is not cut mid-word.
-func readyHead(it core.ReadyItem, now time.Time, width, maxRows int) (head, age string, titleRows []string) {
+func readyHead(it core.ReadyItem, live core.Links, now time.Time, width, maxRows int) (head, age string, titleRows []string) {
 	age = ago(it.At, now)
-	title := cardLine(it.Title, it.Outsider)
+	title := cardLine(it.Title, it.Outsider, live)
 	if strings.TrimSpace(title) == "" {
 		title = "(untitled)"
 	}
@@ -163,14 +164,14 @@ func readyHead(it core.ReadyItem, now time.Time, width, maxRows int) (head, age 
 // readyListLines is the rows of an item's lines in the list: a move's
 // lines one row each, the rest wrapped; cut to readyBodyLines rows, the
 // last one saying how to read the rest.
-func readyListLines(it core.ReadyItem, inner int) []string {
+func readyListLines(it core.ReadyItem, live core.Links, inner int) []string {
 	var rows []string
 	for _, l := range it.Lines {
 		if it.Kind == core.ReadyMove {
-			rows = append(rows, truncate(cardLine(l, it.Outsider), inner))
+			rows = append(rows, truncate(cardLine(l, it.Outsider, live), inner))
 			continue
 		}
-		rows = append(rows, cardLines(l, it.Outsider, inner)...)
+		rows = append(rows, cardLines(l, it.Outsider, live, inner)...)
 	}
 	return capReady(rows, it, inner)
 }
@@ -188,17 +189,17 @@ func capReady(rows []string, it core.ReadyItem, inner int) []string {
 }
 
 // readyPanel is one item as a panel of exactly width columns.
-func readyPanel(it core.ReadyItem, now time.Time, width int, focus bool) []string {
+func readyPanel(it core.ReadyItem, live core.Links, now time.Time, width int, focus bool) []string {
 	inner := framed(width)
-	head, age, lines := readyHead(it, now, width, 3)
+	head, age, lines := readyHead(it, live, now, width, 3)
 	if it.Kind == core.ReadyEvent {
 		if w := whenLine(it, now); w != "" {
 			lines = append(lines, styled(bold, w))
 		}
 	}
-	lines = append(lines, readyListLines(it, inner)...)
+	lines = append(lines, readyListLines(it, live, inner)...)
 	for _, r := range it.Replies[max(len(it.Replies)-1, 0):] {
-		lines = append(lines, wrap(styled(faint, "↩ you replied: ")+cardLine(r.Text, false), inner)[0])
+		lines = append(lines, wrap(styled(faint, "↩ you replied: ")+cardLine(r.Text, false, live), inner)[0])
 	}
 	foot := ""
 	if from := readyFrom(it); from != "" {
@@ -210,12 +211,12 @@ func readyPanel(it core.ReadyItem, now time.Time, width int, focus bool) []strin
 // readyRows lays the items out as panels with a blank row between, and
 // gives each one's first and last row, so the window can keep the
 // selected one in view.
-func readyRows(r core.Ready, now time.Time, width int) (rows []string, first, last []int) {
+func readyRows(r core.Ready, live core.Links, now time.Time, width int) (rows []string, first, last []int) {
 	for i, it := range r.Items {
 		if i > 0 {
 			rows = append(rows, "")
 		}
-		p := readyPanel(it, now, width, it.ID == r.Sel)
+		p := readyPanel(it, live, now, width, it.ID == r.Sel)
 		first = append(first, len(rows))
 		rows = append(rows, p...)
 		last = append(last, len(rows)-1)
@@ -346,7 +347,7 @@ func readyStatus(r core.Ready, width int) string {
 				break
 			}
 		}
-		lead := styled(faint, "Reply to “") + truncate(cardLine(subject, true), max(width/3, 8)) + styled(faint, "”: ")
+		lead := styled(faint, "Reply to “") + truncate(cardLine(subject, true, core.Links{}), max(width/3, 8)) + styled(faint, "”: ")
 		room := max(width-Method.StringWidth(lead)-2, 1)
 		text := core.EscapeNonPrinting(strings.ReplaceAll(r.Input.Text, "\n", " "))
 		if Method.StringWidth(text) > room {
@@ -365,6 +366,7 @@ func readyStatus(r core.Ready, width int) string {
 // rows: a top bar, the panels, the status row and the keys.
 func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	r := h.Ready
+	live := h.App.Links
 	now = ZoneTime(now, r.Zone)
 	left := styled(accent, " ◆ ") + styled(bold, "relay") + "   " + styled(bold, "Ready")
 	count := ""
@@ -400,7 +402,7 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		}
 		body = helpBox(title, rows, min(width, readyMaxWidth))
 	case di >= 0:
-		body, top, maxTop, page = readyDetail(r, detail, now, min(width, readyMaxWidth), room)
+		body, top, maxTop, page = readyDetail(r, detail, live, now, min(width, readyMaxWidth), room)
 	case r.Unavailable:
 		body = []string{"", " " + styled(faint, "This relay has nothing ready to show.")}
 	case !r.Loaded && len(r.Items) == 0:
@@ -409,7 +411,7 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 		body = []string{"", " " + styled(faint, "Nothing is ready.")}
 	default:
 		pw := min(width, readyMaxWidth)
-		all, first, last := readyRows(r, now, pw)
+		all, first, last := readyRows(r, live, now, pw)
 		_, sel := core.ReadySelected(r)
 		var start int
 		body, start = readyWindowAt(all, first, last, sel, room)

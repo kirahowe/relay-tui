@@ -16,9 +16,9 @@ import (
 // every reply. For a daily note each numbered item has a two-column gutter
 // that shows the picked one with a marker. first and last are the rows of
 // the picked numbered item, or -1.
-func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) (rows []string, first, last int, head, age string) {
+func readyDetailRows(r core.Ready, it core.ReadyItem, live core.Links, now time.Time, width int) (rows []string, first, last int, head, age string) {
 	inner := framed(width)
-	head, age, titleRows := readyHead(it, now, width, 0)
+	head, age, titleRows := readyHead(it, live, now, width, 0)
 	first, last = -1, -1
 	rows = append(rows, titleRows...)
 	if len(titleRows) > 0 {
@@ -48,14 +48,14 @@ func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) 
 			if len(rows) > 0 {
 				rows = append(rows, "")
 			}
-			rows = append(rows, wrap(styled(bold, cardLine(h, it.Outsider)), inner)...)
+			rows = append(rows, wrap(styled(bold, cardLine(h, it.Outsider, live)), inner)...)
 		}
 		ai := slices.IndexFunc(it.Acts, func(a core.ReadyAct) bool { return a.Line == li })
 		text := l
 		if ai >= 0 {
 			text = doneMark(text, it.Acts[ai].Done)
 		}
-		parts := cardLines(text, it.Outsider, max(inner-gutter, 1))
+		parts := cardLines(text, it.Outsider, live, max(inner-gutter, 1))
 		if ai >= 0 && ai == r.Pick {
 			first = len(rows)
 		}
@@ -75,7 +75,7 @@ func readyDetailRows(r core.Ready, it core.ReadyItem, now time.Time, width int) 
 	}
 	for _, rp := range it.Replies {
 		rows = append(rows, "")
-		rows = append(rows, wrap(styled(faint, "↩ you replied: ")+cardLine(rp.Text, false), inner)...)
+		rows = append(rows, wrap(styled(faint, "↩ you replied: ")+cardLine(rp.Text, false, live), inner)...)
 	}
 	return rows, first, last, head, age
 }
@@ -105,8 +105,8 @@ func doneMark(text, done string) string {
 // scrolled to r.Top (moved to show the picked numbered item when r.Follow
 // says so). It returns the rows, the first row of the item shown, how far
 // it can scroll and how many rows a page is.
-func readyDetail(r core.Ready, it core.ReadyItem, now time.Time, width, room int) (out []string, top, maxTop, page int) {
-	all, first, last, head, age := readyDetailRows(r, it, now, width)
+func readyDetail(r core.Ready, it core.ReadyItem, live core.Links, now time.Time, width, room int) (out []string, top, maxTop, page int) {
+	all, first, last, head, age := readyDetailRows(r, it, live, now, width)
 	// The panel is as tall as what it holds, up to the room.
 	h := max(min(room-2, len(all)), 1)
 	maxTop = max(len(all)-h, 0)

@@ -30,6 +30,10 @@ type App struct {
 	// agent answers _relay/cards method-not-found) leaves it Unavailable,
 	// and the pane shows the conversation's items instead.
 	Board Board
+	// Links is relay's live links, as this connection was last sent
+	// them: the only addresses in outside text that are drawn so a
+	// terminal can follow them (see links.go).
+	Links Links
 	// PaneFocus says the workspace pane has the keys. On a screen too
 	// narrow for the pane beside the conversation, it is then the screen.
 	PaneFocus bool

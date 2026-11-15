@@ -123,7 +123,7 @@ func TestToolLinesGolden(t *testing.T) {
 	out := Entries(nil, es, 60, t0)
 	// The same kind of run in full, as the transcript view shows it.
 	full := run(call(core.OK, "roles", "", ""), failed, ok, call(core.Stopped, "echo", "not json", ""))
-	out = append(append(out, ""), entriesAs(nil, []core.Entry{full}, expand{tools: true}, 60, t0)...)
+	out = append(append(out, ""), entriesAs(nil, []core.Entry{full}, expand{tools: true}, core.Links{}, 60, t0)...)
 	requireGolden(t, strings.Join(out, "\n"))
 }
 
@@ -235,7 +235,7 @@ func TestTranscriptGolden(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s.Transcript, s.Help = c.tr, c.help
-			requireGolden(t, TranscriptView(s, t0, 60, 16).Content)
+			requireGolden(t, TranscriptView(s, core.Links{}, t0, 60, 16).Content)
 		})
 	}
 	t.Run("inline_help", func(t *testing.T) {

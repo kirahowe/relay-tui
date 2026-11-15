@@ -263,7 +263,7 @@ func TestReadyAgeNeverDropsOut(t *testing.T) {
 		title := rapid.StringMatching(`[a-zA-Z0-9 :"]{0,120}`).Draw(t, "title")
 		w := rapid.IntRange(20, 120).Draw(t, "w")
 		it := core.ReadyItem{ID: "message:1", Kind: "message", At: t0.Add(-5 * time.Minute).Format(time.RFC3339), Title: title, Message: 1}
-		panelRows := readyPanel(it, t0, min(w, readyMaxWidth), false)
+		panelRows := readyPanel(it, core.Links{}, t0, min(w, readyMaxWidth), false)
 		if top := ansi.Strip(panelRows[0]); !strings.Contains(top, " 5m ─╮") {
 			t.Fatalf("w=%d title=%q: %q", w, title, top)
 		}
