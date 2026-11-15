@@ -196,8 +196,7 @@ form). Where a broken form stands in the text as relay wrote it, with
 nothing after it in its word but closing marks, it becomes the hyperlink
 to the address relay listed. An agent's reply comes as the agent wrote
 it and has no such list, so a whole address in it that is in the set is
-drawn the same way. A relay from before the list sends a live link whole
-on a card, and relay-tui still takes that for now.
+drawn the same way.
 
 The address travels only as the hyperlink's target, so what a click
 opens does not depend on how your terminal reads text. Terminals find

@@ -27,12 +27,12 @@ type Links struct {
 	// answer: a change up to it is already in the answer.
 	Rev, LoadedRev int64
 	Live           map[string]struct{}
-	// Own and Listed are set only on the copy that draws one card or one
-	// ready item (Of): the links relay listed for that thing, and whether
-	// it sent a list at all. They are never kept in the connection's
-	// state.
-	Own    []Link
-	Listed bool
+	// Own and Thing are set only on the copy that draws one card or one
+	// ready item (Of): the links relay listed for that thing, and that
+	// the text being drawn is such a thing's. There the list alone says
+	// what is a link. They are never kept in the connection's state.
+	Own   []Link
+	Thing bool
 }
 
 // Link is a live link relay attached to a card or a ready item: the
@@ -44,10 +44,10 @@ type Link struct{ Address, Shown string }
 // MaxOwnLinks is the most links relay lists for one thing.
 const MaxOwnLinks = 50
 
-// Of is l for drawing one thing: the connection's set, with the links
-// relay listed for that thing, and whether it listed any at all.
-func (l Links) Of(own []Link, listed bool) Links {
-	l.Own, l.Listed = own, listed
+// Of is l for drawing one card or one ready item: the connection's set,
+// with the links relay listed for that thing.
+func (l Links) Of(own []Link) Links {
+	l.Own, l.Thing = own, true
 	return l
 }
 

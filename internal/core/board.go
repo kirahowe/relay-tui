@@ -86,11 +86,9 @@ type Card struct {
 	Surface  *RoleSurface // surface
 	Text     string       // the text form, for a kind the client does not know
 	// Links are the live links the card's outside text shows, as relay
-	// listed them, and LinksLeftOut how many more it did not list. Listed
-	// says relay sent a list at all; a relay from before it does not.
+	// listed them, and LinksLeftOut how many more it did not list.
 	Links        []Link
 	LinksLeftOut int
-	Listed       bool
 }
 
 // Native says the client draws the card's kind itself.

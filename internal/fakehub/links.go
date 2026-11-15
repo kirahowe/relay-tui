@@ -159,10 +159,9 @@ func (h *Hub) setLink(ctx context.Context, address string, keep bool) (bool, err
 
 // relink gives every card and ready item its own list of live links, and
 // returns the ones whose list changed. The caller holds the lock. With
-// no set, or a config that says "unlisted" (each a relay from before the
-// list), nothing carries one.
+// no set nothing carries a list.
 func (h *Hub) relink() (cards, items []map[string]any) {
-	if h.links == nil || h.unlisted {
+	if h.links == nil {
 		return nil, nil
 	}
 	if b := h.board; b != nil {

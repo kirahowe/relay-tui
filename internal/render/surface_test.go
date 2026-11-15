@@ -410,7 +410,7 @@ func readCard(t testing.TB, name string) (a2ui.Surface, bool, core.Links) {
 	for _, l := range c.Links {
 		own = append(own, core.Link{Address: l.Address, Shown: l.Shown})
 	}
-	return ss[0], c.Surface.Outsider, core.LinksOf(role.Live...).Of(own, true)
+	return ss[0], c.Surface.Outsider, core.LinksOf(role.Live...).Of(own)
 }
 
 // relay's three fixture cards each draw whole at the widths of the board's

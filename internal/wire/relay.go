@@ -268,22 +268,18 @@ type rawLinks struct {
 	LinksLeftOut json.RawMessage `json:"linksLeftOut"`
 }
 
-// links reads the list. listed says relay sent one at all, readable or
-// not: a relay from before the list sends none, and only then may a link
-// be taken from the text. An entry is kept only when its address has a
+// links reads the list. An entry is kept only when its address has a
 // live link's shape and its shown form is a broken address with no space
 // or control character in it: nothing else can be written into a
 // hyperlink or found in a word. No more than relay's own limit are kept.
-func (r rawLinks) links() (own []core.Link, leftOut int, listed bool) {
-	if r.Links == nil {
-		return nil, 0, false
-	}
+// A list that cannot be read is no links.
+func (r rawLinks) links() (own []core.Link, leftOut int) {
 	var raw []struct {
 		Address string `json:"address"`
 		Shown   string `json:"shown"`
 	}
-	if strictjson.Unmarshal(r.Links, &raw) != nil {
-		return nil, 0, true
+	if r.Links == nil || strictjson.Unmarshal(r.Links, &raw) != nil {
+		return nil, 0
 	}
 	for _, l := range raw {
 		if len(own) == core.MaxOwnLinks {
@@ -298,7 +294,7 @@ func (r rawLinks) links() (own []core.Link, leftOut int, listed bool) {
 	if r.LinksLeftOut != nil && strictjson.Unmarshal(r.LinksLeftOut, &leftOut) != nil || leftOut < 0 {
 		leftOut = 0
 	}
-	return own, leftOut, true
+	return own, leftOut
 }
 
 // maxSurfaceMessages is the most A2UI messages one surface card may hold.
@@ -370,7 +366,7 @@ func card(raw json.RawMessage) (core.Card, bool) {
 	if c.Status == "" {
 		c.Status = core.CardActive
 	}
-	c.Links, c.LinksLeftOut, c.Listed = r.links()
+	c.Links, c.LinksLeftOut = r.links()
 	if r.Title != nil {
 		c.Title = r.Title.text()
 	}

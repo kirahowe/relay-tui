@@ -132,8 +132,8 @@ func TestRelaysSurfaceFixtureCardsAreNative(t *testing.T) {
 			if got.Kind != core.CardSurface || !got.Native() || got.Surface.Outsider != c.outsider || len(got.Inputs()) != c.inputs {
 				t.Fatalf("kind %q, outsider %v, %d inputs", got.Kind, got.Surface != nil && got.Surface.Outsider, len(got.Inputs()))
 			}
-			if !got.Listed || len(got.Links) != c.links || got.LinksLeftOut != 0 {
-				t.Fatalf("listed %v, links %+v, %d left out", got.Listed, got.Links, got.LinksLeftOut)
+			if len(got.Links) != c.links || got.LinksLeftOut != 0 {
+				t.Fatalf("links %+v, %d left out", got.Links, got.LinksLeftOut)
 			}
 		})
 	}

@@ -74,24 +74,25 @@ var wordRE = regexp.MustCompile(`\S+`)
 // Defang changes nothing in a word it or relay broke already, so text
 // relay made safe is drawn as it came.
 //
-// live.Own is the links relay listed for the thing t belongs to, when it
-// is a card's or a ready item's text, and live.Listed says it listed any
-// at all (core.Links.Of).
+// live.Thing says t is a card's or a ready item's text, and live.Own is
+// the links relay listed for that thing (core.Links.Of).
 func fang(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
-		// A link relay listed for this thing, where its broken form
-		// stands in the word as relay wrote it. No address is read out of
-		// the word: the target is the one relay listed, and only when it
-		// is in the connection's set too.
-		if before, own, after, ok := core.Anchored(w, live.Own); ok && live.Has(own.Address) {
-			return breakDots(Defang(before), true) + anchor(own) + after
+		if live.Thing {
+			// A card's or a ready item's text: a link relay listed for
+			// it, where its broken form stands in the word as relay
+			// wrote it. No address is read out of the word. The target is
+			// the one relay listed, and only when it is in the
+			// connection's set too.
+			if before, own, after, ok := core.Anchored(w, live.Own); ok && live.Has(own.Address) {
+				return breakDots(Defang(before), true) + anchor(own) + after
+			}
+			return Defang(w)
 		}
-		// A whole address that is a member of the set, where relay sent
-		// no list: a reply's own text, and a card from a relay that does
-		// not list links yet. Where there is a list, it alone says what
-		// is a link.
+		// A reply's own text, which comes as the agent wrote it and has
+		// no list: a whole address that is a member of the set.
 		before, link, after, ok := core.LinkIn(w, live)
-		if !ok || live.Listed {
+		if !ok {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)

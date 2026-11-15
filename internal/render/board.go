@@ -109,7 +109,7 @@ func kindColour(kind string) style {
 // cardTitle is the card's title for its panel's border: bold, in its
 // kind's colour or as outside text, or a stand-in when it is empty.
 func cardTitle(c core.Card, live core.Links) string {
-	live = live.Of(c.Links, c.Listed)
+	live = live.Of(c.Links)
 	if strings.TrimSpace(c.Title.Text) == "" {
 		return styled(faint, "(untitled)")
 	}
@@ -245,7 +245,7 @@ func cellGlyph(state string) string {
 // width, and the caller lists the tracker another way. sel and col pick
 // the selected row (1 on) and column (0 on), when focus is on the card.
 func trackerGrid(c core.Card, live core.Links, width int, line, col int, focus bool) (out []string, selA, selB int, ok bool) {
-	live = live.Of(c.Links, c.Listed)
+	live = live.Of(c.Links)
 	const colMax = 6
 	nameW := 0
 	for _, r := range c.Rows {
@@ -302,7 +302,7 @@ func trackerGrid(c core.Card, live core.Links, width int, line, col int, focus b
 // card's detail (full true) everything shows, and with focus the selected
 // line is on a tinted bar; selA and selB are its rows.
 func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
-	live = live.Of(c.Links, c.Listed)
+	live = live.Of(c.Links)
 	line := core.BoardLine(b, c)
 	col := core.BoardCol(b, c)
 	add := func(i int, lines []string) {
@@ -395,7 +395,7 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 // frame is in the accent colour when it has the keys; in a card's detail,
 // with the title the selected line, the title sits on a tinted bar.
 func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
-	live = live.Of(c.Links, c.Listed)
+	live = live.Of(c.Links)
 	body, a, z := cardLinesFor(b, c, live, framed(width), full, focus)
 	title := cardTitle(c, live)
 	right := cardRight(b, c)
@@ -424,7 +424,7 @@ func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focu
 
 // cellLine names the selected tracker cell and its state.
 func cellLine(b core.Board, c core.Card, live core.Links, width int) []string {
-	live = live.Of(c.Links, c.Listed)
+	live = live.Of(c.Links)
 	line, col := core.BoardLine(b, c), core.BoardCol(b, c)
 	if c.Kind != core.CardTracker || line == 0 || col < 0 {
 		return nil

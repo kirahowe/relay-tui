@@ -50,11 +50,9 @@ type ReadyItem struct {
 	// answer.
 	Message, ReplyTo int64
 	// Links are the live links the item's outside text shows, as relay
-	// listed them, and LinksLeftOut how many more it did not list. Listed
-	// says relay sent a list at all; a relay from before it does not.
+	// listed them, and LinksLeftOut how many more it did not list.
 	Links        []Link
 	LinksLeftOut int
-	Listed       bool
 	MessageKind  string
 	Urgency      string
 	Replies      []ReadyReply

@@ -77,36 +77,32 @@ func TestTheLinksOfACardAndAReadyItem(t *testing.T) {
 	if cards.Err != "" || len(cards.Cards) != 1 {
 		t.Fatalf("cards: %+v", cards)
 	}
-	if c := cards.Cards[0]; !reflect.DeepEqual(c.Links, want) || c.LinksLeftOut != 3 || !c.Listed {
-		t.Fatalf("a card's links: %+v, %d left out, listed %v", c.Links, c.LinksLeftOut, c.Listed)
+	if c := cards.Cards[0]; !reflect.DeepEqual(c.Links, want) || c.LinksLeftOut != 3 {
+		t.Fatalf("a card's links: %+v, %d left out", c.Links, c.LinksLeftOut)
 	}
 	ready := Ready(json.RawMessage(`{"rev": 1, "items": [{"id": "message:4", "kind": "message", "title": "x", `+links+`}]}`), nil, at)
 	if ready.Err != "" || len(ready.Items) != 1 {
 		t.Fatalf("ready: %+v", ready)
 	}
-	if it := ready.Items[0]; !reflect.DeepEqual(it.Links, want) || it.LinksLeftOut != 3 || !it.Listed {
-		t.Fatalf("a ready item's links: %+v, %d left out, listed %v", it.Links, it.LinksLeftOut, it.Listed)
+	if it := ready.Items[0]; !reflect.DeepEqual(it.Links, want) || it.LinksLeftOut != 3 {
+		t.Fatalf("a ready item's links: %+v, %d left out", it.Links, it.LinksLeftOut)
 	}
 
-	// A relay from before the list sends neither key, and the card says
-	// so. An empty list is a list.
-	old := Cards(json.RawMessage(`{"rev": 1, "cards": [{"id": 5, "kind": "note", "note": {"text": "x"}}]}`), nil, at)
-	if c := old.Cards[0]; c.Links != nil || c.LinksLeftOut != 0 || c.Listed {
-		t.Fatalf("with no list: %+v", c)
-	}
-	none := Cards(json.RawMessage(`{"rev": 1, "cards": [{"id": 5, "kind": "note", "note": {"text": "x"}, "links": [], "linksLeftOut": 0}]}`), nil, at)
-	if c := none.Cards[0]; len(c.Links) != 0 || !c.Listed {
-		t.Fatalf("with an empty list: %+v", c)
+	// With no list, or an empty one, a card has no links.
+	for _, none := range []string{``, `, "links": [], "linksLeftOut": 0`} {
+		got := Cards(json.RawMessage(`{"rev": 1, "cards": [{"id": 5, "kind": "note", "note": {"text": "x"}`+none+`}]}`), nil, at)
+		if c := got.Cards[0]; len(c.Links) != 0 || c.LinksLeftOut != 0 {
+			t.Fatalf("with no links: %+v", c)
+		}
 	}
 	// A list this client cannot read costs the card its links and nothing
-	// else: the card is kept, and it counts as listed, so no link is
-	// taken from its text either.
+	// else: the card is kept.
 	for _, bad := range []string{`"links": {}`, `"links": "x"`, `"links": [{"address": 1}]`, `"links": null`, `"links": [], "linksLeftOut": "3"`, `"links": [], "linksLeftOut": 1.5`} {
 		got := Cards(json.RawMessage(`{"rev": 1, "cards": [{"id": 5, "kind": "note", "note": {"text": "x"}, `+bad+`}]}`), nil, at)
 		if got.Err != "" || len(got.Cards) != 1 {
 			t.Fatalf("%s: the card is gone: %+v", bad, got)
 		}
-		if c := got.Cards[0]; len(c.Links) != 0 || c.LinksLeftOut != 0 || !c.Listed {
+		if c := got.Cards[0]; len(c.Links) != 0 || c.LinksLeftOut != 0 {
 			t.Fatalf("%s: %+v", bad, c)
 		}
 	}

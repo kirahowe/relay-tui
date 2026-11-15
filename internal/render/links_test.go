@@ -117,7 +117,6 @@ func TestALinkRelayListedIsAHyperlinkOverItsBrokenText(t *testing.T) {
 	draw := func(own []core.Link, live core.Links) map[string]string {
 		c, n, it := card, note, item
 		c.Links, n.Links, it.Links = own, own, own
-		c.Listed, n.Listed, it.Listed = true, true, true
 		out := map[string]string{}
 		for name, x := range map[string]core.Card{"a card": c, "a note card": n} {
 			s := boardState(true, x)
@@ -188,25 +187,23 @@ func TestALinkRelayListedIsAHyperlinkOverItsBrokenText(t *testing.T) {
 	}
 }
 
-// Where relay sent a list, the list alone says what is a link: a whole
-// address in the text is no hyperlink, in the set or not. A relay from
-// before the list sends none, and only then is a whole address that is a
-// member of the set taken from the text. Its text is broken either way.
-func TestAListedThingTakesNoLinkFromItsText(t *testing.T) {
+// A card's text gives no link: a whole address in it is no hyperlink, in
+// the set or not, whatever the card lists. Only a listed link's broken
+// form is one. The address is shown broken all the same.
+func TestACardTakesNoLinkFromItsText(t *testing.T) {
 	live := core.LinksOf(linkA)
 	text := "Arts fund: <" + linkA + "> and " + linkA + "."
-	for name, c := range map[string]struct {
-		listed bool
-		spans  int
-	}{"with a list, empty": {true, 0}, "with no list": {false, 2}} {
+	for name, own := range map[string][]core.Link{
+		"with nothing listed":     nil,
+		"with the address listed": {{Address: linkA, Shown: brokenA}},
+	} {
 		card := cardChecklist
-		card.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
-		card.Listed = c.listed
+		card.Items, card.Links = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}, own
 		s := boardState(true, card)
 		s.App.Links = live
 		content := View(s, "", "", t0, 150, 30).Content
-		if got := strings.Count(content, linkOpen(linkA)); got != c.spans {
-			t.Errorf("%s: %d hyperlinks, want %d", name, got, c.spans)
+		if hasLinks(content) {
+			t.Errorf("%s: a hyperlink from a whole address in the text: %q", name, content)
 		}
 		if plain := ansi.Strip(content); strings.Contains(plain, linkA) || !strings.Contains(plain, brokenA) {
 			t.Errorf("%s: the address is not shown broken:\n%s", name, plain)
@@ -220,18 +217,18 @@ func TestAListedThingTakesNoLinkFromItsText(t *testing.T) {
 func TestFangHoldsAListedLinkToTheSetAndBreaksItsText(t *testing.T) {
 	own := []core.Link{{Address: linkA, Shown: brokenA}}
 	text := "see " + brokenA + " now"
-	if got := fang(text, core.LinksOf(linkB).Of(own, true)); got != text {
+	if got := fang(text, core.LinksOf(linkB).Of(own)); got != text {
 		t.Errorf("not in the set: %q", got)
 	}
-	if got := fang(text, core.Links{}.Of(own, true)); got != text {
+	if got := fang(text, core.Links{}.Of(own)); got != text {
 		t.Errorf("with no set: %q", got)
 	}
-	if got, want := fang(text, core.LinksOf(linkA).Of(own, true)), "see "+linkOpen(linkA)+brokenA+linkEnd+" now"; got != want {
+	if got, want := fang(text, core.LinksOf(linkA).Of(own)), "see "+linkOpen(linkA)+brokenA+linkEnd+" now"; got != want {
 		t.Errorf("in the set: %q, want %q", got, want)
 	}
 	// A list that names a form with its dots whole.
 	loose := []core.Link{{Address: linkA, Shown: "hxxps://evil.test/www.x.test"}}
-	got := fang("see hxxps://evil.test/www.x.test now", core.LinksOf(linkA).Of(loose, true))
+	got := fang("see hxxps://evil.test/www.x.test now", core.LinksOf(linkA).Of(loose))
 	if want := "see " + linkOpen(linkA) + "hxxps://evil[.]test/www[.]x[.]test" + linkEnd + " now"; got != want {
 		t.Errorf("a form that was not broken: %q, want %q", got, want)
 	}
@@ -1037,7 +1034,7 @@ func genOutsideCard(t *rapid.T, id int64) core.Card {
 	}
 	c := core.Card{ID: id, Status: core.CardActive, Rev: 2, Title: text("title"), Text: genOutside(t, "text"),
 		Kind:   rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, core.CardSurface, "kanban"}).Draw(t, "kind"),
-		Labels: core.Labels{Contaminated: true}, Owner: genOutside(t, "owner"), Links: genOwn(t, "card"), Listed: rapid.Bool().Draw(t, "cardListed")}
+		Labels: core.Labels{Contaminated: true}, Owner: genOutside(t, "owner"), Links: genOwn(t, "card")}
 	elems := func(label string) []core.CardElem {
 		var out []core.CardElem
 		for i := range rapid.IntRange(1, 3).Draw(t, label) {
@@ -1078,7 +1075,7 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		// The ready view: the list, and an item open whole.
 		item := core.ReadyItem{ID: "message:4", Kind: rapid.SampledFrom([]string{core.ReadyMessage, core.ReadyMove, core.ReadyFinding, "other"}).Draw(t, "kind"),
 			At: t0.Add(-time.Minute).Format(time.RFC3339), Title: genOutside(t, "readyTitle"), Outsider: true,
-			From: genOutside(t, "from"), Message: 4, ReplyTo: 4, Links: genOwn(t, "item"), Listed: rapid.Bool().Draw(t, "itemListed"),
+			From: genOutside(t, "from"), Message: 4, ReplyTo: 4, Links: genOwn(t, "item"),
 			Lines:   []string{genOutside(t, "line1"), genOutside(t, "line2")},
 			Replies: []core.ReadyReply{{At: t0.Format(time.RFC3339), Text: "ok"}}}
 		if rapid.Bool().Draw(t, "sections") {
@@ -1153,7 +1150,10 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 func TestALiveLinkIsAHyperlinkWhereOutsideTextIsDrawn(t *testing.T) {
 	live := core.LinksOf(linkA)
 	evil := "hxxps://evil[.]test/x"
-	text := "Arts fund: <" + linkA + "> and " + evil
+	// A card and a ready item come with every link broken and the live
+	// one listed. A reply comes as the agent wrote it.
+	text := "Arts fund: " + brokenA + " and " + evil
+	own := []core.Link{{Address: linkA, Shown: brokenA}}
 	shows := func(t *testing.T, content string) {
 		t.Helper()
 		plain := ansi.Strip(content)
@@ -1174,21 +1174,21 @@ func TestALiveLinkIsAHyperlinkWhereOutsideTextIsDrawn(t *testing.T) {
 	}
 	t.Run("a card", func(t *testing.T) {
 		c := cardChecklist
-		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+		c.Items, c.Links = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}, own
 		s := boardState(true, c)
 		s.App.Links = live
 		shows(t, View(s, "", "", t0, 140, 30).Content)
 	})
 	t.Run("a note card", func(t *testing.T) {
 		c := cardNote
-		c.Note = &core.CardText{Text: "## Grants\n- **Arts fund:** <" + linkA + "> and " + evil, Outsider: true}
+		c.Note, c.Links = &core.CardText{Text: "## Grants\n- **Arts fund:** " + brokenA + " and " + evil, Outsider: true}, own
 		s := boardState(true, c)
 		s.App.Links = live
 		shows(t, View(s, "", "", t0, 140, 30).Content)
 	})
 	t.Run("a ready item", func(t *testing.T) {
 		it := core.ReadyItem{ID: "message:4", Kind: core.ReadyMessage, At: t0.Format(time.RFC3339), Title: "Two grants", Outsider: true,
-			Lines: []string{text}, From: "from the web", Message: 4}
+			Lines: []string{text}, From: "from the web", Message: 4, Links: own}
 		hub := hubStep(hubFixture(), core.ReadyLoaded{At: t0, Rev: 9, Items: []core.ReadyItem{it}}, core.StopTyping{At: t0}, core.ReadyOpen{At: t0})
 		hub.App.Links = live
 		shows(t, HubView(hub, "", "", t0, 100, 30).Content)
@@ -1211,7 +1211,7 @@ func TestALiveLinkIsAHyperlinkWhereOutsideTextIsDrawn(t *testing.T) {
 	// The same text with no live links is all broken, as before.
 	t.Run("with no live links", func(t *testing.T) {
 		c := cardChecklist
-		c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}
+		c.Items, c.Links = []core.CardElem{{ID: 1, CardText: core.CardText{Text: text, Outsider: true}}}, own
 		got := View(boardState(true, c), "", "", t0, 140, 30).Content
 		if hasLinks(got) || linkable(ansi.Strip(got)) {
 			t.Fatalf("a link got through with no live links:\n%q", got)

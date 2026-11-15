@@ -87,12 +87,12 @@ func surfaceCard(t testing.TB, name string, id int64) (core.Card, core.Links) {
 	}
 	c := core.Card{ID: id, Kind: core.CardSurface, Status: core.CardActive, Rev: wire.Rev, Owner: wire.Owner,
 		Title: core.CardText{Text: wire.Title.Text, Outsider: outsider, Rev: wire.Rev}, Text: wire.Text,
-		Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}, Links: live.Own, Listed: live.Listed}
+		Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}, Links: live.Own}
 	for _, l := range wire.Labels {
 		c.Labels.Private = c.Labels.Private || l == "private"
 		c.Labels.Contaminated = c.Labels.Contaminated || l == "contaminated"
 	}
-	return c, live.Of(nil, false)
+	return c, live.Of(nil)
 }
 
 func TestBoardGolden(t *testing.T) {

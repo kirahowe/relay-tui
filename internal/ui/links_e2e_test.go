@@ -210,33 +210,6 @@ func TestALinkLongerThanItsRowOpensTheWholeAddressFromEachRow(t *testing.T) {
 	h.noAddressAsText(t)
 }
 
-// A relay from before the list sends a live link whole in the text,
-// between angle brackets, and no list. The address is still a member of
-// the set, so it is a hyperlink, and its text is broken all the same.
-func TestARelayFromBeforeTheListStillGetsItsLiveLinks(t *testing.T) {
-	cfg := linksHub()
-	cfg.Links, cfg.Unlisted = []string{e2eLink}, true
-	cfg.Ready = []json.RawMessage{json.RawMessage(`{"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 4,
-		"title": "Two grants worth a look",
-		"lines": ["Arts fund spring round, due 1 Dec: <` + e2eLink + `>.", "A forum post pointed here too: ` + e2eOtherBroken + `"],
-		"from": "Drew on: the web page grants-2027.html", "outsider": true,
-		"message": 4, "messageKind": "note", "urgency": "normal", "thread": 4, "replyTo": 4, "replies": []}`)}
-	h := startHub(t, cfg, 100, 30, "")
-	h.waitLog("links")
-	h.keys("R")
-	h.waitScreen("the ready view", contains("Two grants worth a look"))
-	h.wait("the live link as a hyperlink", h.screen, func(string) bool { return h.linked(e2eLinkBroken, e2eLink) })
-	if !h.unlinked(e2eOtherBroken) {
-		t.Fatalf("the broken link is not plain text:\n%s", h.screen())
-	}
-	for target := range h.targets() {
-		if target != e2eLink {
-			t.Errorf("a hyperlink to %q was written", target)
-		}
-	}
-	h.noAddressAsText(t)
-}
-
 // A relay without the method leaves every link broken, as before.
 func TestWithoutRelaysLinksEveryLinkStaysBroken(t *testing.T) {
 	cfg := linksHub()
