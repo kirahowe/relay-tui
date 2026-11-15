@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:relay:catalog:v1",
+  "catalogId": "urn:relay:catalog:v1",
+  "protocolVersion": "1.0",
+  "title": "relay catalog",
+  "description": "The basic catalog's layout, text and input components that relay-tui draws, plus Tracker, relay's grid of rows by columns with a state in each cell.",
+  "instructions": "Use Tracker for work that is a grid, such as accounts by month. Give each row and column an id, then list the cells that are not open by row id and column id. A cell with no entry is open.",
+  "components": {
+    "Text": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Text"},
+    "Row": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Row"},
+    "Column": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Column"},
+    "List": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/List"},
+    "Card": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Card"},
+    "Divider": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Divider"},
+    "Button": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Button"},
+    "TextField": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/TextField"},
+    "CheckBox": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/CheckBox"},
+    "ChoicePicker": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/ChoicePicker"},
+    "Tracker": {
+      "type": "object",
+      "description": "A grid of rows by columns. Each cell is open, done or skip. rows, columns and cells are written out, or bound with {\"@path\": ...} to arrays in the data model that have the same shape.",
+      "properties": {
+        "component": {"const": "Tracker"},
+        "rows": {"$ref": "#/$defs/TrackerLines"},
+        "columns": {"$ref": "#/$defs/TrackerLines"},
+        "cells": {
+          "description": "The cells that are not open. A pair of row and column with no entry is open.",
+          "oneOf": [
+            {"type": "array", "items": {"$ref": "#/$defs/TrackerCell"}},
+            {"$ref": "common_types.json#/$defs/DataBinding"}
+          ]
+        },
+        "weight": {"type": "number"}
+      },
+      "required": ["component", "rows", "columns"]
+    }
+  },
+  "functions": {},
+  "$defs": {
+    "TrackerLines": {
+      "description": "Row or column definitions, in the order they are drawn.",
+      "oneOf": [
+        {"type": "array", "items": {"$ref": "#/$defs/TrackerLine"}},
+        {"$ref": "common_types.json#/$defs/DataBinding"}
+      ]
+    },
+    "TrackerLine": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "description": "Names the row or column in cells. Unique among rows, or among columns."},
+        "label": {"$ref": "common_types.json#/$defs/DynamicString"}
+      },
+      "required": ["id", "label"],
+      "additionalProperties": false
+    },
+    "TrackerCell": {
+      "type": "object",
+      "properties": {
+        "row": {"type": "string", "description": "The id of a row."},
+        "column": {"type": "string", "description": "The id of a column."},
+        "state": {
+          "oneOf": [
+            {"enum": ["open", "done", "skip"]},
+            {"$ref": "common_types.json#/$defs/DataBinding"}
+          ]
+        }
+      },
+      "required": ["row", "column", "state"],
+      "additionalProperties": false
+    }
+  }
+}
