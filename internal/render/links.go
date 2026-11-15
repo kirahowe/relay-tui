@@ -66,14 +66,19 @@ var wordRE = regexp.MustCompile(`\S+`)
 // relay breaks a word that holds a link. t has no escape sequences: the
 // caller has escaped or sanitized it. With no live links no word gets a
 // span.
+//
+// Every word goes through Defang, whatever it looks like: one function
+// says what a link is, and no second test decides which words it sees.
+// Defang changes nothing in a word it or relay broke already, so text
+// relay made safe is drawn as it came.
 func fang(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
 		before, link, after, ok := core.LinkIn(w, live)
 		if !ok {
-			return breakWord(w)
+			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(breakWord(before)) + span(link) + after
+		return breakDots(Defang(before)) + span(link) + after
 	})
 }
 
@@ -85,21 +90,11 @@ func fangSource(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
 		before, link, after, ok := core.LinkIn(w, live)
 		if !ok {
-			return breakWord(w)
+			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(breakWord(before)) + autolink(link) + after
+		return breakDots(Defang(before)) + autolink(link) + after
 	})
-}
-
-// breakWord breaks the links in a word that holds one a terminal could
-// follow. A word relay broke already passes as it is: Defang would break
-// its dots a second time.
-func breakWord(w string) string {
-	if linkable(w) {
-		return Defang(w)
-	}
-	return w
 }
 
 // unbracket takes the angle brackets a live link already stands between
@@ -136,17 +131,13 @@ func pieces(row string) []piece {
 	return out
 }
 
-// schemeRunRE finds a "://" with a scheme before it: a broken http
-// scheme's, which is longer than the other match, one character of any
-// other scheme and the "://".
-var schemeRunRE = regexp.MustCompile(`(?i)hxxps?://|[a-z0-9+.\-]://`)
-
 // linkable says whether text holds something a terminal could follow by
-// itself: a "://" after a scheme that is not a broken http one, or a
-// www. host. A "://" with no scheme before it is not an address.
+// itself: a "://" after anything but a broken scheme, or a www. host. It
+// is the check on rows as drawn, and what it finds is what Defang breaks
+// (schemeSepRE is Defang's own).
 func linkable(plain string) bool {
-	for _, m := range schemeRunRE.FindAllString(plain, -1) {
-		if len(m) == 4 {
+	for _, m := range schemeSepRE.FindAllString(plain, -1) {
+		if len(m) == 3 {
 			return true
 		}
 	}
@@ -154,9 +145,10 @@ func linkable(plain string) bool {
 }
 
 // cutTailRE is what a row can begin with when a wrap or a cut fell
-// inside the scheme of a broken link: the end of hxxp or hxxps, then
-// "://". None of them is a scheme, and the address after it is broken.
-var cutTailRE = regexp.MustCompile(`^\s*(?i:xxps?|xps?|ps?|s)://`)
+// inside the scheme of a broken link, or straight after it: the end of
+// hxxp, hxxps or fxp, or nothing, then "://". None of them is a scheme,
+// and the address after it is broken.
+var cutTailRE = regexp.MustCompile(`^\s*(?i:xxps?|xps?|ps?|s)?://`)
 
 // linkableRow is linkable for a row, or a piece of one, as drawn: what a
 // cut left of a broken scheme at its start does not count. A row that

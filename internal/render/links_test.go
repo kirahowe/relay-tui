@@ -1,10 +1,11 @@
 package render
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
@@ -43,6 +44,45 @@ func TestFang(t *testing.T) {
 	}
 	if got := fang("see "+linkA, core.Links{}); got != "see hxxps://artsfund[.]example/grants/2027" {
 		t.Errorf("with no live links: %q", got)
+	}
+}
+
+// Every word goes through Defang. When only the words a second test
+// took for links did, these got past it: a hidden character or a letter
+// of another script before the "://", which a terminal's finder may read
+// as part of a scheme, and a scheme broken already over a host that is
+// not. What relay broke itself is left as it came, its fxp for ftp too.
+func TestNoWordSkipsTheLinkBreaker(t *testing.T) {
+	for in, want := range map[string]string{
+		"https\u200d://evil.test/?d=1": "https\u200d[:]//evil.test/?d=1",
+		"é://evil.test/x":              "é[:]//evil.test/x",
+		"hxxps://evil.test/?d=1":       "hxxps://evil[.]test/?d=1",
+		"fxp://files[.]example/a":      "fxp://files[.]example/a",
+		"hxxps://x[.]example/a?b=c.d":  "hxxps://x[.]example/a?b=c[.]d",
+		"see hxxp://x[.]example/a now": "see hxxp://x[.]example/a now",
+		"[:]//evil[.]test":             "[:]//evil[.]test",
+	} {
+		if got := fang(in, core.Links{}); got != want {
+			t.Errorf("fang(%q) = %q, want %q", in, got, want)
+		}
+		if got := fang(in, core.Links{}); linkable(got) {
+			t.Errorf("fang(%q) = %q can be followed", in, got)
+		}
+	}
+	// In a reply written under contamination, as in a card.
+	said := "Read https\u200d://evil.test/?d=CANARY and é://evil.test/x today."
+	st := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true},
+		Entries: []core.Entry{{Kind: core.Agent, Text: said, Final: true, Defang: true}}}
+	c := cardChecklist
+	c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: said, Outsider: true}}}
+	for name, content := range map[string]string{
+		"a reply": TranscriptView(st, core.Links{}, t0, 100, 30).Content,
+		"a card":  View(boardState(true, c), "", "", t0, 140, 30).Content,
+	} {
+		plain := ansi.Strip(content)
+		if strings.Contains(plain, "://") || !strings.Contains(plain, "[:]//evil") {
+			t.Errorf("%s leaves a scheme whole:\n%s", name, plain)
+		}
 	}
 }
 
@@ -221,13 +261,14 @@ func TestOutsideTextIsDrawnAsItWasSent(t *testing.T) {
 	// Text with every mark the note's dressing reads, and nothing a link
 	// could be made of that relay would not have broken already.
 	piece := rapid.SampledFrom([]string{"ev**il.**example/steal?d=1", "**bold**", "# Heading", "## Two", "- item", "* star", "1. one",
-		"2) two", "word", "a.b", "x_y_z", "`code`", "~~no~~", "[l](p)", "<tag>", "hxxps://evil[.]test/x", "é", "世界", "  ", "\n", "\n\n", "\t",
+		"2) two", "word", "a.b", "x_y_z", "`code`", "~~no~~", "[l](p)", "<tag>", "hxxps://evil[.]test/x", "fxp://files[.]example/a", "é", "世界", "  ", "\n", "\n\n", "\t",
 		"*", "**", "#", ">", "www", "ht", "tp", ":", "//", "."})
 	solid := func(s string) string { return strings.Join(strings.Fields(s), "") }
 	rapid.Check(t, func(t *rapid.T) {
 		text := strings.Join(rapid.SliceOfN(piece, 1, 12).Draw(t, "pieces"), rapid.SampledFrom([]string{" ", "", "\n"}).Draw(t, "sep"))
-		// Only text relay could send: nothing in it can be followed.
-		if linkable(text) {
+		// Only text relay could send: nothing in it that a link breaker
+		// would still change.
+		if e := core.EscapeNonPrinting(text); linkable(e) || Defang(e) != e {
 			t.Skip("holds a link relay would have broken")
 		}
 		width := rapid.IntRange(8, 80).Draw(t, "width")
@@ -368,14 +409,26 @@ func TestRelaysOwnWordsAboutOutsideTextHaveTheirLinksBroken(t *testing.T) {
 	// words for a running tool and for a retry.
 	undone := list
 	undone.Ready.Message = "Put back https://evil.test/a.pdf"
+	kept := list
+	kept.Ready.Message, kept.Ready.Failure = core.UndoRefusedNote, "These stayed: https://evil.test/b.pdf is in the way."
 	noticed := hubFixture()
 	noticed.Notice = "No role called https://evil.test/r is here."
+	// The same notice over the list of roles and over the pane, each
+	// with a narrow screen to itself.
+	listed := hubStep(hubFixture(), core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})
+	listed.Notice = noticed.Notice
+	paned := hubFixture()
+	paned.Focus, paned.App.PaneFocus, paned.Notice = "", true, noticed.Notice
 	for name, got := range map[string]string{
-		"an undo":   HubView(undone, "", "", t0, 120, 30).Content,
-		"a notice":  HubView(noticed, "", "", t0, 120, 30).Content,
-		"a tool":    StatusText(core.StatusLine{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: "web_get https://evil.test/?d=1"}, "", t0, 120),
-		"a retry":   StatusText(core.StatusLine{Kind: core.StatusRetrying, RetryIn: time.Second, Reason: "https://evil.test/ said no"}, "", t0, 120),
-		"a message": StatusText(core.StatusLine{Kind: core.StatusIdle, Message: "see www.evil.test"}, "", t0, 120),
+		"an undo":                 HubView(undone, "", "", t0, 120, 30).Content,
+		"an undo refused":         HubView(kept, "", "", t0, 120, 30).Content,
+		"an undo refused, narrow": HubView(kept, "", "", t0, 50, 30).Content,
+		"a notice":                HubView(noticed, "", "", t0, 120, 30).Content,
+		"a notice over the list":  HubView(listed, "", "", t0, 60, 30).Content,
+		"a notice over the pane":  HubView(paned, "", "", t0, 60, 30).Content,
+		"a tool":                  StatusText(core.StatusLine{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: "web_get https://evil.test/?d=1"}, "", t0, 120),
+		"a retry":                 StatusText(core.StatusLine{Kind: core.StatusRetrying, RetryIn: time.Second, Reason: "https://evil.test/ said no"}, "", t0, 120),
+		"a message":               StatusText(core.StatusLine{Kind: core.StatusIdle, Message: "see www.evil.test"}, "", t0, 120),
 	} {
 		plain := ansi.Strip(got)
 		if linkable(plain) || hasLinks(got) {
@@ -417,7 +470,9 @@ var (
 	// Ways text puts an address together from pieces, or hides one.
 	tricks = []string{"https:/**/**evil.test/x", "ht**tp**s://evil.test/x", "http:*/*/evil.test", "https:/\u200b/evil.test",
 		"**https:**//evil.test", "# https:/**/**evil.test", "- https:/**/**evil.test/x", "h\x1bttp://evil.test",
-		"a\x1b]8;;https://evil.test\x07click\x1b]8;;\x07", "<https://evil.test/x>", "ww**w.**evil.test"}
+		"a\x1b]8;;https://evil.test\x07click\x1b]8;;\x07", "<https://evil.test/x>", "ww**w.**evil.test",
+		"https\u200d://evil.test/?d=1", "é://evil.test/x", "https\u2060://evil.test", "x\u200d://evil.test", "hxxps://evil.test/?d=1",
+		"fxp://files[.]example/a", "ftp\u200d://evil.test"}
 	around = []string{"%s", "<%s>", "(%s).", "**%s**", "**<%s>**", "[a fund](%s)", "[a fund](<%s>)", "see:%s", "x.y/%s",
 		"%s/more", "%s...", "_%s_", "`%s`", "# %s", "- %s", "1. %s", "%s?", "%s%s", "https://evil.test/?u=%s", "\"%s\"", "> %s"}
 )
@@ -456,24 +511,36 @@ func genOutside(t *rapid.T, label string) string {
 }
 
 // brokenTails is what a row can start with when a wrap or a cut fell
-// inside the scheme of a broken link: the end of hxxp or hxxps. None is a
-// scheme anything answers to, and the address after it has its dots
-// broken, so no terminal follows it.
+// inside the scheme of a broken link, or straight after it: the end of
+// hxxp, hxxps or fxp, or nothing. None is a scheme anything answers to,
+// and the address after it has its dots broken, so no terminal follows
+// it.
 var brokenTails = map[string]bool{"xxp": true, "xxps": true, "xp": true, "xps": true, "p": true, "ps": true, "s": true, "": true}
 
-var schemeBefore = regexp.MustCompile(`([A-Za-z0-9+.\-]*)://`)
-
 // followable says a row's text holds something a terminal's own link
-// finder would take: a "://" after anything but a broken scheme (hxxp,
-// hxxps, with or without text run on before it) or the tail a cut left
-// of one, or a www. host.
+// finder would take: a www. host, or a "://" after anything but a broken
+// scheme (hxxp, hxxps, fxp, with or without text run on before it) or the
+// tail a cut left of one. What stands before the "://" is read back to
+// the last space, whatever it is made of: a finder's idea of a scheme's
+// letters is wider than ASCII's, and a hidden character can sit there.
 func followable(plain string) bool {
-	for _, m := range schemeBefore.FindAllStringSubmatch(plain, -1) {
-		run := strings.ToLower(m[1])
-		if strings.HasSuffix(run, "hxxp") || strings.HasSuffix(run, "hxxps") || brokenTails[run] {
-			continue
+	rest := plain
+	for {
+		i := strings.Index(rest, "://")
+		if i < 0 {
+			break
 		}
-		return true
+		run := rest[:i]
+		if j := strings.LastIndexFunc(run, unicode.IsSpace); j >= 0 {
+			run = run[j:]
+			_, n := utf8.DecodeRuneInString(run)
+			run = run[n:]
+		}
+		run = strings.ToLower(run)
+		if !(strings.HasSuffix(run, "hxxp") || strings.HasSuffix(run, "hxxps") || strings.HasSuffix(run, "fxp") || brokenTails[run]) {
+			return true
+		}
+		rest = rest[i+3:]
 	}
 	return strings.Contains(strings.ToLower(plain), "www.")
 }
@@ -613,7 +680,10 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		// What an undo did is relay's line too, and it names files.
 		undone := list
 		undone.Ready.Message = genOutside(t, "undone")
-		for _, hub := range []core.Hub{list, open, replying, refused, undone} {
+		// A refusal with no reply open has rows of its own.
+		kept := list
+		kept.Ready.Message, kept.Ready.Failure = core.UndoRefusedNote, genOutside(t, "kept")
+		for _, hub := range []core.Hub{list, open, replying, refused, undone, kept} {
 			hub.App.Links = live
 			checkFollowed(t, "the ready view", HubView(hub, "", "", t0, w, h).Content, live)
 		}
@@ -622,9 +692,15 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		titled := hubStep(hubFixture(), core.RosterUpdate{At: t0, Roles: []core.Role{
 			{ID: "dev", Title: genOutside(t, "title1")}, {ID: "mail", Title: genOutside(t, "title2")}}})
 		titled.App.Links = live
-		// A notice at the foot is relay's reason for something.
-		titled.Notice = genOutside(t, "notice")
-		for _, hub := range []core.Hub{titled, hubStep(titled, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})} {
+		// A notice at the foot is relay's reason for something. It is set
+		// last, since a key clears it: beside a conversation, over the
+		// list of roles, and over the pane when that has a narrow screen
+		// to itself.
+		listed := hubStep(titled, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1})
+		paned := titled
+		paned.Focus, paned.List, paned.App.PaneFocus = "", false, true
+		for _, hub := range []core.Hub{titled, listed, paned} {
+			hub.Notice = genOutside(t, "notice")
 			checkFollowed(t, "the roster", HubView(hub, "", "", t0, w, h).Content, live)
 		}
 

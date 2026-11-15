@@ -45,7 +45,7 @@ func Defang(s string) string {
 				scheme = "hxxp" + "://"
 			case "https":
 				scheme = "hxxps" + "://"
-			case "hxxp", "hxxps": // defanged already
+			case "hxxp", "hxxps", "fxp": // broken already, by this or by relay
 				scheme += "://"
 			default:
 				// A scheme may hold dots (www.x.io://y), and so read as
@@ -58,9 +58,11 @@ func Defang(s string) string {
 		// broken as well as the first, as relay's own defang does.
 		return scheme + dots(rest)
 	})
-	// A "://" can be left that the match did not own (it came from the
-	// middle of another URL's host, or after a www. host's path); none
-	// survives but hxxp(s)://.
+	// A "://" can be left that the match did not own: it came from the
+	// middle of another URL's host, or after a www. host's path, or it
+	// has something before it that is no scheme's letter (a hidden
+	// character, a letter of another script) and a terminal's finder may
+	// read as one. None survives but a broken scheme's.
 	return schemeSepRE.ReplaceAllStringFunc(out, func(m string) string {
 		if len(m) > 3 {
 			return m
@@ -69,9 +71,10 @@ func Defang(s string) string {
 	})
 }
 
-// schemeSepRE finds "://" with a defanged http scheme before it, which
-// stays, or without, which does not.
-var schemeSepRE = regexp.MustCompile("(?i)hxxps?://|://")
+// schemeSepRE finds "://" with a broken scheme before it, which stays, or
+// without, which does not. hxxp and hxxps are the broken http schemes,
+// and fxp is how relay writes a broken ftp.
+var schemeSepRE = regexp.MustCompile("(?i)(?:hxxps?|fxp)://|://")
 
 // defangLines is a last check on rendered lines: markdown can put a
 // "://" together from pieces (an emphasis mark between the slashes), which
