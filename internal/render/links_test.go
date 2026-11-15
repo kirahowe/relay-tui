@@ -77,14 +77,20 @@ func TestNoWordSkipsTheLinkBreaker(t *testing.T) {
 		Entries: []core.Entry{{Kind: core.Agent, Text: said, Final: true, Defang: true}}}
 	c := cardChecklist
 	c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: said, Outsider: true}}}
+	// A card shows the hidden character as an escape, which leaves a
+	// "://" for Defang to break. A reply has it taken out first, so the
+	// scheme comes together and is broken as https is.
 	for name, content := range map[string]string{
 		"a reply": TranscriptView(st, core.Links{}, t0, 100, 30).Content,
 		"a card":  View(boardState(true, c), "", "", t0, 140, 30).Content,
 	} {
 		plain := ansi.Strip(content)
-		if strings.Contains(plain, "://") || !strings.Contains(plain, "[:]//evil") {
+		if followable(plain) || !strings.Contains(plain, "é[:]//evil") {
 			t.Errorf("%s leaves a scheme whole:\n%s", name, plain)
 		}
+	}
+	if plain := ansi.Strip(TranscriptView(st, core.Links{}, t0, 100, 30).Content); !strings.Contains(plain, "hxxps://evil[.]test/?d=CANARY") {
+		t.Errorf("a reply does not break the address it joined:\n%s", plain)
 	}
 }
 
@@ -434,6 +440,65 @@ func relaySends(text string) bool {
 	return true
 }
 
+// In a session that has read text from outside, a character that draws
+// as nothing is taken out of what the agent writes before its links are
+// broken. Left in, it sits inside "://" or "www." where Defang, which
+// goes by the letters, does not find the link, and a terminal's finder
+// may read straight past it. A session that has read nothing from
+// outside keeps such characters: they join emoji.
+func TestACharacterNobodySeesCannotSitInsideAnAddress(t *testing.T) {
+	hidden := []string{
+		"https:\u200d//evil.test/?d=CANARY", "https:/\ufe0f/evil.test/?d=CANARY", "www\u200d.evil.test/?d=CANARY",
+		"ww\u034fw.evil.test", "https\u180b://evil.test", "h\U000E0100ttps://evil.test", "http\u17b5s:\u1160/\u2060/evil.test",
+	}
+	for _, addr := range hidden {
+		said := "Read " + addr + " today."
+		st := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true}, Entries: []core.Entry{
+			{Kind: core.Agent, Text: said, Final: true, Defang: true},
+			{Kind: core.Thought, Text: said, Final: true, Defang: true},
+			{Kind: core.Tool, Calls: []core.Call{{ID: "1", Name: "web_get", Title: said, Input: `{"url":"` + addr + `"}`, Output: said, Status: core.OK}}, Final: true, Defang: true},
+		}}
+		st.Transcript.Tools, st.Transcript.Thinking = true, true
+		noticed := hubFixture()
+		noticed.Notice = said
+		for name, content := range map[string]string{
+			"a reply, a thought and a call": TranscriptView(st, core.Links{}, t0, 100, 40).Content,
+			"the status line":               StatusText(core.StatusLine{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: said}, "", t0, 120),
+			"a notice":                      HubView(noticed, "", "", t0, 120, 30).Content,
+		} {
+			plain := ansi.Strip(content)
+			if bare(plain) != plain {
+				t.Errorf("%q: %s still holds a character nobody sees:\n%q", addr, name, plain)
+			}
+			if followable(plain) || !strings.Contains(plain, "evil[.]test") {
+				t.Errorf("%q: %s does not show the address broken:\n%s", addr, name, plain)
+			}
+		}
+	}
+	// The order is what matters: the hidden character is taken out first,
+	// so Defang is given the word a terminal would read, joined, and
+	// breaks it as it breaks any address. Here one sits inside the scheme
+	// and one inside the host.
+	joined := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true},
+		Entries: []core.Entry{{Kind: core.Agent, Text: "Read h\u200dttps://ev\u200bil.test/x today.", Final: true, Defang: true}}}
+	if plain := ansi.Strip(TranscriptView(joined, core.Links{}, t0, 100, 30).Content); !strings.Contains(plain, "Read hxxps://evil[.]test/x today.") {
+		t.Errorf("the joined word is not broken as one address:\n%q", plain)
+	}
+	// What holds an emoji together stays, by relay's own rule, in a
+	// session that has read from outside too.
+	glued := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true},
+		Entries: []core.Entry{{Kind: core.Agent, Text: "Done \U0001F469\u200d\U0001F4BB and \u26a0\ufe0f", Final: true, Defang: true}}}
+	if plain := ansi.Strip(TranscriptView(glued, core.Links{}, t0, 100, 30).Content); !strings.Contains(plain, "\U0001F469\u200d\U0001F4BB") || !strings.Contains(plain, "\u26a0\ufe0f") {
+		t.Errorf("an emoji came apart in a contaminated session:\n%q", plain)
+	}
+	// With nothing read from outside the text is the agent's own, and an
+	// emoji keeps the joiner that makes it one.
+	clean := core.State{Phase: core.Idle, Ready: true, Entries: []core.Entry{{Kind: core.Agent, Text: "Done 👩\u200d💻 and ⚠\ufe0f", Final: true}}}
+	if plain := ansi.Strip(TranscriptView(clean, core.Links{}, t0, 100, 30).Content); !strings.Contains(plain, "👩\u200d💻") {
+		t.Errorf("a clean session's emoji came apart:\n%q", plain)
+	}
+}
+
 // The check on rows as drawn takes www. for a host when more of its word
 // follows than closing marks: a name, or a user name before one. The full
 // stop after a word that is www is none.
@@ -743,7 +808,10 @@ var (
 		"**https:**//evil.test", "# https:/**/**evil.test", "- https:/**/**evil.test/x", "h\x1bttp://evil.test",
 		"a\x1b]8;;https://evil.test\x07click\x1b]8;;\x07", "<https://evil.test/x>", "ww**w.**evil.test",
 		"https\u200d://evil.test/?d=1", "é://evil.test/x", "https\u2060://evil.test", "x\u200d://evil.test", "hxxps://evil.test/?d=1",
-		"fxp://files[.]example/a", "ftp\u200d://evil.test"}
+		"fxp://files[.]example/a", "ftp\u200d://evil.test",
+		// A character nobody sees inside the separator, the scheme or www.
+		"https:\u200d//evil.test/?d=1", "https:/\ufe0f/evil.test", "www\u200d.evil.test", "ww\u034fw.evil.test",
+		"https\u180b://evil.test", "h\U000E0100ttps://evil.test/x", "http\u17b5s:\u1160/\u2060/evil.test", "www.\u200bevil.test"}
 	around = []string{"%s", "<%s>", "(%s).", "**%s**", "**<%s>**", "[a fund](%s)", "[a fund](<%s>)", "see:%s", "x.y/%s",
 		"%s/more", "%s...", "_%s_", "`%s`", "# %s", "- %s", "1. %s", "%s?", "%s%s", "https://evil.test/?u=%s", "\"%s\"", "> %s"}
 )
@@ -858,6 +926,19 @@ func followable(plain string) bool {
 	return false
 }
 
+// bare is s without the characters that draw as nothing, by Go's own
+// Unicode tables and not the list the code under test keeps: the format
+// characters, the variation selectors and the other default-ignorable
+// code points.
+func bare(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // checkFollowed fails when a drawn frame gives a terminal anything to
 // follow that is not a live link: a hyperlink to any other target, or
 // text a terminal's own link finder would take, in a hyperlink or out of
@@ -882,9 +963,13 @@ func checkFollowed(t *rapid.T, what, content string, live core.Links) {
 			t.Fatalf("%s: a hyperlink is left open at the end of row %q", what, row)
 		}
 		// The row as a terminal with no OSC 8 reads it, hyperlinks and
-		// all.
-		if plain := ansi.Strip(row); followable(plain) {
+		// all, and as one that reads past what draws as nothing.
+		plain := ansi.Strip(row)
+		if followable(plain) {
 			t.Fatalf("%s: %q can be followed as text", what, plain)
+		}
+		if b := bare(plain); b != plain && followable(b) {
+			t.Fatalf("%s: %q can be followed as text once what nobody sees is read past", what, plain)
 		}
 	}
 }

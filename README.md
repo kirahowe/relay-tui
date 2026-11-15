@@ -163,8 +163,17 @@ notices, tool names, arguments and output) show defanged, as
 itself is never shown, and nothing is held or withheld because of it.
 relay-tui never sends `resource_link` blocks.
 
+In such a session relay-tui first takes every hidden character out of
+what the agent writes: a zero-width space or joiner, a variation
+selector, a filler, a bidi mark, a control. One of those inside `://` or
+`www.` would hide a link from relay-tui and might not hide it from your
+terminal. With it gone the pieces come together, and the link is broken
+like any other. The joiner or selector that holds an emoji together
+stays. The rule is relay's own (`relay.text/hidden?` and `emoji-glue?`),
+and relay's docs/client-protocol.md has it for every client.
+
 Some lines carry no mark of where their words came from, and those have
-their links broken always: a role's title, which another role may have
+their links broken always, after the same hidden characters are gone: a role's title, which another role may have
 written, the status line's name for the tool that is running and its
 reason for a retry, the notice at the foot of the hub, and relay's own
 lines in the ready view (where a thing came from, why a reply or an undo

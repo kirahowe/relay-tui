@@ -58,6 +58,99 @@ func blankGlyph(r rune) bool {
 	return false
 }
 
+// DropHidden is s with every hidden character taken out but the ones that
+// hold an emoji together, and with a line or paragraph separator made a
+// line break. It is for text whose links are about to be broken, where
+// the escapes above would spoil ordinary emoji. A character nobody sees
+// inside an address hides the address from whatever looks for one by its
+// letters, and a terminal's link finder may read straight past it. With
+// them gone, what is looked at is what is seen.
+//
+// What is hidden and what is glue are relay's own rules (relay.text:
+// hidden?, emoji-glue? and the way sanitize strips), so relay and its
+// clients take out the same characters.
+func DropHidden(s string) string {
+	rs := []rune(s)
+	out := make([]rune, 0, len(rs))
+	for i, r := range rs {
+		switch {
+		case r == 0x85 || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r):
+			out = append(out, '\n')
+		case !hidden(r):
+			out = append(out, r)
+		default:
+			var prev, next rune = -1, -1
+			if len(out) > 0 {
+				prev = out[len(out)-1]
+			}
+			if i+1 < len(rs) {
+				next = rs[i+1]
+			}
+			if emojiGlue(r, prev, next) {
+				out = append(out, r)
+			}
+		}
+	}
+	if len(out) == len(rs) && string(out) == s {
+		return s
+	}
+	return string(out)
+}
+
+// hidden says r is a character relay shows escaped, or takes out
+// (relay.text/hidden?): a control, a format character, a surrogate, one
+// in private use or not assigned, a line or paragraph separator, or one
+// that draws as nothing or as an empty space without being a space.
+// Newline and tab are not.
+func hidden(r rune) bool {
+	if r == '\n' || r == '\t' {
+		return false
+	}
+	return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp) ||
+		!unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z, unicode.C) || blankGlyph(r)
+}
+
+// pictographicRanges is Unicode's Extended_Pictographic, near enough, as
+// relay.text keeps it: the code points emoji sequences are made of. The
+// enclosed and squared Latin letters and the regional indicators are left
+// out, as Unicode leaves them out.
+var pictographicRanges = [][2]rune{
+	{0x00A9, 0x00A9}, {0x00AE, 0x00AE}, {0x203C, 0x203C}, {0x2049, 0x2049}, {0x2122, 0x2122}, {0x2139, 0x2139},
+	{0x2194, 0x2199}, {0x21A9, 0x21AA}, {0x231A, 0x231B}, {0x2328, 0x2328}, {0x2388, 0x2388}, {0x23CF, 0x23CF},
+	{0x23E9, 0x23F3}, {0x23F8, 0x23FA}, {0x24C2, 0x24C2}, {0x25AA, 0x25AB}, {0x25B6, 0x25B6}, {0x25C0, 0x25C0},
+	{0x25FB, 0x25FE}, {0x2600, 0x27BF}, {0x2934, 0x2935}, {0x2B05, 0x2B07}, {0x2B1B, 0x2B1C}, {0x2B50, 0x2B50},
+	{0x2B55, 0x2B55}, {0x3030, 0x3030}, {0x303D, 0x303D}, {0x3297, 0x3297}, {0x3299, 0x3299},
+	{0x1F000, 0x1F0FF}, {0x1F10D, 0x1F10F}, {0x1F12F, 0x1F12F}, {0x1F16C, 0x1F171}, {0x1F17E, 0x1F17F},
+	{0x1F18E, 0x1F18E}, {0x1F191, 0x1F19A}, {0x1F1AD, 0x1F1E5}, {0x1F201, 0x1FAFF}, {0x1FC00, 0x1FFFD},
+}
+
+// pictographic says r is an emoji, or part of one such as a skin tone,
+// that a zero-width joiner or a variation selector may follow.
+func pictographic(r rune) bool {
+	for _, rg := range pictographicRanges {
+		if r >= rg[0] && r <= rg[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// emojiGlue says r, a zero-width joiner or a variation selector, holds an
+// emoji sequence together (relay.text/emoji-glue?): a joiner between an
+// emoji, or its selector, and the next emoji, as in a family; a selector
+// right after an emoji, or after a keycap's digit before the keycap. prev
+// is the character kept before it and next the one after it in the
+// text, each -1 when there is none.
+func emojiGlue(r, prev, next rune) bool {
+	switch r {
+	case 0x200D:
+		return prev >= 0 && next >= 0 && pictographic(next) && (pictographic(prev) || prev == 0xFE0F || prev == 0xFE0E)
+	case 0xFE0F, 0xFE0E:
+		return prev >= 0 && (pictographic(prev) || ((prev == '#' || prev == '*' || (prev >= '0' && prev <= '9')) && next == 0x20E3))
+	}
+	return false
+}
+
 // EscapeNonPrinting escapes every character in s that does not print,
 // except newline, which the caller uses for layout. Backslashes and
 // quotes stay as they are, so it suits text that is already JSON.

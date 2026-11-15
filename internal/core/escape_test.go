@@ -116,3 +116,119 @@ func TestInvisibleCodePointsAreEscaped(t *testing.T) {
 		t.Error("ordinary letters escaped")
 	}
 }
+
+// DropHidden takes out what nobody sees, so that the pieces either side
+// come together, and leaves the rest: a mark that shows on its letter,
+// and the joiner or selector that holds an emoji together.
+func TestDropHidden(t *testing.T) {
+	for in, want := range map[string]string{
+		"https:\u200d//evil.test":                     "https://evil.test",
+		"https:/\ufe0f/evil.test":                     "https://evil.test",
+		"www\u200d.evil.test":                         "www.evil.test",
+		"ww\u034fw.ev\u180bil.te\u17b5st":             "www.evil.test",
+		"h\U000E0100ttps\u1160://x\u2060y":            "https://xy",
+		"a\u00adb\u200bc\u200ed\ufeffe":               "abcde",
+		"a\u2800b\x1bc\ue000d":                        "abcd",
+		"e\u0301 stays":                               "e\u0301 stays",
+		"plain text\n\twith a tab":                    "plain text\n\twith a tab",
+		"Done \U0001F469\u200d\U0001F4BB and ⚠\ufe0f": "Done \U0001F469\u200d\U0001F4BB and ⚠\ufe0f",
+		"": "",
+	} {
+		if got := DropHidden(in); got != want {
+			t.Errorf("DropHidden(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// relay's own cases for what holds an emoji together and what does not
+// (relay's test/relay/sanitize_test.clj, family-emoji-and-keycaps-survive),
+// so relay and this client cannot come to differ without a test failing.
+// man is U+1F468, woman U+1F469, girl U+1F467, boy U+1F466.
+func TestDropHiddenKeepsEmojiGlueAsRelayDoes(t *testing.T) {
+	const man, woman, girl, boy = "\U0001F468", "\U0001F469", "\U0001F467", "\U0001F466"
+	for _, e := range []string{
+		man + "\u200d" + woman + "\u200d" + girl + "\u200d" + boy, // a family
+		"❤\ufe0f",                            // a red heart
+		"1\ufe0f\u20e3",                      // a keycap
+		"\U0001F3F3\ufe0f\u200d\U0001F308",   // a rainbow flag
+		woman + "\U0001F3FD\u200d\U0001F4BB", // a technologist with a skin tone
+	} {
+		if got := DropHidden(e); got != e {
+			t.Errorf("DropHidden(%q) = %q", e, got)
+		}
+		if got := DropHidden("our family " + e); got != "our family "+e {
+			t.Errorf("in a sentence: %q", got)
+		}
+	}
+	// Outside an emoji sequence they are still removed.
+	for in, want := range map[string]string{
+		"a\u200db":                   "ab",
+		man + "\u200d":               man,
+		"\u200d" + woman:             woman,
+		"a\ufe0f":                    "a",
+		"\ufe0f" + woman:             woman,
+		man + "\u200d\u200d" + woman: man + "\u200d" + woman,
+		man + "\u200b\u200d" + woman: man + "\u200d" + woman,
+		man + "\u2028\u200d" + woman: man + "\n" + woman,
+		man + "\u0085\u200d" + woman: man + "\n" + woman,
+		man + "\n\u200d" + woman:     man + "\n" + woman,
+		"A\u200dB":                   "AB",
+		"A\ufe0f":                    "A",
+		"\U0001F130\u200d\U0001F131": "\U0001F130\U0001F131", // squared Latin letters
+		"Ⓐ\ufe0f":                    "Ⓐ",                    // a circled Latin letter
+	} {
+		if got := DropHidden(in); got != want {
+			t.Errorf("DropHidden(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// What is left holds nothing hidden but emoji glue, judged by Go's own
+// Unicode tables and not the lists this package keeps, and it is the
+// same text when gone over again.
+func TestDropHiddenLeavesNothingHiddenButGlue(t *testing.T) {
+	unseen := func(r rune) bool {
+		return unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) || unicode.Is(unicode.Variation_Selector, r) ||
+			unicode.Is(unicode.Cc, r) && r != '\n' && r != '\t' || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)
+	}
+	emoji := func(r rune) bool { return r >= 0x1F300 || r == 0x2764 || r == 0x26A0 }
+	piece := rapid.OneOf(rapid.StringMatching(`[a-z0-9:/.#*]{0,6}`), rapid.SampledFrom([]string{"\u200d", "\ufe0f", "\ufe0e", "\u034f", "\u180b", "\u17b5",
+		"\u1160", "\U000E0100", "\u200b", "\u2060", "\u00ad", "\ufeff", "\u202e", "\u2028", "\u2029", "\u0085", "\x07", "\u20e3",
+		"é", "世", "\U0001F469", "\U0001F468", "\U0001F4BB", "\U0001F3FD", "❤", "⚠", "\u0301", " ", "\n"}))
+	rapid.Check(t, func(t *rapid.T) {
+		in := strings.Join(rapid.SliceOfN(piece, 0, 14).Draw(t, "pieces"), "")
+		got := DropHidden(in)
+		if again := DropHidden(got); again != got {
+			t.Fatalf("DropHidden(%q) = %q, and again %q", in, got, again)
+		}
+		rs := []rune(got)
+		for i, r := range rs {
+			if !unseen(r) {
+				continue
+			}
+			// The only ones left stand right after an emoji, or after a
+			// keycap's sign before the keycap.
+			after := i > 0 && (emoji(rs[i-1]) || rs[i-1] == 0xFE0F || rs[i-1] == 0xFE0E ||
+				(i+1 < len(rs) && rs[i+1] == 0x20E3 && strings.ContainsRune("0123456789#*", rs[i-1])))
+			if (r != 0x200D && r != 0xFE0F && r != 0xFE0E) || !after {
+				t.Fatalf("DropHidden(%q) = %q keeps %U at %d", in, got, r, i)
+			}
+		}
+		// Nothing a reader sees is lost: the visible characters are the
+		// input's, in order, with a separator read as a line break.
+		visible := func(s string) string {
+			return strings.Map(func(r rune) rune {
+				switch {
+				case r == 0x85 || r == 0x2028 || r == 0x2029:
+					return '\n'
+				case unseen(r):
+					return -1
+				}
+				return r
+			}, s)
+		}
+		if visible(got) != visible(in) {
+			t.Fatalf("DropHidden(%q) = %q changes what is seen", in, got)
+		}
+	})
+}

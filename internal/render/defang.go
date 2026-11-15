@@ -124,13 +124,21 @@ func defangLines(lines []string) []string {
 	return out
 }
 
+// seen is text whose links are about to be broken, sanitized, with every
+// hidden character gone first but the ones that hold an emoji together
+// (core.DropHidden). Defang finds a link by its letters, so a character
+// nobody sees inside "://" or "www." would hide the link from it and may
+// not hide it from a terminal. The order matters: taken out first, the
+// pieces come together and Defang sees the word a terminal would.
+func seen(s string) string { return sanitize(core.DropHidden(s)) }
+
 // defanged is e with its agent-written text defanged. A reply keeps its
 // live links, for the Markdown renderer to draw (fangSource); a call's
 // name, arguments and output, and the agent's thinking, keep none.
 func defanged(e core.Entry, live core.Links) core.Entry {
-	d := func(s string) string { return Defang(sanitize(s)) }
+	d := func(s string) string { return Defang(seen(s)) }
 	if e.Kind == core.Agent {
-		e.Text = fangSource(sanitize(e.Text), live)
+		e.Text = fangSource(seen(e.Text), live)
 	} else {
 		e.Text = d(e.Text)
 	}
