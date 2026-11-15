@@ -435,13 +435,15 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 }
 
 // paneActive is what the pane draws while it has the keys: its editor,
-// the archive question, or itself.
+// the archive question, the question about a link, or itself.
 func paneActive(a core.App, s core.State) core.SurfaceKind {
 	switch b := a.Board; {
 	case !b.Items && b.Input != nil:
 		return core.SurfaceEditor // the prompt and its text
 	case !b.Items && b.Confirm != 0:
 		return core.SurfaceArchive
+	case !b.Items && b.Links != nil && b.Links.Ask != nil:
+		return core.SurfaceLinkAsk
 	}
 	return core.SurfacePane
 }

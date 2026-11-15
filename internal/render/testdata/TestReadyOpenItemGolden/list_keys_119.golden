@@ -6,12 +6,12 @@
 ␛[0;2m│␛[m 1-9                    ␛[0;2mopen a daily note at that numbered item␛[m␛[0;2m                                  ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m a                      ␛[0;2mreply to a message␛[m␛[0;2m                                                       ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m u                      ␛[0;2mundo a file move␛[m␛[0;2m                                                         ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m L                      ␛[0;2mlist the links in the one selected␛[m␛[0;2m                                       ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m r                      ␛[0;2mask relay again␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m R esc q h ←            ␛[0;2mclose this view␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ?                      ␛[0;2mthese keys␛[m␛[0;2m                                                               ␛[m ␛[0;2m│␛[m
 ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                                                                             ␛[m ␛[0;2m│␛[m
 ␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
-
 
 
 

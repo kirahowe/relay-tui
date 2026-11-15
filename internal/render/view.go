@@ -22,6 +22,10 @@ type Frame struct {
 	DetailMax int
 	// Active is what the frame drew as having the keys.
 	Active core.SurfaceKind
+	// AskShown says a question about a link is open and the frame shows
+	// that link's whole host. Without it a yes is refused: a frame that
+	// did not look counts as not shown.
+	AskShown bool
 }
 
 // View lays out the live part of the screen. It always fills height-1
@@ -76,6 +80,7 @@ func singleFrame(x core.Single, input, hint string, now time.Time, width, height
 		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
 		f.DetailMax = mx
+		f.AskShown = askShown(boardAsk(a), pane)
 		if a.PaneFocus && f.Active != core.SurfaceHelp {
 			f.Active = paneActive(a, s) // the pane is drawn with the keys
 		}
@@ -85,13 +90,15 @@ func singleFrame(x core.Single, input, hint string, now time.Time, width, height
 		return view(a, s, surf, input, hint, now, width, height, h, 0, true)
 	}
 	if surf.Column == core.ColumnPane {
-		mx := 0
+		mx, shown := 0, false
 		f := view(a, s, surf, input, hint, now, width, height, func(room int) []string {
 			var lines []string
 			lines, mx = paneRender(a, s, now, width, room)
+			shown = askShown(boardAsk(a), lines)
 			return lines
 		}, paneNeed(a, s, now, width), true)
 		f.DetailMax = mx
+		f.AskShown = shown
 		if a.PaneFocus {
 			f.Active = paneActive(a, s)
 		}
@@ -142,6 +149,24 @@ func view(a core.App, s core.State, surf core.Surface, input, hint string, now t
 		bottom = append(bottom[:first], bottom[first+cut:]...)
 		inputLines = inputLines[cut:]
 		room += cut
+		// Still short: the rows above the input go next, from the top,
+		// and then the input itself, which nothing types in while the
+		// pane has the keys. A question is read whole before a key can
+		// answer it.
+		above := inputAt
+		if boxed(width) {
+			above-- // the box's top border
+		}
+		if k := min(need-room, above); k > 0 {
+			bottom = bottom[k:]
+			inputAt -= k
+			room += k
+		}
+		if room < need {
+			room += len(bottom) - 1
+			bottom = bottom[len(bottom)-1:] // the status line stays
+			inputAt, inputLines = 0, inputLines[:1]
+		}
 	}
 	if over != nil {
 		// Nothing goes to scrollback while the pane covers the transcript.

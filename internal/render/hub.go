@@ -73,6 +73,10 @@ type HubFrame struct {
 	InputX, InputY int
 	// Active is what the frame drew as having the keys.
 	Active core.SurfaceKind
+	// AskShown says a question about a link is open and the frame shows
+	// that link's whole host. Without it a yes is refused: a frame that
+	// did not look counts as not shown.
+	AskShown bool
 	// title and right are the header's parts, for a panel's top border.
 	title, right string
 }
@@ -339,7 +343,7 @@ func hubScreen(h core.Hub, input, hint string, now time.Time, width, height int)
 	// What has the keys is what is drawn as active: core.HubSurface
 	// decides it, and nothing here decides it again.
 	switch surf := core.HubSurface(h); surf.Kind {
-	case core.SurfaceReady, core.SurfaceReadyInput:
+	case core.SurfaceReady, core.SurfaceReadyInput, core.SurfaceReadyLinkAsk:
 		return readyScreen(h, now, width, height)
 	case core.SurfaceHelp:
 		f := withHelp(h, input, hint, now, width, height, wide)
@@ -405,7 +409,8 @@ func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
 	lines = append(append(lines, pane...), foot...)
-	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx, Active: paneActive(h.App, core.State{})}
+	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx, Active: paneActive(h.App, core.State{}),
+		AskShown: askShown(boardAsk(h.App), pane)}
 }
 
 // elsewhere summarises the other roles that want the operator, for the
@@ -441,6 +446,7 @@ func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, n
 		pane, mx := paneRender(h.App, focusedChat(h), now, PaneWidth(width), height)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, mw), "\n")
 		f.DetailMax = mx
+		f.AskShown = askShown(boardAsk(h.App), pane)
 		if h.App.PaneFocus && help == nil {
 			f.Active = paneActive(h.App, focusedChat(h)) // the pane is drawn with the keys
 		}
@@ -573,24 +579,48 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	if inPanel {
 		headRows = 0
 	}
-	room := max(height-headRows-len(bottom), 0)
+	// free is the rows left above the bottom. It is below zero when the
+	// bottom alone is taller than the screen, and what the pane is owed is
+	// counted from there: counted from zero, a note above a tall draft
+	// pushed the first row of the pane's question off the top.
+	free := height - headRows - len(bottom)
 	if surf.Column == core.ColumnPane && !beside && showInput {
 		// The pane covers the conversation and needs room for its question:
 		// a tall draft gives up its top rows, down to one, as in View.
-		if need := paneNeed(h.App, s, now, width); room < need {
+		if need := paneNeed(h.App, s, now, width); free < need {
 			rows := len(strings.Split(input, "\n"))
-			cut := min(need-room, rows-1)
+			cut := min(need-free, rows-1)
 			bottom = append(bottom[:inputAt], bottom[inputAt+cut:]...)
-			room += cut
+			free += cut
+			// Still short: the notes above the input go next, from the
+			// top, and then the input itself, which nothing types in
+			// while the pane has the keys. A question is read whole
+			// before a key can answer it.
+			above := inputAt
+			if inPanel || boxed(width) {
+				above-- // the rule, or the box's top border
+			}
+			if k := min(need-free, above); k > 0 {
+				bottom = bottom[k:]
+				inputAt -= k
+				free += k
+			}
+			if free < need {
+				free += len(bottom) - 1
+				bottom = bottom[len(bottom)-1:] // the status line stays
+				inputAt = 0
+			}
 		}
 	}
+	room := max(free, 0)
 	var lines []string
-	mx, detailMax := 0, 0
+	mx, detailMax, shown := 0, 0, false
 	switch {
 	case surf.Column == core.ColumnPane && !beside:
 		// The pane covers the conversation, or the place of one: the board
 		// works with none open.
 		lines, detailMax = paneRender(h.App, s, now, width, room)
+		shown = askShown(boardAsk(h.App), lines)
 		active = paneActive(h.App, s)
 	case h.Focus == "":
 		lines = []string{styled(faint, "No role in focus. Pick one from the roles.")}
@@ -634,7 +664,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		all[i] = truncate(all[i], width)
 	}
 	return HubFrame{
-		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax,
+		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax, AskShown: shown,
 		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputX: x, InputY: max(y, 0),
 		title: panelTitle, right: styled(faint, right), Active: active,
 	}
@@ -680,6 +710,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 			main[i] += " " + pane[i]
 		}
 		f.DetailMax = mx
+		f.AskShown = askShown(boardAsk(h.App), pane)
 		keys = pk
 		if surf.Column == core.ColumnPane && help == nil {
 			f.Active = paneActive(h.App, s) // the pane is drawn with the keys

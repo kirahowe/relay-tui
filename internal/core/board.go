@@ -194,6 +194,13 @@ type Board struct {
 	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
 	// rev the operator was shown. A newer copy of it cancels the question.
 	Confirm, ConfirmRev int64
+	// Links is the list of the links in a card's outside text, open over
+	// the board (L), or nil. Its question, to keep or drop one, waits for
+	// y as the archive question does.
+	Links *LinkList
+	// LinkOut is a keep or a drop that was still on its way to relay
+	// when its list closed. relay's answer to it is said on the board.
+	LinkOut *LinkAsk
 	// Sending is the card an op is on its way for; the op is its name.
 	// Sent is the input the op came from, if it carried text, so a
 	// refusal can give the operator back what they typed.
@@ -335,6 +342,7 @@ func (r *reducer) keepBoardSelection() {
 		b.Message, b.Failure = "That card has left the board.", ""
 	}
 	b.Detail, b.Input, b.Confirm, b.Line, b.Col, b.Box = false, nil, 0, 0, 0, nil
+	b.closeLinks()
 	if len(b.Cards) > 0 {
 		b.SelID = b.Cards[0].ID
 	} else {
@@ -490,6 +498,7 @@ func (r *reducer) board(e Event) {
 	}
 	defer func() { r.reanchor(anchor, anchored) }()
 	defer r.keepConfirm()
+	defer r.keepBoardLinks()
 	switch e := e.(type) {
 	case CardsLoaded:
 		switch {
@@ -522,6 +531,9 @@ func (r *reducer) board(e Event) {
 				}
 			}
 			b.Rev = max(b.Rev, e.Rev)
+			// relay is answering: a call for the live links that failed
+			// is made again.
+			r.askLinks()
 		}
 		if b.SelID == 0 && len(b.Cards) > 0 {
 			b.SelID = b.Cards[0].ID
@@ -612,6 +624,7 @@ func (r *reducer) toggleBoard() {
 	p.Detail, p.Scroll = false, 0
 	b.Items = !b.Items
 	b.Input, b.Confirm = nil, 0
+	b.closeLinks()
 	r.askCards()
 }
 
@@ -668,13 +681,25 @@ func (r *reducer) boardKey(e PaneKey) {
 		return
 	}
 	b.Message, b.Failure = "", ""
+	if b.Links != nil {
+		r.boardLinksKey(e)
+		return
+	}
 	c, i := BoardCard(*b)
 	switch e.Action {
+	case PaneLinks:
+		if i >= 0 && len(CardLinks(c, r.a.Links)) > 0 {
+			b.SelID = c.ID
+			b.Links = &LinkList{Card: c.ID, Sel: firstBroken(CardLinks(c, r.a.Links)), Sending: b.LinkOut}
+			b.LinkOut = nil
+		} else {
+			b.Message = NoLinksNote
+		}
 	case PaneBoard:
 		r.toggleBoard()
 	case PaneRefresh:
 		b.Asked = false
-		r.retryLinks()
+		r.askLinks()
 		r.askCards()
 	case PaneUp, PaneDown, PagePrev, PageNext:
 		d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -scrollPage, PageNext: scrollPage}[e.Action]
@@ -730,6 +755,129 @@ func (r *reducer) boardKey(e PaneKey) {
 			b.Confirm, b.ConfirmRev = c.ID, c.Rev
 		}
 	}
+}
+
+// firstBroken is the first broken link's place in a list, or 0: the list
+// opens on the link the operator most likely came for.
+func firstBroken(links []ShownLink) int {
+	return max(slices.IndexFunc(links, func(l ShownLink) bool { return !l.Live }), 0)
+}
+
+// BoardLinks is the card the list of links is open for and its links, as
+// they stand. ok is false when no list is open or its card has gone.
+func BoardLinks(b Board, live Links) (c Card, links []ShownLink, ok bool) {
+	if b.Links == nil {
+		return Card{}, nil, false
+	}
+	i := slices.IndexFunc(b.Cards, func(c Card) bool { return c.ID == b.Links.Card })
+	if i < 0 {
+		return Card{}, nil, false
+	}
+	return b.Cards[i], CardLinks(b.Cards[i], live), true
+}
+
+// boardLinksKey handles a key while the list of a card's links is open:
+// it selects, asks to keep a broken link or to drop a live one, takes
+// the answer, and closes.
+func (r *reducer) boardLinksKey(e PaneKey) {
+	b := &r.a.Board
+	_, links, ok := BoardLinks(*b, r.a.Links)
+	if !ok {
+		b.closeLinks()
+		return
+	}
+	act, delta := linkNothing, 0
+	asked := b.Links.Ask != nil
+	switch e.Action {
+	case PaneUp:
+		act, delta = linkMove, -1
+	case PaneDown:
+		act, delta = linkMove, 1
+	case PagePrev:
+		act, delta = linkMove, -scrollPage
+	case PageNext:
+		act, delta = linkMove, scrollPage
+	case PaneEnter:
+		act = linkKeep
+	case PaneDrop:
+		act = linkDrop
+	case PaneYes:
+		act = linkYes
+	case PaneEsc, PaneLinks:
+		if !asked {
+			b.closeLinks()
+			return
+		}
+	case PaneBoard:
+		if !asked {
+			r.toggleBoard()
+			return
+		}
+	case PaneRefresh:
+		if !asked {
+			b.Asked = false
+			r.askLinks()
+			r.askCards()
+			return
+		}
+	}
+	if asked && act != linkYes {
+		act = linkNo
+	}
+	next, msg, send := b.Links.step(links, act, delta)
+	b.Links = &next
+	b.Message = msg
+	if send != nil {
+		r.emit(SendLink{Address: send.Sends(), Keep: send.Keep})
+	}
+}
+
+// keepBoardLinks keeps the list of links in step with the board: it
+// closes when its card has gone, and its question is dropped when the
+// link it was asked about is no longer there as it was.
+func (r *reducer) keepBoardLinks() {
+	b := &r.a.Board
+	if b.Links == nil {
+		return
+	}
+	_, links, ok := BoardLinks(*b, r.a.Links)
+	if !ok {
+		b.closeLinks()
+		return
+	}
+	next, cancelled := b.Links.kept(links)
+	b.Links = &next
+	if cancelled {
+		b.Message, b.Failure = LinkChangedNote, ""
+	}
+}
+
+// boardLinkDone takes relay's answer to a keep or drop the board's list
+// sent, and says what came of it.
+func (r *reducer) boardLinkDone(e LinkDone) {
+	b := &r.a.Board
+	if b.Links != nil {
+		if next, msg, failure, ok := b.Links.done(e); ok {
+			b.Links = &next
+			b.Message, b.Failure = msg, failure
+		}
+		return
+	}
+	// Its list was closed before relay answered: the answer is said all
+	// the same.
+	if b.LinkOut.sent(e) {
+		b.LinkOut = nil
+		b.Message, b.Failure = linkOutcome(e)
+	}
+}
+
+// closeLinks closes the list of links. A keep or a drop still on its way
+// to relay is kept, so relay's answer is said when it comes.
+func (b *Board) closeLinks() {
+	if out := b.Links.closed(); out != nil {
+		b.LinkOut = out
+	}
+	b.Links = nil
 }
 
 // keepConfirm cancels the archive question when its card has changed:

@@ -281,6 +281,15 @@ func (a *Agent) Links() {
 	})
 }
 
+// Link asks relay to keep a link live, or to drop it, as relay link
+// does, and emits LinkDone. It does not block.
+func (a *Agent) Link(address string, keep bool) {
+	a.enqueue(func() {
+		raw, err := a.call(wire.LinkMethod(keep), wire.LinkParams(address))
+		a.emit(wire.LinkOutcome(address, keep, raw, err, time.Now()))
+	})
+}
+
 // Ready asks relay for what is ready for the operator and emits
 // ReadyLoaded. It is the connection's, about no conversation. It does not
 // block.

@@ -222,7 +222,44 @@ func UndoOutcome(move int64, raw json.RawMessage, err error, at time.Time) core.
 const (
 	MethodLinks        = "_relay/links"
 	MethodLinksChanged = "_relay/links/changed"
+	MethodLinksKeep    = "_relay/links/keep"
+	MethodLinksDrop    = "_relay/links/drop"
 )
+
+// LinkMethod is the method that keeps a link live, or the one that drops
+// it.
+func LinkMethod(keep bool) string {
+	if keep {
+		return MethodLinksKeep
+	}
+	return MethodLinksDrop
+}
+
+// LinkParams is the parameters of _relay/links/keep and
+// _relay/links/drop: the link's address. relay takes it whole, or in the
+// broken form a client showed, which it mends.
+func LinkParams(address string) map[string]any { return map[string]any{"address": address} }
+
+// LinkOutcome translates the answer to a keep or a drop of address:
+// whether it changed anything, what relay cleaned out of the address,
+// or relay's refusal.
+func LinkOutcome(address string, keep bool, raw json.RawMessage, err error, at time.Time) core.LinkDone {
+	done := core.LinkDone{At: at, Address: address, Keep: keep}
+	if err != nil {
+		done.Err = errText(err)
+		return done
+	}
+	var r struct {
+		Changed *bool    `json:"changed"`
+		Notes   []string `json:"notes"`
+	}
+	if strictjson.Unmarshal(raw, &r) != nil || r.Changed == nil {
+		done.Err = "relay's answer could not be read"
+		return done
+	}
+	done.Changed, done.Notes = *r.Changed, r.Notes
+	return done
+}
 
 // LinksParams is the parameters of _relay/links: none.
 func LinksParams() map[string]any { return map[string]any{} }

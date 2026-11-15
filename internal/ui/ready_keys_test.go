@@ -231,7 +231,7 @@ func TestQuestionMarkWorksInTheReadyView(t *testing.T) {
 func TestReadyHelpRowsAgreeWithTheClassifier(t *testing.T) {
 	// The digits are named once, as the range 1-9.
 	var rows []render.KeyHelp
-	for _, r := range append(slices.Clone(render.ReadyListKeys), render.ReadyDetailKeys...) {
+	for _, r := range slices.Concat(render.ReadyListKeys, render.ReadyDetailKeys, render.ReadyLinksKeys) {
 		keys := slices.Clone(r.Keys)
 		for i, k := range keys {
 			if k == "1-9" {
@@ -244,6 +244,12 @@ func TestReadyHelpRowsAgreeWithTheClassifier(t *testing.T) {
 	for _, r := range rows {
 		for _, k := range r.Keys {
 			if k == "R" { // the view's own toggle, taken before the classifier
+				continue
+			}
+			if k == "y" { // the answer to the question about a link, which has its own keys
+				if ClassifyReadyAsk(press(t, k)) != core.ReadyYes {
+					t.Errorf("%q does not answer the question", k)
+				}
 				continue
 			}
 			if !does(k) {

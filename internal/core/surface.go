@@ -45,6 +45,12 @@ const (
 	SurfaceReady
 	// SurfaceReadyInput is the reply being written in that view, typing.
 	SurfaceReadyInput
+	// SurfaceLinkAsk is the question whether to keep or drop a link,
+	// asked in the pane over the list of a card's links.
+	SurfaceLinkAsk
+	// SurfaceReadyLinkAsk is the same question asked in the ready view,
+	// over the list of an item's links.
+	SurfaceReadyLinkAsk
 )
 
 // Column is the column of the screen the keys are in: the list of
@@ -94,8 +100,11 @@ func HubSurface(h Hub) Surface {
 		// The view covers the screen, and has the keys whichever column
 		// had them: it asks nothing and answers nothing but its reply.
 		s.Kind, s.Under = SurfaceReady, SurfaceReady
-		if h.Ready.Input != nil {
+		switch {
+		case h.Ready.Input != nil:
 			s.Kind, s.Under = SurfaceReadyInput, SurfaceReadyInput
+		case h.Ready.Links != nil && h.Ready.Links.Ask != nil:
+			s.Kind, s.Under = SurfaceReadyLinkAsk, SurfaceReadyLinkAsk
 		}
 		return s
 	}
@@ -130,8 +139,8 @@ func SingleSurface(x Single) Surface {
 }
 
 // paneSurface is what has the keys in the pane: its editor, the archive
-// question, or the pane itself, in the order the pane takes a key (see
-// paneKey and boardKey).
+// question, the question about a link, or the pane itself, in the order
+// the pane takes a key (see paneKey and boardKey).
 func paneSurface(a App) SurfaceKind {
 	b := a.Board
 	switch {
@@ -141,6 +150,8 @@ func paneSurface(a App) SurfaceKind {
 		return SurfaceEditor
 	case b.Confirm != 0:
 		return SurfaceArchive
+	case b.Links != nil && b.Links.Ask != nil:
+		return SurfaceLinkAsk
 	}
 	return SurfacePane
 }
@@ -175,7 +186,8 @@ func (s Surface) takes(e Event) bool {
 			return in(SurfaceConversation, SurfaceInput, SurfaceList, SurfacePane)
 		}
 		// The archive question answers y, and cancels on any other key.
-		return in(SurfacePane, SurfaceEditor, SurfaceArchive)
+		// So does the question about a link.
+		return in(SurfacePane, SurfaceEditor, SurfaceArchive, SurfaceLinkAsk)
 	case ListMove, ListOpen:
 		return k == SurfaceList
 	case AskEnd:
@@ -185,7 +197,7 @@ func (s Surface) takes(e Event) bool {
 	case ReadyOpen:
 		return in(SurfaceConversation, SurfaceList, SurfacePane, SurfaceReady)
 	case ReadyKey:
-		return in(SurfaceReady, SurfaceReadyInput)
+		return in(SurfaceReady, SurfaceReadyInput, SurfaceReadyLinkAsk)
 	case Move:
 		return in(SurfaceConversation, SurfaceList, SurfacePane)
 	case Type:
@@ -200,11 +212,11 @@ func (s Surface) takes(e Event) bool {
 		}
 		// The wheel scrolls the conversation wherever the keys are, but
 		// under the questions and the editor, which have the keys.
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceReady, SurfaceReadyInput)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceLinkAsk, SurfaceReady, SurfaceReadyInput, SurfaceReadyLinkAsk)
 	case Interrupt:
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceReady, SurfaceReadyInput)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceReady, SurfaceReadyInput, SurfaceReadyLinkAsk)
 	case EOF:
-		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceReady, SurfaceReadyInput)
+		return !in(SurfaceHelp, SurfaceEnd, SurfaceEditor, SurfaceArchive, SurfaceLinkAsk, SurfaceReady, SurfaceReadyInput, SurfaceReadyLinkAsk)
 	}
 	return true
 }

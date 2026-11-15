@@ -97,7 +97,7 @@ func (r *hubReducer) detailKey(e ReadyKey) {
 		pick(idx)
 	case ReadyRefresh:
 		rd.Asked = false
-		r.withApp(func(a *reducer) { a.retryLinks() })
+		r.withApp(func(a *reducer) { a.askLinks() })
 		r.askReady()
 	case ReadyHelp:
 		rd.Help = true

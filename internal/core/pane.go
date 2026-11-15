@@ -140,6 +140,10 @@ type (
 		Action PaneAction
 		Max    int
 		Text   string // what PaneChar types
+		// Hidden says the frame on screen when the key was pressed did
+		// not show the whole host of the link a question asks about. A
+		// yes then answers nothing.
+		Hidden bool
 	}
 )
 
@@ -173,6 +177,8 @@ const (
 	PaneArchive    // archive the selected card, once confirmed
 	PaneChar       // typed into the board's input: PaneKey.Text
 	PaneBackspace  // delete the input's last character
+	PaneLinks      // L: list the links in the selected card
+	PaneDrop       // d: in that list, drop the live link selected
 )
 
 // scrollPage is how far a page key scrolls the detail view.
@@ -369,6 +375,11 @@ func (r *reducer) paneKey(e PaneKey) {
 	if e.Action == PaneToggle {
 		b := &r.a.Board
 		b.Confirm, b.Message, b.Failure = 0, "", ""
+		if b.Links != nil && b.Links.Ask != nil {
+			ll := *b.Links
+			ll.Ask = nil
+			b.Links = &ll
+		}
 		r.a.PaneFocus = !r.a.PaneFocus
 		if r.a.PaneFocus {
 			r.a.Moving = true // the pane is never typed in

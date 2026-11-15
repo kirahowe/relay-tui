@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// Two things ask a yes of the operator: ending a conversation and
-// archiving a card. Both act on nothing outside relay and show all they
-// are about where they are asked, but a stray key must not answer them.
+// Three things ask a yes of the operator: ending a conversation,
+// archiving a card, and keeping or dropping a link. Each shows all it is
+// about where it is asked, but a stray key must not answer it.
 // A yes is taken only from a key the operator pressed, not one replayed
 // from input held while connecting, and ArmDelay after the question came
 // up (App.Became), so a key typed for what was there before cannot answer
@@ -29,6 +29,9 @@ type authority int
 const (
 	needsNothing authority = iota
 	needsArmed             // a live key, ArmDelay after the surface came up
+	// needsShown is a yes to a link's question pressed while the frame
+	// did not show the link's whole host: it is never let through.
+	needsShown
 )
 
 // EndID names the question whether to end session's conversation.
@@ -51,6 +54,8 @@ func HubSurfaceID(h Hub) string {
 		extra = h.EndSession
 	case SurfaceInput, SurfaceConversation:
 		extra = h.Focus
+	case SurfaceReadyLinkAsk:
+		extra = LinkAskID("ready", *h.Ready.Links.Ask)
 	}
 	return surfaceID(surf, h.App, extra)
 }
@@ -62,6 +67,10 @@ func surfaceID(surf Surface, a App, extra string) string {
 	switch surf.Kind {
 	case SurfaceArchive:
 		return ArchiveID(a.Board.Confirm, a.Board.ConfirmRev)
+	case SurfaceLinkAsk:
+		return LinkAskID("pane", *a.Board.Links.Ask)
+	case SurfaceReadyLinkAsk:
+		return extra
 	case SurfaceEnd:
 		return EndID(extra)
 	case SurfaceInput:
@@ -76,7 +85,17 @@ func surfaceID(surf Surface, a App, extra string) string {
 func authorityOf(e Event, surf Surface) authority {
 	switch e := e.(type) {
 	case PaneKey:
-		if surf.Kind == SurfaceArchive && e.Action == PaneYes {
+		if surf.Kind == SurfaceLinkAsk && e.Action == PaneYes && e.Hidden {
+			return needsShown
+		}
+		if (surf.Kind == SurfaceArchive || surf.Kind == SurfaceLinkAsk) && e.Action == PaneYes {
+			return needsArmed
+		}
+	case ReadyKey:
+		if surf.Kind == SurfaceReadyLinkAsk && e.Action == ReadyYes && e.Hidden {
+			return needsShown
+		}
+		if surf.Kind == SurfaceReadyLinkAsk && e.Action == ReadyYes {
 			return needsArmed
 		}
 	case ConfirmEnd:
@@ -90,8 +109,11 @@ func authorityOf(e Event, surf Surface) authority {
 // mayTake says the app lets an event that needs need through, on the
 // surface named id.
 func (a App) mayTake(need authority, id string, at time.Time) bool {
-	if need == needsArmed {
+	switch need {
+	case needsArmed:
 		return !a.KeyReplayed && a.Became.Surface == id && at.Sub(a.Became.At) >= ArmDelay
+	case needsShown:
+		return false
 	}
 	return true
 }
@@ -107,6 +129,8 @@ func (a App) refusal(need authority) string {
 	switch {
 	case need == needsNothing:
 		return ""
+	case need == needsShown:
+		return LinkHiddenNote
 	case a.KeyReplayed:
 		return ReplayedNote
 	}

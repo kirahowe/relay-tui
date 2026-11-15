@@ -208,6 +208,30 @@ address. For a click to work your terminal has to pass OSC 8 on
 in `terminal-features` for the terminal it runs in. Where OSC 8 does not
 get through there is nothing to click.
 
+`L` on a card or on something in the ready view lists its links, each
+in full and each in its broken form: a filled dot before a live one,
+which is a hyperlink there too, and a ring before a broken one. The
+live ones are the links relay listed for that thing. The broken ones
+are the other broken addresses in its text, which relay-tui reads only
+to show them and to hand one back to relay when you keep it. When relay
+has more live links for the thing than it listed, the list says how
+many. Enter on a broken link asks "relay cannot say where this link came
+from. Keep it?", and `y` keeps it. relay then lists it as live wherever
+it shows it, so every client can open it, in mail and on the command
+line too. `d` on a live link asks whether to drop it, and `y` drops it:
+nothing opens it after that, whoever shows it again. Both are yours
+alone, the same acts as `relay link` and `relay link drop`
+(`_relay/links/keep`, `_relay/links/drop`). A keep sends relay the link
+exactly as the list shows it, and a drop sends the address relay listed.
+A `y` counts only once the question has been on screen for a moment, so
+a key meant for something else cannot answer it, and any other key says
+no. If the link changes while the question is up, the question closes
+with a note. The question shows the link's whole host, however long,
+before anything after it; on a screen too small for that a `y` keeps
+nothing and says to make the screen larger. When relay refuses, as it
+does for an address with a bracket in it, the list shows relay's
+reason.
+
 Where a thing came from is said in plain words, where it is shown: "from
 the web" for an item with a web source, "from outside" for any other text
 that arrived through a tool (`core.Provenance`). The words "contaminated",
@@ -327,6 +351,10 @@ Keys on the board:
   retitles it, say), the question closes with a note. The archive also
   carries the rev you saw (`seen`). relay's CLI can restore an archived
   card.
+- L lists the links in the selected card's text from outside (see The
+  look). In the list, up and down select, Enter keeps a broken link and
+  d drops a live one, each after a question that `y` answers, and Esc
+  or L goes back to the card.
 - r asks relay for the board again; b goes back to the workspace items. An agent with
   no board is not asked again.
 
@@ -436,6 +464,11 @@ When nothing could go back, relay refuses and the view shows its reason.
 Either reason takes up to a third of the screen, so it reads whole on a
 phone. Once all of it is back, the panel reads "Moved back". One undo is
 on its way at a time.
+
+`L` lists the links in the selected thing, or in the one open whole,
+when it has any (see The look). In the list, up and
+down select, Enter keeps a broken link and `d` drops a live one, each
+after a question that `y` answers, and Esc or `L` goes back.
 
 ## Several conversations (relay's hub)
 

@@ -152,6 +152,13 @@ type Ready struct {
 	Top    int
 	Follow bool
 	Pick   int
+	// Links is the list of the links in an item's outside text, open
+	// over the view (L), or nil. Its question, to keep or drop one, waits
+	// for y.
+	Links *LinkList
+	// LinkOut is a keep or a drop that was still on its way to relay
+	// when its list closed. relay's answer to it is said in the view.
+	LinkOut *LinkAsk
 	// Help says the list of keys covers the view.
 	Help bool
 	// Message is the outcome of the last action, and Failure relay's
@@ -237,6 +244,10 @@ type (
 		// Top, Max and Page are the open item as drawn: the first row
 		// shown, how far it can scroll and how many rows a page is.
 		Top, Max, Page int
+		// Hidden says the frame on screen when the key was pressed did
+		// not show the whole host of the link a question asks about. A
+		// yes then answers nothing.
+		Hidden bool
 	}
 )
 
@@ -274,6 +285,8 @@ const (
 	ReadyDismiss                      // d: drop the picked item of a daily note
 	ReadyDecline                      // n: say no to the picked item's offer, keeping it
 	ReadyHelp                         // ?: the list of keys
+	ReadyLinksKey                     // L: list the links in the item, or close that list
+	ReadyYes                          // y: yes to the question about a link
 )
 
 // Effects asking the shell to call relay.
@@ -415,9 +428,13 @@ func (r *hubReducer) ready(e Event) {
 			rd.Rev = max(rd.Rev, e.Rev)
 			rd.LoadedRev = e.Rev
 			rd.Zone = e.Zone
+			// relay is answering: a call for the live links that failed
+			// is made again.
+			r.withApp(func(a *reducer) { a.askLinks() })
 		}
 		r.keepReadySelection(was)
 		r.keepReadyDetail()
+		r.keepReadyLinks()
 	case ReadyChanged:
 		if rd.Loaded && e.Rev <= rd.LoadedRev {
 			return // the load already holds it
@@ -437,6 +454,21 @@ func (r *hubReducer) ready(e Event) {
 		rd.Rev = max(rd.Rev, e.Rev)
 		r.keepReadySelection(was)
 		r.keepReadyDetail()
+		r.keepReadyLinks()
+	case LinkDone:
+		if rd.Links != nil {
+			if next, msg, failure, ok := rd.Links.done(e); ok {
+				rd.Links = &next
+				rd.Message, rd.Failure = msg, failure
+			}
+			return
+		}
+		// Its list was closed before relay answered: the answer is said
+		// all the same.
+		if rd.LinkOut.sent(e) {
+			rd.LinkOut = nil
+			rd.Message, rd.Failure = linkOutcome(e)
+		}
 	case ReplyDone:
 		sent := rd.Sent
 		if rd.Sending == e.Message {
@@ -511,11 +543,12 @@ func (r *hubReducer) ready(e Event) {
 	case ReadyOpen:
 		if rd.Open {
 			rd.Open, rd.Input, rd.Help = false, nil, false
-			rd.Detail, rd.Top, rd.Follow = "", 0, false
+			rd.Detail, rd.Top, rd.Follow, rd.Links = "", 0, false, nil
 			rd.Message, rd.Failure = "", ""
 			return
 		}
 		rd.Open = true
+		r.withApp(func(a *reducer) { a.askLinks() })
 		r.askReady()
 		if _, i := ReadySelected(*rd); i >= 0 {
 			rd.Sel = rd.Items[i].ID
@@ -586,6 +619,14 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		return
 	}
 	rd.Message, rd.Failure = "", ""
+	if rd.Links != nil {
+		r.readyLinksKey(e)
+		return
+	}
+	if e.Action == ReadyLinksKey {
+		r.openReadyLinks()
+		return
+	}
 	if rd.Detail != "" {
 		r.detailKey(e)
 		return
@@ -607,12 +648,13 @@ func (r *hubReducer) readyKey(e ReadyKey) {
 		move(len(rd.Items) - 1)
 	case ReadyRefresh:
 		rd.Asked = false
-		r.withApp(func(a *reducer) { a.retryLinks() })
+		r.withApp(func(a *reducer) { a.askLinks() })
 		r.askReady()
 	case ReadyHelp:
 		rd.Help = true
 	case ReadyEsc:
 		rd.Open = false
+		rd.closeLinks()
 	case ReadyOpenKey, ReadyEnter:
 		if i >= 0 {
 			rd.Detail, rd.Top, rd.Follow, rd.Pick = it.ID, 0, false, firstOpenAct(it)

@@ -17,8 +17,12 @@ import (
 func genOperator(t *rapid.T, at time.Time) Event {
 	actions := []PaneAction{PaneToggle, PaneUp, PaneDown, PagePrev, PageNext, PaneEnter, PaneEsc, PaneYes,
 		PaneBoard, PaneRefresh, PaneLeft, PaneRight, PaneMark, PaneAdd, PaneAddColumn, PaneEdit, PaneEditColumn,
-		PaneArchive, PaneChar, PaneBackspace, PaneOther}
-	switch rapid.IntRange(0, 22).Draw(t, "op") {
+		PaneArchive, PaneChar, PaneBackspace, PaneOther, PaneLinks, PaneLinks, PaneDrop, PaneDrop}
+	// The ready view's keys, but for the one that opens a reply: its
+	// input is not part of these rules.
+	ready := []ReadyAction{ReadyOther, ReadyUp, ReadyDown, ReadyEsc, ReadyOpenKey, ReadyOpenKey, ReadyDismiss, ReadyDismiss,
+		ReadyLinksKey, ReadyLinksKey, ReadyYes, ReadyYes, ReadyYes, ReadyEnter, ReadyHelp}
+	switch rapid.IntRange(0, 27).Draw(t, "op") {
 	case 0:
 		return Submit{At: at, Text: "hello"}
 	case 1:
@@ -51,14 +55,19 @@ func genOperator(t *rapid.T, at time.Time) Event {
 		return AskEnd{At: at}
 	case 20, 21:
 		return ConfirmEnd{At: at, Yes: true}
+	case 22:
+		return ReadyOpen{At: at}
+	case 23, 24, 25, 26:
+		return ReadyKey{At: at, Action: rapid.SampledFrom(ready).Draw(t, "ready"), Text: "w"}
 	}
 	return StartConversation{At: at}
 }
 
-// authorizes says an effect acts on the operator's yes: an archive, an end.
+// authorizes says an effect acts on the operator's yes: an archive, an
+// end, a link kept or dropped.
 func authorizes(f Effect) bool {
 	switch f := f.(type) {
-	case EndConversation:
+	case EndConversation, SendLink:
 		return true
 	case SendCardOp:
 		return f.Op.Op == "archive"
@@ -66,13 +75,25 @@ func authorizes(f Effect) bool {
 	return false
 }
 
+// asks is the surface whose yes an effect needs.
+func asks(f Effect, surf Surface) bool {
+	switch f.(type) {
+	case EndConversation:
+		return surf.Kind == SurfaceEnd
+	case SendLink:
+		return surf.Kind == SurfaceLinkAsk || surf.Kind == SurfaceReadyLinkAsk
+	}
+	return surf.Kind == SurfaceArchive
+}
+
 // surfaceChecks runs events at random through reduce, as the shell sends
 // them: each operator event after a KeyPressed, live or replayed, and the
 // agent's events. It checks that a typing surface's event never ends or
-// archives anything and sends no card op but the editor's own; that an
-// event of the agent's never takes the keys from a typing surface; and
-// that the questions (an end, an archive) are answered yes only by a
-// live key, from the surface that asks, ArmDelay after it came up.
+// archives anything, keeps or drops no link, and sends no card op but
+// the editor's own; that an event of the agent's never takes the keys
+// from a typing surface; and that the questions (an end, an archive, a
+// link kept or dropped) are answered yes only by a live key, from the
+// surface that asks, ArmDelay after it came up.
 func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), surface func(S) Surface,
 	surfaceID func(S) string, agent func(t *rapid.T, at time.Time, n uint64) Event) {
 	at := t0
@@ -101,7 +122,7 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 			}
 			if surf.Typing() && operator {
 				switch f := f.(type) {
-				case EndConversation:
+				case EndConversation, SendLink:
 					t.Fatalf("step %d: %T while typing (%v) made %T", step, e, surf.Kind, f)
 				case SendCardOp:
 					if pk, ok := e.(PaneKey); !ok || surf.Kind != SurfaceEditor || pk.Action != PaneEnter {
@@ -110,17 +131,15 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 				}
 			}
 			if authorizes(f) {
-				_, end := f.(EndConversation)
 				switch {
 				case !operator || replayed:
 					t.Fatalf("step %d: %T (operator %v, replayed %v) authorized %#v", step, e, operator, replayed, f)
 				case became != id || at.Sub(becameAt) < ArmDelay:
 					t.Fatalf("step %d: %T answered %#v on %q, up since %q %v before", step, e, f, id, became, at.Sub(becameAt))
-				case !end && surf.Kind != SurfaceArchive:
-					t.Fatalf("step %d: %T archived from %v, not the question", step, e, surf.Kind)
-				case end && surf.Kind != SurfaceEnd:
-					t.Fatalf("step %d: %T ended from %v, not the question", step, e, surf.Kind)
+				case !asks(f, surf):
+					t.Fatalf("step %d: %T made %#v from %v, not its question", step, e, f, surf.Kind)
 				}
+				surfaceAnswered[surf.Kind]++
 			}
 		}
 		if !operator && surf.Typing() && surface(next) != surf {
@@ -131,6 +150,39 @@ func surfaceChecks[S any](t *rapid.T, x S, reduce func(S, Event) (S, []Effect), 
 			became, becameAt = surfaceID(x), at // a new surface, up now
 		}
 	}
+}
+
+// surfaceAnswered counts the questions the runs answered yes, by
+// surface, so a test can say the property reached them.
+var surfaceAnswered = map[SurfaceKind]int{}
+
+// linksEvent is a change to relay's live links, or to what holds them,
+// from outside: the set, the card with links in it, or the ready item.
+func linksEvent(t *rapid.T, at time.Time, n uint64) Event {
+	rev := int64(100 + n)
+	switch rapid.IntRange(0, 2).Draw(t, "links") {
+	case 0:
+		ch := LinksChanged{At: at, Rev: rev}
+		for _, l := range []string{liveA, keptC} {
+			if rapid.Bool().Draw(t, "live") {
+				ch.Live = append(ch.Live, l)
+			} else {
+				ch.Gone = append(ch.Gone, l)
+			}
+		}
+		return ch
+	case 1:
+		c := linkCard(50, rev)
+		if rapid.Bool().Draw(t, "listed") {
+			c = keptCard(50, rev)
+		}
+		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
+	}
+	it := linkItem()
+	if rapid.Bool().Draw(t, "listed") {
+		it = keptItem()
+	}
+	return ReadyChanged{At: at, Rev: rev, Items: []ReadyItem{it}}
 }
 
 // boardEvent is a change to the board from outside: a card changed, a
@@ -148,19 +200,23 @@ func boardEvent(t *rapid.T, at time.Time, n uint64) Event {
 		c.Status = CardArchived
 		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
 	}
-	return CardsLoaded{At: at, Rev: rev, Cards: []Card{checklist(10, rev, false), checklist(30, rev, true)}}
+	return CardsLoaded{At: at, Rev: rev, Cards: []Card{linkCard(50, rev), checklist(10, rev, false), checklist(30, rev, true)}}
 }
 
 func TestSurfaceRulesInTheHubCore(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}},
 			Attached{At: t0, Role: "dev", Session: "s1"}, Attached{At: t0, Role: "mail", Session: "s2"},
-			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), checklist(30, 40, false)}})
+			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false)}},
+			LinksLoaded{At: t0, Rev: 40, Live: []string{liveA}},
+			ReadyLoaded{At: t0, Rev: 40, Items: []ReadyItem{linkItem()}})
 		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
 			session := rapid.SampledFrom([]string{"s1", "s2"}).Draw(t, "session")
-			switch rapid.IntRange(0, 5).Draw(t, "agent") {
+			switch rapid.IntRange(0, 6).Draw(t, "agent") {
 			case 0:
 				return boardEvent(t, at, n)
+			case 6:
+				return linksEvent(t, at, n)
 			case 1: // a role removed, or back
 				roles := []Role{role("mail", "s2")}
 				if rapid.Bool().Draw(t, "dev stays") {
@@ -180,11 +236,15 @@ func TestSurfaceRulesInTheHubCore(t *testing.T) {
 func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		x, _ := feedS(Single{}, Connected{At: t0},
-			CardsLoaded{At: t0, Rev: 40, Cards: []Card{checklist(10, 10, false, true), checklist(30, 40, false)}},
+			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false)}},
+			LinksLoaded{At: t0, Rev: 40, Live: []string{liveA}},
 			ItemsLoaded{At: t0, Items: []Item{shownItem}})
 		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
-			if rapid.Bool().Draw(t, "board") {
+			switch rapid.IntRange(0, 2).Draw(t, "agent") {
+			case 0:
 				return boardEvent(t, at, n)
+			case 1:
+				return linksEvent(t, at, n)
 			}
 			return PromptDone{At: at, Stop: EndTurn}
 		})

@@ -19,6 +19,7 @@ func (nopConn) Items(string)              {}
 func (nopConn) Resolve(string, string)    {}
 func (nopConn) Cards()                    {}
 func (nopConn) Links()                    {}
+func (nopConn) Link(string, bool)         {}
 func (nopConn) CardOp(int64, core.CardOp) {}
 func (nopConn) Attach(string, string)     {}
 func (nopConn) End(string)                {}
@@ -141,4 +142,30 @@ func TestBoardInputKeys(t *testing.T) {
 func cls(k tea.KeyPressMsg, empty bool) Action {
 	a, _ := Classify(k, empty)
 	return a
+}
+
+// The keys of the list of links: L opens it on the board and in the
+// ready view, d drops in it, and its question takes y for yes and every
+// other key for no.
+func TestLinkKeys(t *testing.T) {
+	if ClassifyBoard(tea.KeyPressMsg{Code: 'L', Text: "L", Mod: tea.ModShift}) != core.PaneLinks || ClassifyBoard(tea.KeyPressMsg{Code: 'd', Text: "d"}) != core.PaneDrop {
+		t.Error("the board's L and d")
+	}
+	// Lower-case l is still the next tracker column.
+	if ClassifyBoard(tea.KeyPressMsg{Code: 'l', Text: "l"}) != core.PaneRight {
+		t.Error("l on the board")
+	}
+	if a, _ := ClassifyReady(tea.KeyPressMsg{Code: 'L', Text: "L", Mod: tea.ModShift}); a != core.ReadyLinksKey {
+		t.Errorf("L in the ready view gave %v", a)
+	}
+	if a, _ := ClassifyReady(tea.KeyPressMsg{Code: 'd', Text: "d"}); a != core.ReadyDismiss {
+		t.Errorf("d in the ready view gave %v", a)
+	}
+	rapid.Check(t, func(t *rapid.T) {
+		k := genKey(t)
+		yes := k.String() == "y" || k.String() == "Y"
+		if got := ClassifyReadyAsk(k); (got == core.ReadyYes) != yes || (!yes && got != core.ReadyEsc) {
+			t.Fatalf("key %q answered the question %v", k.String(), got)
+		}
+	})
 }

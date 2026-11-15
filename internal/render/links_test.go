@@ -1070,6 +1070,11 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 				s.Board.Confirm, s.Board.ConfirmRev = card.ID, card.Rev
 			}
 			checkFollowed(t, "the board", View(s, "", "", t0, w, h).Content, live)
+			// The list of the card's links, and its two questions.
+			for _, keys := range [][]core.PaneAction{{core.PaneLinks}, {core.PaneLinks, core.PaneEnter}, {core.PaneLinks, core.PaneUp, core.PaneDrop},
+				{core.PaneLinks, core.PaneDown, core.PaneDown, core.PaneEnter}} {
+				checkFollowed(t, "the board's list of links", View(boardKey(s, t0, keys...), "", "", t0, w, h).Content, live)
+			}
 		}
 
 		// The ready view: the list, and an item open whole.
@@ -1097,6 +1102,11 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 		for _, hub := range []core.Hub{list, open, replying, refused, undone, kept} {
 			hub.App.Links = live
 			checkFollowed(t, "the ready view", HubView(hub, "", "", t0, w, h).Content, live)
+			// The list of the item's links, and its two questions.
+			for _, keys := range [][]core.ReadyAction{{core.ReadyLinksKey}, {core.ReadyLinksKey, core.ReadyOpenKey}, {core.ReadyLinksKey, core.ReadyUp, core.ReadyDismiss},
+				{core.ReadyLinksKey, core.ReadyBottom, core.ReadyOpenKey}, {core.ReadyLinksKey, core.ReadyHelp}} {
+				checkFollowed(t, "the ready view's list of links", HubView(readyKeys(hub, t0, keys...), "", "", t0, w, h).Content, live)
+			}
 		}
 
 		// The roster: a role's title is what the role that added it wrote.

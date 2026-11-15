@@ -283,19 +283,47 @@ var ReadyListKeys = []KeyHelp{
 	{[]string{"1-9"}, "open a daily note at that numbered item"},
 	{[]string{"a"}, "reply to a message"},
 	{[]string{"u"}, "undo a file move"},
+	{[]string{"L"}, "list the links in the one selected"},
 	{[]string{"r"}, "ask relay again"},
 	{[]string{"R", "esc", "q", "h", "left"}, "close this view"},
 	{[]string{"?"}, "these keys"},
 }
 
+// ReadyLinksKeys is what the keys do in the list of an item's links.
+var ReadyLinksKeys = []KeyHelp{
+	{[]string{"up", "down", "k", "j", "tab", "shift+tab"}, "select"},
+	{[]string{"g", "G", "home", "end"}, "top, bottom"},
+	{[]string{"enter", "o"}, "keep the broken link selected, after a question"},
+	{[]string{"d"}, "drop the live link selected, after a question"},
+	{[]string{"y"}, "yes to the question; any other key is no"},
+	{[]string{"r"}, "ask relay again"},
+	{[]string{"L", "esc", "q", "h", "left"}, "back"},
+	{[]string{"R"}, "close this view"},
+	{[]string{"?"}, "these keys"},
+}
+
 // readyHint is the row of keys at the bottom: the ones that matter here
 // first, so a narrow screen cuts the least useful.
-func readyHint(r core.Ready) string {
+func readyHint(r core.Ready, live core.Links) string {
 	if r.Input != nil {
 		return "enter send · esc cancel"
 	}
 	if r.Help {
 		return "any key closes the list"
+	}
+	if _, links, ok := core.ReadyLinks(r, live); ok {
+		if ask := r.Links.Ask; ask != nil {
+			return linkAskHint(*ask)
+		}
+		return linkListHint(*r.Links, links, "esc back")
+	}
+	// L lists the links of the item in front of the operator, when its
+	// outside text holds any.
+	linksKey := func(it core.ReadyItem) []string {
+		if len(core.ReadyItemLinks(it, live)) > 0 {
+			return []string{"L links"}
+		}
+		return nil
 	}
 	it, i := core.ReadySelected(r)
 	if r.Detail != "" {
@@ -321,6 +349,9 @@ func readyHint(r core.Ready) string {
 		if i >= 0 && it.Undo != 0 {
 			keys = append(keys, "u undo")
 		}
+		if i >= 0 {
+			keys = append(keys, linksKey(it)...)
+		}
 		keys = append(keys, "esc back", "↑↓ scroll")
 		if i >= 0 && len(it.Acts) > 1 {
 			keys = append(keys, "tab item")
@@ -336,6 +367,9 @@ func readyHint(r core.Ready) string {
 		keys = append(keys, "a reply")
 	case i >= 0 && it.Undo != 0:
 		keys = append(keys, "u undo")
+	}
+	if i >= 0 {
+		keys = append(keys, linksKey(it)...)
 	}
 	return strings.Join(append(keys, "? keys", "R close"), " · ")
 }
@@ -384,8 +418,40 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	// at least three rows, so its reason (which files an undo left, and
 	// why) is read whole on a phone.
 	status := []string{readyStatus(r, width)}
-	if r.Input == nil && r.Failure != "" {
+	linksItem, links, listing := core.ReadyLinks(r, live)
+	asking := listing && r.Links.Ask != nil
+	switch {
+	case asking:
+		// The question about a link, whole: it is what a y answers.
+		status = nil
+		for _, row := range wrap(styled(bold, linkQuestion(*r.Links.Ask)), max(width-1, 1)) {
+			status = append(status, truncate(" "+row, width))
+		}
+		// The link takes what rows are left beside the question and the
+		// keys, at least two and at most three, so its start (the host)
+		// is always on screen. Where that leaves too few, the question's
+		// first rows give way below, and its last, "Keep it?", stays.
+		linkRoom := min(max(height-1-len(status), 2), 3)
+		for _, row := range askedRows(*r.Links.Ask, live, max(width-1, 1), linkRoom) {
+			status = append(status, " "+row)
+		}
+	case r.Input == nil && r.Failure != "":
 		status = readyFailureRows(r, width, max(min(max(3, height/3), height-3), 1))
+	}
+	// A key the view did not take says why, above the status: a yes that
+	// came too soon after its question, for one.
+	// While a question is asked it and its link come first: a notice
+	// goes when there is no row for it.
+	if h.Notice != "" && (!asking || height-2-len(status) > 0) {
+		status = append([]string{truncate(" "+styled(faint, "! "+said(h.Notice)), width)}, status...)
+	}
+	// On a screen too short for the question, its link and the keys,
+	// the bar goes, and then the question's first rows: the link a yes
+	// sends and the key that sends it stay.
+	if asking && len(status) > height-2 {
+		if cut := len(status) - max(height-1, 1); cut > 0 {
+			status = status[cut:]
+		}
 	}
 	room := max(height-2-len(status), 0)
 	// A refusal of the reply being written has a row of its own above it:
@@ -402,10 +468,15 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	case r.Help:
 		rows := ReadyListKeys
 		title := "ready keys"
-		if di >= 0 {
+		switch {
+		case listing:
+			rows, title = ReadyLinksKeys, "keys for the links"
+		case di >= 0:
 			rows, title = ReadyDetailKeys, "keys for this one"
 		}
 		body = helpBox(title, rows, min(width, readyMaxWidth))
+	case listing:
+		body = readyLinks(*r.Links, linksItem, links, live, min(width, readyMaxWidth), room)
 	case di >= 0:
 		body, top, maxTop, page = readyDetail(r, detail, live, now, min(width, readyMaxWidth), room)
 	case r.Unavailable:
@@ -444,16 +515,38 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	rows = append(rows, status...)
 	typing := r.Input != nil
-	rows = append(rows, modeRow(!typing, readyHint(r), width))
+	rows = append(rows, modeRow(!typing, readyHint(r, live), width))
 	for i := range rows {
 		rows[i] = truncate(rows[i], width)
 	}
 	active := core.SurfaceReady
-	if typing {
+	switch {
+	case typing:
 		active = core.SurfaceReadyInput
+	case asking && !r.Help:
+		active = core.SurfaceReadyLinkAsk
 	}
-	return HubFrame{Content: strings.Join(rows[:min(len(rows), height)], "\n"), Active: active,
-		Top: top, Max: maxTop, Page: page}
+	if asking && len(rows) > height {
+		rows = rows[len(rows)-height:] // the bar goes first, the keys stay
+	}
+	rows = rows[:min(len(rows), height)]
+	return HubFrame{Content: strings.Join(rows, "\n"), Active: active,
+		Top: top, Max: maxTop, Page: page, AskShown: asking && askShown(r.Links.Ask, rows)}
+}
+
+// readyLinks draws the list of an item's links as one framed panel of at
+// most room rows: Links and the item's title in its top border with the
+// count at the right, where the item came from in the bottom one, and
+// the selected link kept in view.
+func readyLinks(ll core.LinkList, it core.ReadyItem, links []core.ShownLink, live core.Links, width, room int) []string {
+	rows, selA, selB := linkRows(links, ll.Sel, live, framed(width))
+	view := linkWindow(rows, selA, selB, max(room-2, 1))
+	legend := linkLegend(links, it.LinksLeftOut)
+	foot := ""
+	if from := readyFrom(it); from != "" {
+		foot = styled(warnColour, from)
+	}
+	return panel(linkHead(cardLine(it.Title, it.Outsider, live.Of(it.Links)), legend, width), styled(faint, legend), foot, view, width, len(view)+2, true)
 }
 
 // readyFailureRows is a refusal over at most n rows, wrapped, the last

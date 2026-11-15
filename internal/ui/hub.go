@@ -134,8 +134,12 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 		return nil, nil
 	case core.SurfaceTranscript:
 		return one(m.transcriptKey(k, m.input.Value() == "", now))
-	case core.SurfaceArchive:
+	case core.SurfaceArchive, core.SurfaceLinkAsk:
+		// The pane's two questions answer alike: y is yes.
 		return one(m.archiveKey(k, now))
+	case core.SurfaceReadyLinkAsk:
+		a := ClassifyReadyAsk(k)
+		return one(core.ReadyKey{At: now, Action: a, Hidden: a == core.ReadyYes && !m.hubFrame(now).AskShown})
 	case core.SurfaceReady:
 		if k.String() == "R" && !m.hub.Ready.Help {
 			return one(core.ReadyOpen{At: now})
@@ -162,12 +166,15 @@ func (m *Model) routeKey(surf core.Surface, k tea.KeyPressMsg, now time.Time) ([
 }
 
 // archiveKey is the event for a key pressed while the pane asks whether
-// to archive a card: y says yes, Ctrl-C stops a running turn, and any
-// other key says no.
+// to archive a card, or to keep or drop a link: y says yes, Ctrl-C stops
+// a running turn, and any other key says no.
 func (m *Model) archiveKey(k tea.KeyPressMsg, now time.Time) core.Event {
 	switch k.String() {
 	case "y", "Y":
-		return core.PaneKey{At: now, Action: core.PaneYes}
+		// A yes to a link's question counts only when the frame on screen
+		// shows the link's whole host.
+		hidden := core.HubSurface(m.hub).Kind == core.SurfaceLinkAsk && !m.paneAskShown(now)
+		return core.PaneKey{At: now, Action: core.PaneYes, Hidden: hidden}
 	case "ctrl+c":
 		return m.paneCtrlC(now)
 	}
@@ -425,7 +432,7 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, now time.
 			return nil, nil
 		}
 	}
-	e := paneEvent(app, m.paneState(), k, now, func() int { return m.paneDetailMax(now) })
+	e := paneEvent(app, m.paneState(), k, now, func() int { return m.paneDetailMax(now) }, func() bool { return m.paneAskShown(now) })
 	if e.Action == core.PaneOther && printable(k) {
 		return []core.Event{e, core.Unbound{At: now}}, nil
 	}
@@ -441,6 +448,15 @@ func (m Model) app() core.App {
 }
 
 // paneDetailMax is how far the pane's detail view scrolls, as drawn.
+// paneAskShown says the frame on screen shows the whole host of the link
+// the board's question is about.
+func (m Model) paneAskShown(now time.Time) bool {
+	if m.kind == kindHub {
+		return m.hubFrame(now).AskShown
+	}
+	return m.frame(now).AskShown
+}
+
 func (m Model) paneDetailMax(now time.Time) int {
 	if m.kind == kindHub {
 		return m.hubFrame(now).DetailMax

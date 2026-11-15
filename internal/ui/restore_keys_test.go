@@ -133,10 +133,10 @@ func TestEnterBeforeTheHubIsKnownIsSent(t *testing.T) {
 }
 
 // authorized says a call acted on the operator's yes: an archive, an
-// end.
+// end, a link kept or dropped.
 func authorized(c call) bool {
 	switch c.what {
-	case "end":
+	case "end", "link":
 		return true
 	case "card-op":
 		return c.option == "archive"

@@ -266,6 +266,10 @@ func ClassifyBoard(k tea.KeyPressMsg) core.PaneAction {
 		return core.PaneEdit
 	case "E":
 		return core.PaneEditColumn
+	case "L":
+		return core.PaneLinks
+	case "d":
+		return core.PaneDrop
 	case "X":
 		return core.PaneArchive
 	case "y", "Y":
@@ -310,7 +314,8 @@ func ClassifyEnd(k tea.KeyPressMsg) (answered, yes bool) {
 // core reads the action by where the operator is). R opens and closes the
 // view, so it is handled by the caller. A digit names a numbered item of
 // a daily note, and the text is that digit; in the list it opens the note
-// at that item. It is pure.
+// at that item. The question about a link has its own keys
+// (ClassifyReadyAsk). It is pure.
 func ClassifyReady(k tea.KeyPressMsg) (core.ReadyAction, string) {
 	switch s := k.String(); s {
 	case "up", "k":
@@ -347,12 +352,25 @@ func ClassifyReady(k tea.KeyPressMsg) (core.ReadyAction, string) {
 		return core.ReadyEsc, ""
 	case "r":
 		return core.ReadyRefresh, ""
+	case "L":
+		return core.ReadyLinksKey, ""
 	default:
 		if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
 			return core.ReadyPick, s
 		}
 	}
 	return core.ReadyOther, ""
+}
+
+// ClassifyReadyAsk decides what a key press answers while the ready view
+// asks whether to keep or drop a link: yes only for y, and no for every
+// other key. It is pure.
+func ClassifyReadyAsk(k tea.KeyPressMsg) core.ReadyAction {
+	switch k.String() {
+	case "y", "Y":
+		return core.ReadyYes
+	}
+	return core.ReadyEsc
 }
 
 // ClassifyReadyInput decides what a key press does while a reply is being

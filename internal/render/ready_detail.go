@@ -152,6 +152,7 @@ var ReadyDetailKeys = []KeyHelp{
 	{[]string{"d"}, "drop the picked suggestion for good"},
 	{[]string{"a"}, "reply to a message"},
 	{[]string{"u"}, "undo a file move"},
+	{[]string{"L"}, "list its links"},
 	{[]string{"r"}, "ask relay again"},
 	{[]string{"R"}, "close this view"},
 	{[]string{"esc", "q", "h", "left"}, "back to the list"},

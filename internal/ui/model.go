@@ -34,7 +34,9 @@ type Conn interface {
 	CardOp(card int64, op core.CardOp)
 	// Links asks relay for its live links, the connection's too. The
 	// answer, and each change relay sends after, come back as events.
+	// Link keeps one live, or drops it, as the operator.
 	Links()
+	Link(address string, keep bool)
 	// Ready and Reply are relay's ready view, also the connection's: what
 	// is ready for the operator, and an answer to one of the messages in
 	// it.
@@ -447,13 +449,19 @@ func (m *Model) transcriptKey(k tea.KeyPressMsg, empty bool, now time.Time) core
 
 // paneEvent is the event for one of the pane's own keys, pressed while
 // it has the keys. The input box never sees it.
-func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, detailMax func() int) core.PaneKey {
+func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, detailMax func() int, askShown func() bool) core.PaneKey {
 	if b := a.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
 			return core.PaneKey{At: now, Action: a, Text: text}
 		}
-		return core.PaneKey{At: now, Action: ClassifyBoard(k)}
+		e := core.PaneKey{At: now, Action: ClassifyBoard(k)}
+		// A yes to a link's question counts only when the frame on
+		// screen shows the link's whole host.
+		if e.Action == core.PaneYes && b.Links != nil && b.Links.Ask != nil {
+			e.Hidden = !askShown()
+		}
+		return e
 	}
 	e := core.PaneKey{At: now, Action: ClassifyPane(k)}
 	if st.Pane.Detail {
@@ -472,6 +480,8 @@ func (m *Model) effect(f core.Effect, now time.Time) tea.Cmd {
 		m.conn.Cards()
 	case core.RequestLinks:
 		m.conn.Links()
+	case core.SendLink:
+		m.conn.Link(f.Address, f.Keep)
 	case core.SendCardOp:
 		m.conn.CardOp(f.Card, f.Op)
 	case core.InsertInput:

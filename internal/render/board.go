@@ -459,6 +459,13 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	hint := func(s string) []string { return wrap(styled(faint, s), width) }
 
 	c, sel := core.BoardCard(b)
+	// The list of a card's links takes the pane's body while it is open.
+	linksCard, links, listing := core.BoardLinks(b, live)
+	// L lists the links of a card whose outside text holds any.
+	linksKey := ""
+	if sel >= 0 && len(core.CardLinks(c, live)) > 0 {
+		linksKey = "L links · "
+	}
 	switch {
 	case b.Unavailable:
 		pr.body = []string{styled(faint, "This agent has no board.")}
@@ -466,6 +473,12 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.body = []string{styled(faint, "loading…")}
 	case !b.Loaded:
 		pr.body = []string{styled(faint, "not loaded: r to load")}
+	case listing:
+		rows, selA, selB := linkRows(links, b.Links.Sel, live, framed(width))
+		legend := linkLegend(links, linksCard.LinksLeftOut)
+		pr.body = panel(linkHead(cardLine(linksCard.Title.Text, linksCard.Title.Outsider, live.Of(linksCard.Links)), legend, width), styled(faint, legend),
+			cardFoot(linksCard), rows, width, len(rows)+2, focus)
+		pr.selA, pr.selB = selA+1, selB+1
 	case b.Detail && sel >= 0:
 		pr.body, pr.selA, pr.selB = cardPanel(b, c, live, width, true, focus)
 	case len(b.Cards) == 0:
@@ -493,24 +506,30 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	case b.Confirm != 0:
 		pr.foot = hang("", styled(bold, "Archive "+cardName(b, b.Confirm)+"?"), width)
 		pr.foot = append(pr.foot, hint("y archive · any other key keeps it")...)
+	case listing && b.Links.Ask != nil:
+		pr.foot = hang("", styled(bold, linkQuestion(*b.Links.Ask)), width)
+		pr.foot = append(pr.foot, askedRows(*b.Links.Ask, live, width, 2)...)
+		pr.foot = append(pr.foot, hint(linkAskHint(*b.Links.Ask))...)
+	case listing:
+		pr.keys = linkListHint(*b.Links, links, "esc back")
 	case b.Detail && sel >= 0:
 		pr.foot = cellLine(b, c, live, width)
 		switch c.Kind {
 		case core.CardChecklist:
-			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓ select · x tick · a add · e edit · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
-			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardSurface:
 			if len(c.Inputs()) > 0 {
-				pr.keys = "↑↓ select · x tick · e retitle · X archive · r reload · b workspace · esc back"
+				pr.keys = "↑↓ select · x tick · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			} else {
-				pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
+				pr.keys = "e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			}
 		default:
-			pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
+			pr.keys = "e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 		}
 	case len(b.Cards) > 0:
-		pr.keys = "↑↓ select · enter open · e retitle · X archive · r reload · b workspace · esc back"
+		pr.keys = "↑↓ select · enter open · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 	case b.Unavailable:
 		// r would not ask again: the agent has no such method.
 		pr.keys = "b workspace · esc back"

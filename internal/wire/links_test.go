@@ -117,3 +117,34 @@ func TestTheLinksOfACardAndAReadyItem(t *testing.T) {
 		t.Fatalf("%d links kept, %d left out", len(c.Links), c.LinksLeftOut)
 	}
 }
+
+func TestLinkOutcome(t *testing.T) {
+	at := time.Unix(1, 0)
+	if MethodLinksKeep != LinkMethod(true) || MethodLinksDrop != LinkMethod(false) {
+		t.Fatal("the methods")
+	}
+	if got := LinkParams("hxxps://x[.]example/a"); !reflect.DeepEqual(got, map[string]any{"address": "hxxps://x[.]example/a"}) {
+		t.Fatalf("params %v", got)
+	}
+	got := LinkOutcome("a", true, json.RawMessage(`{"changed": true, "notes": ["Removed 1 invisible character from what you pasted."]}`), nil, at)
+	want := core.LinkDone{At: at, Address: "a", Keep: true, Changed: true, Notes: []string{"Removed 1 invisible character from what you pasted."}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	if got := LinkOutcome("a", false, json.RawMessage(`{"changed": false}`), nil, at); got.Err != "" || got.Changed || got.Keep {
+		t.Fatalf("unchanged: %+v", got)
+	}
+	// relay's refusal is its reason.
+	refusal := &acp.RequestError{Code: -32000, Message: "A link is one http or https address in plain ASCII."}
+	if got := LinkOutcome("a", true, nil, refusal, at); got.Err != "A link is one http or https address in plain ASCII." || got.Changed {
+		t.Fatalf("a refusal: %+v", got)
+	}
+	// An answer that does not say whether anything changed is not read
+	// as a yes.
+	for _, bad := range []string{`{}`, `{"changed": null}`, `{"changed": "true"}`, `{"changed": true, "notes": "x"}`, `[]`, `not json`,
+		`{"changed": true, "changed": false}`} {
+		if got := LinkOutcome("a", true, json.RawMessage(bad), nil, at); got.Err == "" || got.Changed {
+			t.Errorf("%s was taken: %+v", bad, got)
+		}
+	}
+}

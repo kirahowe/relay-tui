@@ -353,6 +353,11 @@ func (r *reducer) apply(e Event) {
 		r.pane(e)
 	case LinksLoaded, LinksChanged:
 		r.links(e)
+		// A link that became live, or stopped being, changes what the
+		// board's list holds.
+		r.keepBoardLinks()
+	case LinkDone:
+		r.boardLinkDone(e)
 	case LabelsSeen:
 		s.Labels = s.Labels.Union(e.Labels)
 	case UserChunk, ConvAttached, RemoteIdle, ReplayEnd:

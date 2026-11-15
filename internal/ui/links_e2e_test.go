@@ -10,9 +10,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/fakehub"
 )
 
@@ -223,4 +225,193 @@ func TestWithoutRelaysLinksEveryLinkStaysBroken(t *testing.T) {
 		t.Fatalf("hyperlinks were written: %v", got)
 	}
 	h.noAddressAsText(t)
+}
+
+// armed waits until a question that has just come up can be answered:
+// a yes counts only core.ArmDelay after it was drawn.
+func armed() { time.Sleep(core.ArmDelay + 150*time.Millisecond) }
+
+// The list of an item's links, end to end: L lists them, Enter on a
+// broken one asks, a y at once is refused and says why, a y once the
+// question has been up keeps it, relay's refusal shows with its reason,
+// and d then y drops a live one.
+func TestKeepingAndDroppingALinkFromTheReadyView(t *testing.T) {
+	cfg := linksHub()
+	cfg.Ready = []json.RawMessage{json.RawMessage(`{"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 4,
+		"title": "Two grants worth a look",
+		"lines": ["Arts fund spring round, due 1 Dec: ` + e2eLinkBroken + `", "The council's form: ` + e2eLongBroken + `",
+		          "A forum post pointed here too: ` + e2eOtherBroken + `", "A wiki page: hxxps://wiki[.]example/wiki/Fund_(arts)"],
+		"from": "Drew on: the web page grants-2027.html", "outsider": true,
+		"message": 4, "messageKind": "note", "urgency": "normal", "thread": 4, "replyTo": 4, "replies": []}`)}
+	h := startHub(t, cfg, 100, 30, "")
+	h.waitLog("links")
+	h.keys("R")
+	h.waitScreen("the ready view", contains("L links"))
+	h.keys("L")
+	h.waitScreen("the list", func(s string) bool {
+		return strings.Contains(s, "Links · Two grants worth a look") && strings.Contains(s, "2 live · 2 broken") && strings.Contains(s, "enter keep")
+	})
+
+	// Enter asks, and a y typed with it comes too soon to answer.
+	h.keys("\ry")
+	h.waitScreen("the question and the refusal of the early y", func(s string) bool {
+		return strings.Contains(s, "relay cannot say where this link came from. Keep it?") && strings.Contains(s, "y keep") &&
+			strings.Contains(s, "too soon after it came on screen")
+	})
+	if got := h.logged("link-keep"); len(got) != 0 {
+		t.Fatalf("an early y kept the link: %v", got)
+	}
+	armed()
+	h.keys("y")
+	if got := h.waitLog("link-keep"); !strings.Contains(got, `hxxps://bit[.]example/3xQ9`) {
+		t.Fatalf("relay was sent %q, not the link as the list showed it", got)
+	}
+	h.waitScreen("kept", contains("Kept. relay lists it as live, and any client can open it."))
+	h.wait("the kept link as a hyperlink in the list", h.screen, func(s string) bool {
+		return strings.Contains(s, "3 live · 1 broken") && h.linked(e2eOtherBroken, e2eOther)
+	})
+
+	// The wiki link holds round brackets: relay refuses it and says why.
+	h.keys("j\r")
+	h.waitScreen("the question about the wiki link", contains("Keep it?"))
+	armed()
+	h.keys("y")
+	h.waitScreen("relay's refusal", func(s string) bool {
+		flat := strings.Join(strings.Fields(s), " ")
+		return strings.Contains(flat, "Not kept.") && strings.Contains(flat, "no brackets and no user name before its host")
+	})
+	if !h.unlinked("hxxps://wiki[.]example/wiki/Fund_(arts)") {
+		t.Fatalf("the refused link is not plain text:\n%s", h.screen())
+	}
+
+	// d on a live link asks, any other key leaves it, and y drops it.
+	h.keys("gd")
+	h.waitScreen("the drop question", func(s string) bool {
+		return strings.Contains(s, "Drop this link?") && strings.Contains(s, "y drop")
+	})
+	h.keys("n")
+	h.waitScreen("left live", contains("It stays live."))
+	if got := h.logged("link-drop"); len(got) != 0 {
+		t.Fatalf("a no dropped the link: %v", got)
+	}
+	h.keys("d")
+	h.waitScreen("the drop question again", contains("Drop this link?"))
+	armed()
+	h.keys("y")
+	if got := h.waitLog("link-drop"); !strings.Contains(got, e2eLink) {
+		t.Fatalf("relay was sent %q", got)
+	}
+	h.waitScreen("dropped", contains("Dropped. Nothing opens it now"))
+	h.wait("the dropped link broken in the list", h.screen, func(s string) bool {
+		return strings.Contains(s, "2 live · 2 broken") && h.unlinked("hxxps://artsfund[.]example/grants/2027")
+	})
+
+	// Esc goes back to the message, which reads as relay now sends it.
+	h.keys("\x1b")
+	h.wait("the message again", h.screen, func(s string) bool {
+		return strings.Contains(s, "Message · Two grants worth a look") && h.linked(e2eOtherBroken, e2eOther)
+	})
+	for target := range h.targets() {
+		if target != e2eLink && target != e2eLong && target != e2eOther {
+			t.Errorf("a hyperlink to %q was written", target)
+		}
+	}
+	h.noAddressAsText(t)
+}
+
+// The same on the board, through the pane: the list of a card's links,
+// the question in the pane's foot, and the card as relay sends it again,
+// its text as it was and the link listed.
+func TestKeepingALinkFromTheBoard(t *testing.T) {
+	cfg := threeRoles()
+	cfg.Links = []string{e2eLink}
+	cfg.Cards = []json.RawMessage{json.RawMessage(`{"id": 7, "kind": "checklist", "status": "active", "complete": false, "rev": 3,
+		"owner": "steward", "addedAt": "2026-10-14T12:00:00Z", "labels": ["contaminated"], "progress": {"done": 0, "total": 2},
+		"title": {"text": "Grants to apply for", "outsider": true, "rev": 3},
+		"items": [{"id": 1, "text": "Arts fund: ` + e2eLinkBroken + `", "done": false, "outsider": true, "rev": 3},
+		          {"id": 2, "text": "A forum post: ` + e2eOtherBroken + `", "done": false, "outsider": true, "rev": 3}],
+		"text": "Card 7"}`)}
+	h := startHub(t, cfg, 170, 40, "dev")
+	h.waitScreen("dev", contains("hello from dev"))
+	h.waitScreen("the board beside it", contains("Grants to apply for"))
+	h.escape()
+	h.keys("l")
+	h.waitScreen("the pane's keys", contains("L links"))
+	h.keys("L")
+	h.waitScreen("the list", func(s string) bool {
+		return strings.Contains(s, "1 live · 1 broken") && strings.Contains(s, "enter keep")
+	})
+	if !h.linked(e2eLinkBroken, e2eLink) || !h.unlinked(e2eOtherBroken) {
+		t.Fatalf("the list's links are not drawn as they are:\n%s", h.screen())
+	}
+	h.keys("\ry")
+	h.waitScreen("the question and the refusal of the early y", func(s string) bool {
+		flat := strings.Join(strings.Fields(strings.NewReplacer("│", " ", "╯", " ", "╰", " ", "─", " ").Replace(s)), " ")
+		return strings.Contains(s, "Keep it?") && strings.Contains(s, "y keep") && strings.Contains(flat, "too soon after it came on screen")
+	})
+	if got := h.logged("link-keep"); len(got) != 0 {
+		t.Fatalf("an early y kept the link: %v", got)
+	}
+	armed()
+	h.keys("y")
+	h.waitLog("link-keep")
+	h.wait("the kept link as a hyperlink in the list", h.screen, func(s string) bool {
+		return strings.Contains(s, "2 live") && !strings.Contains(s, "broken ─") && h.linked(e2eOtherBroken, e2eOther)
+	})
+	h.keys("\x1b")
+	h.wait("the card with the link live", h.screen, func(s string) bool {
+		return strings.Contains(s, "Grants to apply for") && !strings.Contains(s, "Links") && h.linked(e2eOtherBroken, e2eOther)
+	})
+	for target := range h.targets() {
+		if target != e2eLink && target != e2eOther {
+			t.Errorf("a hyperlink to %q was written", target)
+		}
+	}
+	h.noAddressAsText(t)
+}
+
+// A long host is never cut in the question. On a phone-sized 30x6 the
+// question's first rows give way to it, "Keep it?" stays, and a y keeps
+// the link; on a screen too small to show the host and "Keep it?" a y
+// keeps nothing, however long the question has been up.
+func TestAYesKeepsALongHostOnlyWhereItIsOnScreen(t *testing.T) {
+	const long = "hxxps://accounts[.]bank[.]example[.]secure-login-verify-session-id[.]evil[.]test/x"
+	const host = "hxxps://accounts[.]bank[.]example[.]secure-login-verify-session-id[.]evil[.]test"
+	for _, c := range []struct {
+		w, h int
+		kept bool
+	}{{30, 6, true}, {30, 5, false}, {22, 4, false}} {
+		cfg := linksHub()
+		cfg.Ready = []json.RawMessage{json.RawMessage(`{"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 4,
+			"title": "Sign in", "lines": ["Your bank: ` + long + `"], "from": "Drew on: a mail", "outsider": true,
+			"message": 4, "messageKind": "note", "urgency": "normal", "thread": 4, "replyTo": 4, "replies": []}`)}
+		h := startHub(t, cfg, c.w, c.h, "")
+		h.waitLog("links")
+		h.keys("R")
+		h.waitScreen("the ready view", contains("Ready"))
+		h.keys("L")
+		h.waitScreen("the list", contains("Links"))
+		h.keys("\r")
+		screen := h.waitScreen("the question", contains("y keep"))
+		solid := strings.Join(strings.Fields(strings.NewReplacer("│", "", "╭", "", "╰", "", "─", "", "╮", "", "╯", "").Replace(screen)), "")
+		if on := strings.Contains(solid, host) && strings.Contains(solid, "Keepit?"); on != c.kept {
+			t.Fatalf("at %dx%d the host on screen is %v:\n%s", c.w, c.h, on, screen)
+		}
+		armed()
+		h.keys("y")
+		if c.kept {
+			if got := h.waitLog("link-keep"); !strings.Contains(got, long) {
+				t.Fatalf("at %dx%d relay was sent %q", c.w, c.h, got)
+			}
+			continue
+		}
+		// Any other key says no and closes the question. Keys are dealt
+		// with in order, so once the list is back without it the y has
+		// been too.
+		h.keys("n")
+		h.waitScreen("the list again", func(s string) bool { return !strings.Contains(s, "y keep") && strings.Contains(s, "select") })
+		if got := h.logged("link-keep"); len(got) != 0 {
+			t.Fatalf("at %dx%d a y with the host off screen kept the link: %v", c.w, c.h, got)
+		}
+	}
 }

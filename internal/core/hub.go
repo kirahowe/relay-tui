@@ -428,7 +428,7 @@ func (r *hubReducer) apply(e Event) {
 	switch e.(type) {
 	case Tick, TerminalReady, Printed, HubConnected, RosterUpdate, Routed, Attached, Replayed,
 		ConversationEnded, CardsLoaded, CardsChanged, CardOpDone, AgentExited,
-		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, LinksLoaded, LinksChanged:
+		ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, LinksLoaded, LinksChanged, LinkDone:
 	default:
 		h.Notice = "" // a key was pressed
 	}
@@ -452,7 +452,17 @@ func (r *hubReducer) apply(e Event) {
 		r.roster(e)
 	case Routed:
 		r.routed(e)
-	case CardsLoaded, CardsChanged, CardOpDone, LinksLoaded, LinksChanged:
+	case CardsLoaded, CardsChanged, CardOpDone:
+		r.toApp(e, false)
+	case LinksLoaded, LinksChanged:
+		r.toApp(e, false)
+		// A link that became live, or stopped being, changes what the
+		// ready view's list holds.
+		r.keepReadyLinks()
+	case LinkDone:
+		// Whichever list sent it takes the answer: the ready view's, or
+		// the board's.
+		r.ready(e)
 		r.toApp(e, false)
 	case ReadyLoaded, ReadyChanged, ReplyDone, UndoDone, ActDone, ReadyOpen, ReadyKey:
 		r.ready(e)
@@ -729,7 +739,7 @@ func (r *hubReducer) withApp(f func(*reducer)) {
 
 func (r *hubReducer) mapEffect(c Conv, f Effect, user bool) {
 	switch f := f.(type) {
-	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo, SendAct, RequestLinks:
+	case RequestCards, SendCardOp, RequestReady, SendReply, SendUndo, SendAct, RequestLinks, SendLink:
 		// The board's and the ready view's calls are the connection's,
 		// about no conversation.
 		r.emit(f)

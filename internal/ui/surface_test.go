@@ -46,10 +46,34 @@ func (c callConn) Seen(string, int)               {}
 func (c callConn) Resolve(string, string)         {}
 func (c callConn) Cards()                         {}
 func (c callConn) Links()                         {}
-func (c callConn) Shutdown()                      {}
+func (c callConn) Link(_ string, keep bool) {
+	c.add("link", map[bool]string{true: "keep", false: "drop"}[keep])
+}
+func (c callConn) Shutdown() {}
+
+// Links in the outside text the surface runs draw, each broken as relay
+// sends it: one relay lists as live, with its address, and one it does
+// not.
+const (
+	surfaceLive      = "https://artsfund.example/grants/2027"
+	surfaceLiveShown = "hxxps://artsfund[.]example/grants/2027"
+	surfaceBroken    = "hxxps://bit[.]example/3xQ9"
+)
+
+// surfaceOwn is what relay lists beside a thing that shows the live one.
+var surfaceOwn = []core.Link{{Address: surfaceLive, Shown: surfaceLiveShown}}
+
+// surfaceReadyItem is a message ready for the operator that quotes both
+// links. Nobody can answer it, so no reply is ever typed in these runs.
+func surfaceReadyItem(at time.Time) core.ReadyItem {
+	return core.ReadyItem{ID: "message:4", Kind: core.ReadyMessage, At: at.Format(time.RFC3339), Title: "Two grants",
+		Lines: []string{"Arts fund: " + surfaceLiveShown, "A forum post: " + surfaceBroken}, From: "from the web", Outsider: true, Message: 4,
+		Links: surfaceOwn}
+}
 
 // surfaceHub is a hub model typing on Dev at the test's clock, with the
-// board loaded (a checklist and a note) and Mail's conversation attached.
+// board loaded (a checklist and a note), relay's live links, one message
+// ready, and Mail's conversation attached.
 func surfaceHub(calls *[]call, clock *time.Time) Model {
 	now := *clock
 	roles := []core.Role{
@@ -61,7 +85,9 @@ func surfaceHub(calls *[]call, clock *time.Time) Model {
 	return update(m, tea.WindowSizeMsg{Width: 170, Height: 40},
 		ev(core.HubConnected{At: now}), ev(core.RosterUpdate{At: now, Roles: roles}),
 		ev(core.Attached{At: now, Role: "dev", Session: "s1"}), ev(core.Attached{At: now, Role: "mail", Session: "s2"}),
-		ev(core.CardsLoaded{At: now, Rev: 2, Cards: outsideNavCards()}))
+		ev(core.LinksLoaded{At: now, Rev: 2, Live: []string{surfaceLive}}),
+		ev(core.CardsLoaded{At: now, Rev: 2, Cards: outsideNavCards()}),
+		ev(core.ReadyLoaded{At: now, Rev: 2, Items: []core.ReadyItem{surfaceReadyItem(now)}}))
 }
 
 // surfaceSingle is a single-agent model typing, with the board loaded.
@@ -69,13 +95,17 @@ func surfaceSingle(calls *[]call, clock *time.Time) Model {
 	m := New(callConn{calls: calls, clock: clock}, "")
 	m.clock = func() time.Time { return *clock }
 	return update(m, tea.WindowSizeMsg{Width: 140, Height: 30}, ev(core.Connected{At: *clock}),
+		ev(core.LinksLoaded{At: *clock, Rev: 2, Live: []string{surfaceLive}}),
 		ev(core.CardsLoaded{At: *clock, Rev: 2, Cards: outsideNavCards()}))
 }
 
-// outsideNavCards is navCards with outside text in the first.
+// outsideNavCards is navCards with outside text in the first: an item
+// that quotes a live link and a broken one.
 func outsideNavCards() []core.Card {
 	cards := navCards()
 	cards[0].Labels = core.Labels{Contaminated: true}
+	cards[0].Items[1].CardText = core.CardText{Text: "go " + surfaceLiveShown + " or " + surfaceBroken, Outsider: true, Rev: 1}
+	cards[0].Links = surfaceOwn
 	return cards
 }
 
@@ -107,7 +137,8 @@ func key(s string) tea.KeyPressMsg {
 // surfaceKeys are the keys that mean something somewhere: every column
 // move, every pane key, and plain letters.
 var surfaceKeys = []string{"enter", "esc", "backspace", "tab", "up", "down", "pgup", "ctrl+c", "ctrl+t", "ctrl+o", "ctrl+y", "ctrl+j",
-	"alt+1", "alt+2", "h", "j", "k", "l", "i", "e", "E", "a", "x", "X", "y", "Y", "n", "t", "b", "v", "q", "?", " ", "1", "2", "z"}
+	"alt+1", "alt+2", "h", "j", "k", "l", "i", "e", "E", "a", "x", "X", "y", "Y", "n", "t", "b", "v", "q", "?", " ", "1", "2", "z",
+	"L", "d", "R", "o"}
 
 // surfaceID names what has the keys, in either mode.
 func (m Model) surfaceID() string {
@@ -137,8 +168,8 @@ func keptAll(before, after map[string]string, except string) bool {
 }
 
 // onScreen says the screen shows what id names: the end or archive
-// question with its yes. Spaces and frame lines are ignored, so a
-// wrapped line still counts.
+// question, or the question about a link, with its yes. Spaces and frame
+// lines are ignored, so a wrapped line still counts.
 func onScreen(m Model, id string) bool {
 	var content string
 	if m.kind == kindHub {
@@ -165,6 +196,13 @@ func onScreen(m Model, id string) bool {
 		return has("Archive", "y archive")
 	case strings.HasPrefix(id, "end/"):
 		return has("End the conversation with", "y to end it")
+	case strings.HasPrefix(id, "link/") && strings.Contains(id, "/true/"):
+		// The question wraps, and beside another column its rows are not
+		// next to each other in the screen's text: its first words and
+		// its last are looked for apart.
+		return has("relay cannot say", "Keep", "it?", "y keep")
+	case strings.HasPrefix(id, "link/"):
+		return has("Drop this link?", "shows it again.", "y drop")
 	}
 	return true
 }
@@ -175,9 +213,11 @@ func onScreen(m Model, id string) bool {
 //	(a) the surface that receives a key is the one the renderer draws as
 //	    active;
 //	(b) no key received by a typing surface ends a conversation, archives
-//	    a card or sends a card op (but the editor's own enter);
-//	(c) no question (end, archive) is answered yes within ArmDelay of
-//	    being drawn in full (declining and cancelling work at once);
+//	    a card, keeps or drops a link, or sends a card op (but the
+//	    editor's own enter);
+//	(c) no question (end, archive, a link kept or dropped) is answered
+//	    yes within ArmDelay of being drawn in full (declining and
+//	    cancelling work at once);
 //	(d) no draft or editor text is lost but by sending it, or by the
 //	    keys that clear it on purpose (ctrl+c in an idle input, esc or
 //	    ctrl+c in the editor).
@@ -248,6 +288,11 @@ func surfaceRun(rt *rapid.T, hub bool) {
 				if t0, ok := present[target]; !ok || c.at.Sub(t0) < core.ArmDelay {
 					rt.Fatalf("step %d: key %q made %+v on %q, drawn in full since %v (%v)", step, name, c, target, t0, ok)
 				}
+				// A link is kept or dropped only from its own question.
+				if c.what == "link" && surf.Kind != core.SurfaceLinkAsk && surf.Kind != core.SurfaceReadyLinkAsk {
+					rt.Fatalf("step %d: key %q made %+v from %v, not the question", step, name, c, surf.Kind)
+				}
+				surfaceAnswered[surf.Kind]++
 			}
 		}
 		// (d)
@@ -320,6 +365,14 @@ func surfaceRun(rt *rapid.T, hub bool) {
 		{"esc", "l", "X"},                // the archive question
 		{"esc", "l", "X", "y"},           // archived
 		{"esc", "l", "enter", "j", "x"},  // a tick
+		{"esc", "l", "L", "enter"},       // the pane's question: keep a link
+		{"esc", "l", "L", "enter", "y"},  // kept
+		{"esc", "l", "L", "k", "d"},      // the pane's question: drop a link
+		{"esc", "l", "L", "k", "d", "y"}, // dropped
+		{"esc", "R", "L", "enter"},       // the ready view's question: keep a link
+		{"esc", "R", "L", "enter", "y"},  // kept
+		{"esc", "R", "L", "k", "d", "y"}, // dropped
+		{"y"},                            // a yes to whatever is asked
 		{"esc", "h"},                     // the list
 		{"esc", "?"},                     // the help
 		{"esc", "X"},                     // the end question
@@ -340,7 +393,7 @@ func surfaceRun(rt *rapid.T, hub bool) {
 				event(ev(core.RosterUpdate{At: clock, Roles: roles}))
 			}
 		case 2: // the board changes: a card gets a new rev, or one is archived
-			cards := navCards()
+			cards := outsideNavCards()
 			c := cards[rapid.IntRange(0, 1).Draw(rt, "card")]
 			c.Rev = int64(10 + step)
 			if rapid.Bool().Draw(rt, "archived") {
@@ -366,13 +419,17 @@ func surfaceRun(rt *rapid.T, hub bool) {
 
 var surfaceSeen = map[core.SurfaceKind]int{}
 
+// surfaceAnswered counts the questions the runs answered yes, by the
+// surface that asked.
+var surfaceAnswered = map[core.SurfaceKind]int{}
+
 func TestSurfaceRulesHub(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) { surfaceRun(rt, true) })
-	t.Log(surfaceSeen)
+	t.Log(surfaceSeen, surfaceAnswered)
 }
 func TestSurfaceRulesSingle(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) { surfaceRun(rt, false) })
-	t.Log(surfaceSeen)
+	t.Log(surfaceSeen, surfaceAnswered)
 }
 
 // Typing in a card's editor, the card is archived from outside. The
@@ -432,8 +489,11 @@ func TestArchiveQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
 		"hub":    func(c *[]call, t *time.Time) Model { return surfaceHub(c, t) },
 	}
 	for name, build := range surfaces {
-		for _, height := range []int{8, 9, 10} {
-			t.Run(fmt.Sprint(name, "/height=", height), func(t *testing.T) {
+		// The widths where the pane covers the conversation too, which is
+		// where the question once fell off a short screen.
+		for _, size := range [][2]int{{40, 8}, {40, 9}, {40, 10}, {60, 8}, {60, 9}, {60, 10}, {100, 10}} {
+			width, height := size[0], size[1]
+			t.Run(fmt.Sprint(name, "/", width, "x", height), func(t *testing.T) {
 				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
 				var calls []call
 				m := build(&calls, &clock)
@@ -441,11 +501,64 @@ func TestArchiveQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
 				for _, k := range []string{"a", "ctrl+j", "b", "ctrl+j", "c", "ctrl+j", "d", "ctrl+j", "e"} {
 					m = update(m, key(k))
 				}
-				m = update(m, tea.WindowSizeMsg{Width: 60, Height: height})
+				m = update(m, tea.WindowSizeMsg{Width: width, Height: height})
 				m = update(m, key("esc"), key("l"), key("X"))
 				id := m.surfaceID()
 				if !strings.HasPrefix(id, "archive/") || !onScreen(m, id) {
 					t.Fatalf("surface %q, drawn in full: %v", id, onScreen(m, id))
+				}
+				// A y at once is refused, and the note that says so does
+				// not push the question off the screen.
+				m = update(m, key("y"))
+				if len(calls) != 0 || m.surfaceID() != id || !onScreen(m, id) {
+					t.Fatalf("after a y too soon: calls %v, surface %q, drawn in full: %v", calls, m.surfaceID(), onScreen(m, id))
+				}
+			})
+		}
+	}
+}
+
+// The question about a link is drawn in full before a y can answer it,
+// on a short or a narrow screen too, in the pane and in the ready view:
+// the notes above the input, and then the input, give up their rows to
+// it.
+func TestLinkQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
+	type build func(*[]call, *time.Time) Model
+	cases := map[string]struct {
+		build build
+		keys  []string
+	}{
+		"single, keep":     {surfaceSingle, []string{"esc", "l", "L", "enter"}},
+		"single, drop":     {surfaceSingle, []string{"esc", "l", "L", "k", "d"}},
+		"hub pane, keep":   {surfaceHub, []string{"esc", "l", "L", "enter"}},
+		"hub pane, drop":   {surfaceHub, []string{"esc", "l", "L", "k", "d"}},
+		"ready view, keep": {surfaceHub, []string{"esc", "R", "L", "enter"}},
+		"ready view, drop": {surfaceHub, []string{"esc", "R", "L", "k", "d"}},
+	}
+	for name, c := range cases {
+		for _, size := range [][2]int{{40, 8}, {40, 9}, {40, 10}, {60, 8}, {60, 10}, {100, 8}, {100, 10}, {100, 24}, {170, 40}} {
+			t.Run(fmt.Sprint(name, "/", size[0], "x", size[1]), func(t *testing.T) {
+				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+				var calls []call
+				m := c.build(&calls, &clock)
+				m = update(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+				for _, k := range c.keys {
+					m = update(m, key(k))
+				}
+				id := m.surfaceID()
+				if !strings.HasPrefix(id, "link/") || !onScreen(m, id) {
+					t.Fatalf("surface %q, drawn in full: %v", id, onScreen(m, id))
+				}
+				// A y at once is refused, and the note that says so does
+				// not push the question off the screen.
+				m = update(m, key("y"))
+				if len(calls) != 0 || m.surfaceID() != id || !onScreen(m, id) {
+					t.Fatalf("after a y too soon: calls %v, surface %q, drawn in full: %v", calls, m.surfaceID(), onScreen(m, id))
+				}
+				clock = clock.Add(core.ArmDelay)
+				m = update(m, key("y"))
+				if len(calls) != 1 || calls[0].what != "link" {
+					t.Fatalf("a y once armed made %v", calls)
 				}
 			})
 		}

@@ -1,0 +1,16 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;1mReady␛[m                                         ␛[0;2m2 ␛[m
+␛[0;2m╭─␛[m keys for the links ␛[0;2m────────────────────────────────────␛[m␛[0;2m╮␛[m
+␛[0;2m│␛[m ↑ ↓ k j tab shift+tab  ␛[0;2mselect␛[m␛[0;2m                          ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m g G home end           ␛[0;2mtop, bottom␛[m␛[0;2m                     ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m enter o                ␛[0;2mkeep the broken link selected,␛[m␛[0;2m  ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                        ␛[0;2mafter a question␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m d                      ␛[0;2mdrop the live link selected,␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                        ␛[0;2mafter a question␛[m␛[0;2m                ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m y                      ␛[0;2myes to the question; any other␛[m␛[0;2m  ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m                        ␛[0;2mkey is no␛[m␛[0;2m                       ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m r                      ␛[0;2mask relay again␛[m␛[0;2m                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m L esc q h ←            ␛[0;2mback␛[m␛[0;2m                            ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m R                      ␛[0;2mclose this view␛[m␛[0;2m                 ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m ?                      ␛[0;2mthese keys␛[m␛[0;2m                      ␛[m ␛[0;2m│␛[m
+
+ ␛[0;1mMOVING␛[m  ␛[0;36many␛[m␛[0;2m key closes the list␛[m
