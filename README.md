@@ -281,6 +281,18 @@ line breaks it was written with. In a note of your own a `#` heading and
 `**bold**` are bold, and a list line's marker is faint. A note with text
 from outside shows exactly as relay sent it, marks and all: taking a
 mark out changes what the text reads as, and relay checked it as it was.
+A surface card is a card a role lays out itself from relay's catalog:
+text, rows, columns, lists, boxes, rules and checkboxes. relay-tui draws
+what relay sent, in the card's panel, and you can tick and untick a
+checkbox, and nothing else on it. A checkbox with a fixed value is not a
+line you can select. In an open surface card, up and down move over the
+title and then each checkbox, and x or space sends relay the opposite of
+the value shown. A surface relay-tui cannot draw in full shows the card's
+text form instead. Text an outsider may have written is drawn exactly as
+sent, in the warning colour, with its links broken except relay's live
+links, and the card's foot says "from outside". The list shows the first
+twelve lines of a surface.
+
 A card of a kind relay-tui does not know shows the text form relay sends
 with every card.
 
@@ -293,7 +305,9 @@ Keys on the board:
   row or column it was on. If that one is gone, the cursor stays where it
   was and a note says so.
 - x or space ticks or unticks the selected item. On a tracker it moves
-  the selected cell from open to done to skipped and back to open.
+  the selected cell from open to done to skipped and back to open. On a
+  surface card it sends relay the opposite of the selected checkbox's
+  value, with the path it is bound to and the rev you saw.
 - In an open card, a adds an item to a checklist or a row to a tracker,
   and A adds a column.
 - e edits the selected line's text: the title, an item or a row's name.

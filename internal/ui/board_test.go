@@ -140,3 +140,24 @@ func TestBoardWithoutRelay(t *testing.T) {
 	h.keys("b")
 	h.waitScreen("no board", func(s string) bool { return strings.Contains(s, "This agent has no board.") })
 }
+
+// A surface card on a single agent: its boxes draw, the cursor goes to the
+// third, and x sends the input op with the path, the value and the rev,
+// and shows the card relay answers with.
+func TestBoardTicksASurfaceCard(t *testing.T) {
+	h := start(t, "surface.jsonl", 140, 40)
+	h.waitScreen("the board", func(s string) bool { return strings.Contains(s, "Board 1") })
+	h.escape()
+	h.keys("l")
+	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
+	h.keys("\r")
+	h.waitScreen("the surface", func(s string) bool { return strings.Contains(s, "x tick") && strings.Contains(s, "Camp stove") })
+	h.keys("jjj")
+	h.waitScreen("the third box", func(string) bool { return h.emu.selected("Camp stove") })
+	h.keys("x")
+	h.waitScreen("the answer", func(s string) bool { return strings.Contains(s, "✓ Camp stove") })
+	calls := h.extensionCalls("_relay/cards/op")
+	if len(calls) != 1 || calls[0] != `{"card":1840,"op":"input","path":"/items/2/done","seen":1840,"value":true}` {
+		t.Fatalf("op calls %q", calls)
+	}
+}

@@ -6,6 +6,7 @@ package ui_test
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -169,4 +170,77 @@ func TestHubNarrowListOpensTheBoardInItsPlace(t *testing.T) {
 	h.waitScreen("the board again", func(s string) bool { return !strings.Contains(s, "News") })
 	h.keys("h")
 	h.waitScreen("the list again", contains("News"))
+}
+
+// surfaceRoles is threeRoles with relay's checklist fixture card as the
+// whole board, at id 21 and with the matching surface id. It also returns
+// the card's rev.
+func surfaceRoles(t *testing.T) (fakehub.Config, int64) {
+	t.Helper()
+	raw, err := os.ReadFile("../../testdata/surfaces/checklist.card.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card map[string]any
+	if err := json.Unmarshal(raw, &card); err != nil {
+		t.Fatal(err)
+	}
+	card["id"] = 21
+	msgs := card["surface"].(map[string]any)["a2ui"].([]any)
+	msgs[0].(map[string]any)["createSurface"].(map[string]any)["surfaceId"] = "card_21"
+	b, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := threeRoles()
+	cfg.Cards = []json.RawMessage{b}
+	return cfg, int64(card["rev"].(float64))
+}
+
+// A surface card's box is ticked through relay: the op carries the path,
+// the value and the rev the client read, the screen shows the box ticked
+// when relay answers, and an op made against a rev that has moved on is
+// refused with relay's words and changes nothing.
+func TestHubTicksASurfaceCardsBox(t *testing.T) {
+	cfg, rev := surfaceRoles(t)
+	h := startHub(t, cfg, 170, 40, "")
+	h.waitScreen("the board", contains("Board 1"))
+	h.keys("l")
+	h.waitScreen("the pane has the keys", contains("↑↓ select"))
+	h.keys("\r")
+	h.waitScreen("the surface", contains("x tick"))
+	h.keys("jjj")
+	h.waitScreen("the third box", func(string) bool { return h.emu.selected("Camp stove") })
+	h.keys("x")
+	h.waitScreen("the tick", contains("✓ Camp stove"))
+	calls := h.logged("card-op ")
+	if len(calls) != 1 {
+		t.Fatalf("op calls %q", calls)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(calls[0], "card-op ")), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"card": 21.0, "op": "input", "path": "/items/2/done", "value": true, "seen": float64(rev)}
+	if len(got) != len(want) {
+		t.Fatalf("op %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("op %v, want %v", got, want)
+		}
+	}
+	// The rev moves on elsewhere, and the client is not told.
+	h.say("bump-card 21")
+	h.keys("j")
+	h.waitScreen("the fourth box", func(string) bool { return h.emu.selected("Paper map") })
+	h.keys("x")
+	s := h.waitScreen("the refusal", contains("Refused."))
+	s = h.waitScreen("relay's reason", contains("was changed at rev"))
+	if strings.Contains(s, "✓ Paper map") {
+		t.Errorf("the refused box shows ticked:\n%s", s)
+	}
+	if calls := h.logged("card-op "); len(calls) != 2 {
+		t.Errorf("op calls %q", calls)
+	}
 }

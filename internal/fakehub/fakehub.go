@@ -35,6 +35,7 @@
 //	end <role>                   the conversation ends elsewhere
 //	finish <role>                a "slow" turn ends
 //	archive-card <id>            another process archived the card
+//	bump-card <id>               the card's rev moves on, and the client is not told
 //
 // Everything the client does is logged, one line each: "new <role>
 // attached=<bool>", "load <session>", "prompt <session> <json text>",
@@ -635,6 +636,10 @@ func (h *Hub) control(ctx context.Context, line string) {
 	cmd, id := fields[0], fields[1]
 	if cmd == "archive-card" {
 		h.archiveCard(ctx, id)
+		return
+	}
+	if cmd == "bump-card" {
+		h.bumpCard(id)
 		return
 	}
 	if cmd == "keep-link" || cmd == "drop-link" {
