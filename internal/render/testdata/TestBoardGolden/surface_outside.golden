@@ -5,7 +5,7 @@
 ␛[0;36m│␛[m ␛[0;33mtoday␛[m                                   ␛[m ␛[0;36m│␛[m
 ␛[0;36m│␛[m ␛[0;33mhxxps://ev␛[m  ␛[0;33mil[.]example/apply?who=kira␛[m ␛[m ␛[0;36m│␛[m
 ␛[0;36m│␛[m ␛[0;33mThe fund's page is␛[m                      ␛[m ␛[0;36m│␛[m
-␛[0;36m│␛[m ␛[0;33m␛]8;;https://kept.example/fund<https://kept.example/fund>␛]8;; and its␛[m     ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;33m␛]8;;https://kept.example/fundhxxps://kept[.]example/fund␛]8;; and its␛[m     ␛[m ␛[0;36m│␛[m
 ␛[0;36m│␛[m ␛[0;33mmirror is hxxps://kept[.]example/fund/x␛[m ␛[m ␛[0;36m│␛[m
 ␛[0;36m│␛[m ␛[0;2m○␛[m ␛[0;33mRead␛[m                                  ␛[m ␛[0;36m│␛[m
 ␛[0;36m│␛[m   ␛[0;33m\u{001b}]8;;hxxps://evil[.]example\u{0␛[m␛[m ␛[0;36m│␛[m

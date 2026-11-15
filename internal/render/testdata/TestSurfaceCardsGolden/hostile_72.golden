@@ -1,6 +1,6 @@
 ␛[0;33mApply at hxxps://evil[.]example/apply?who=kira today␛[m
 ␛[0;33mhxxps://ev␛[m  ␛[0;33mil[.]example/apply?who=kira␛[m
-␛[0;33mThe fund's page is ␛]8;;https://kept.example/fund␇<https://kept.example/fund>␛]8;;␇ and its mirror is␛[m
+␛[0;33mThe fund's page is ␛]8;;https://kept.example/fund␇hxxps://kept[.]example/fund␛]8;;␇ and its mirror is␛[m
 ␛[0;33mhxxps://kept[.]example/fund/x␛[m
 ␛[0;2m○␛[m ␛[0;33mRead \u{001b}]8;;hxxps://evil[.]example\u{0007}the␛[m
   ␛[0;33mterms\u{001b}]8;;\u{0007}␛[m

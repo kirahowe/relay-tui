@@ -289,9 +289,12 @@ line you can select. In an open surface card, up and down move over the
 title and then each checkbox, and x or space sends relay the opposite of
 the value shown. A surface relay-tui cannot draw in full shows the card's
 text form instead. Text an outsider may have written is drawn exactly as
-sent, in the warning colour, with its links broken except relay's live
-links, and the card's foot says "from outside". The list shows the first
-twelve lines of a surface.
+sent, in the warning colour, with every link in its broken form, and the
+card's foot says "from outside". One of relay's live links can be
+clicked, as on any card (see The look). When relay's newer copy of an
+open surface changes anything but what is ticked, the cursor goes back
+to the title and a note says so, since a checkbox has nothing to be
+followed by. The list shows the first twelve lines of a surface.
 
 A card of a kind relay-tui does not know shows the text form relay sends
 with every card.
