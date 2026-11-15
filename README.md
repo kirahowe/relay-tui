@@ -163,29 +163,26 @@ notices, tool names, arguments and output) show defanged, as
 itself is never shown, and nothing is held or withheld because of it.
 relay-tui never sends `resource_link` blocks.
 
-The one link relay-tui lets your terminal follow in text from outside is
-a live link of relay's: an address relay can say came from somewhere it
-takes links from, because the web showed it to a scout or you called it
-safe. relay-tui asks relay for that set (`_relay/links`) and holds every
-link it draws to it. A link is drawn as an OSC 8 hyperlink, between
-angle brackets and underlined, only when its address is in the set,
-character for character. That holds on a card, in a ready item and in an
-agent's reply alike. Every other link stays broken, whatever the text
-around it looks like. Against a plain ACP agent, or a relay without
-`_relay/links`, they all do.
+A link in text from outside is always shown broken, and no address is
+put on screen as text. What differs is whether you can click it. relay
+keeps a set of live links: addresses it can say came from somewhere it
+takes links from, because the web showed one to a scout or you called it
+safe. relay-tui asks relay for that set (`_relay/links`). A link whose
+address is in the set, character for character, is drawn underlined, in
+its broken form, as an OSC 8 hyperlink to the address. That holds on a
+card, in a ready item and in an agent's reply alike. Any other link is
+plain broken text. Against a plain ACP agent, or a relay without
+`_relay/links`, they all are.
 
-A live link that fits its row shows whole. One longer than its row
-shows in the broken form, and every piece of it still opens the whole
-address: the hyperlink carries the address, so the text does not have
-to. No row ever shows the start of an address, which would be another
-address, one nobody judged. A link that holds a character some
-terminals stop reading an address at (an apostrophe, a comma, a star, a
-bracket) or ends in anything but a letter, a digit or a slash shows in
-the broken form too, for the same reason. For a click to work your
-terminal has to pass OSC 8 on (cmd+click in Ghostty and iTerm2). tmux
-does from 3.4, with `hyperlinks` in `terminal-features` for the terminal
-it runs in. Where it does not get through there is nothing to click on
-a link shown broken, and one shown whole can still be opened as text.
+The address travels only as the hyperlink's target, so what a click
+opens does not depend on how your terminal reads text. Terminals find
+links in text each in their own way, and they disagree on where an
+address ends, so relay-tui gives them none to find. A link longer than
+its row wraps as any text does, and every piece of it opens the whole
+address. For a click to work your terminal has to pass OSC 8 on
+(cmd+click in Ghostty and iTerm2). tmux does from 3.4, with `hyperlinks`
+in `terminal-features` for the terminal it runs in. Where OSC 8 does not
+get through there is nothing to click.
 
 Where a thing came from is said in plain words, where it is shown: "from
 the web" for an item with a web source, "from outside" for any other text

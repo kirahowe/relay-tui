@@ -15,6 +15,8 @@ import (
 const (
 	linkA = "https://artsfund.example/grants/2027"
 	linkB = "https://artscouncil.example/apply/spring-round?year=2027&ref=newsletter"
+	// linkA as a row shows it.
+	brokenA = "hxxps://artsfund[.]example/grants/2027"
 )
 
 func TestFang(t *testing.T) {
@@ -78,74 +80,60 @@ func spansOn(t *testing.T, row string) []string {
 	return targets
 }
 
-func TestWrapKeepsALiveLinkOnOneRow(t *testing.T) {
+// A live link is wrapped as any other text is: whole on a row where it
+// fits, cut where the row ends where it does not. Its text is broken
+// either way, and each row's piece of it opens the whole address.
+func TestALiveLinkIsWrappedAsAnyOtherTextIs(t *testing.T) {
 	rows := wrap("Arts fund spring round, due 1 Dec: "+span(linkA)+" and", 38)
-	want := []string{"Arts fund spring round, due 1 Dec:", "<" + linkA + ">", "and"}
+	want := []string{"Arts fund spring round, due 1 Dec:", brokenA, "and"}
 	if got := plainRows(rows); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("rows %q, want %q", got, want)
 	}
 	if got := spansOn(t, rows[1]); len(got) != 1 || got[0] != linkA {
 		t.Fatalf("the link's row links to %q", got)
 	}
-	// The wrapper breaks a word at a hyphen. A live link is not one to
-	// break: it goes to the next row whole.
-	hy := "https://x.example/a-b-c-d-e"
-	rows = wrap("one two three four "+span(hy)+" five", 30)
-	if got := plainRows(rows); got[1] != "<"+hy+">" {
-		t.Fatalf("rows %q", got)
-	}
-	for _, r := range rows {
-		if strings.Contains(r, hyphenStand) {
-			t.Fatalf("the stand-in for a hyphen is left in %q", r)
-		}
-	}
-}
 
-func TestWrapShowsALinkLongerThanARowBroken(t *testing.T) {
-	rows := wrap("Council form: "+span(linkB), 38)
+	rows = wrap("Council form: "+span(linkB), 38)
 	got := plainRows(rows)
-	want := []string{"Council form:", "<hxxps://artscouncil[.]example/apply/s", "pring-round?year=2027&ref=newsletter>"}
+	want = []string{"Council form:", "hxxps://artscouncil[.]example/apply/sp", "ring-round?year=2027&ref=newsletter"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("rows %q, want %q", got, want)
 	}
-	// Every piece still opens the whole address, and each row ends its
-	// own link.
 	for _, r := range rows[1:] {
 		if s := spansOn(t, r); len(s) != 1 || s[0] != linkB {
 			t.Fatalf("row %q links to %q", r, s)
 		}
 	}
 	for _, r := range got {
-		if linkable(r) {
+		if linkableRow(r) {
 			t.Fatalf("row %q can be followed as text", r)
 		}
 	}
 }
 
-func TestTruncateBreaksALinkTheCutFallsIn(t *testing.T) {
+// A cut can fall anywhere in a live link. What is left of it still opens
+// the whole address, and reads as no address.
+func TestACutLiveLinkStillOpensTheWholeAddress(t *testing.T) {
 	s := "see " + span(linkA) + " and more"
-	cut := truncate(s, 24)
-	if got := ansi.Strip(cut); got != "see <hxxps://artsfund[.…" {
-		t.Fatalf("cut to %q", got)
-	}
-	if s := spansOn(t, cut); len(s) != 1 || s[0] != linkA {
-		t.Fatalf("the cut link links to %q", s)
-	}
-	// A cut that leaves the link whole leaves it as it is.
-	whole := truncate(s, len("see <"+linkA+">")+1)
-	if got := ansi.Strip(whole); got != "see <"+linkA+">…" {
-		t.Fatalf("cut to %q", got)
-	}
-	// One column less and the cut falls on its closing bracket.
-	if got := ansi.Strip(truncate(s, len("see <"+linkA+">"))); linkable(got) {
-		t.Fatalf("a cut address is left: %q", got)
+	for width := 5; width < len("see "+brokenA+" and more"); width++ {
+		cut := truncate(s, width)
+		plain := ansi.Strip(cut)
+		if want := ("see " + brokenA + " and more")[:width-1] + "…"; plain != want {
+			t.Fatalf("cut to %d: %q, want %q", width, plain, want)
+		}
+		if linkableRow(plain) {
+			t.Fatalf("cut to %d: %q can be followed as text", width, plain)
+		}
+		if s := spansOn(t, cut); len(s) != 1 || s[0] != linkA {
+			t.Fatalf("cut to %d: the link goes to %q", width, s)
+		}
 	}
 }
 
 func TestGateDressesALiveLink(t *testing.T) {
 	live := core.LinksOf(linkA)
 	out := gate("see "+span(linkA)+" now", live)
-	want := "see " + linkOpen(linkA) + sgr(linkStyle(0)) + "<" + linkA + ">" + sgr(0) + linkEnd + " now"
+	want := "see " + linkOpen(linkA) + sgr(linkStyle(0)) + brokenA + sgr(0) + linkEnd + " now"
 	if out != want {
 		t.Fatalf("gate gave %q, want %q", out, want)
 	}
@@ -153,7 +141,7 @@ func TestGateDressesALiveLink(t *testing.T) {
 	// its own colour, and hands the style back after it.
 	st := bold | warnColour
 	out = gate(styled(st, "see "+span(linkA)+" now"), live)
-	want = sgr(st) + "see " + linkOpen(linkA) + sgr(linkStyle(st)) + "<" + linkA + ">" + sgr(st) + linkEnd + " now" + sgr(0)
+	want = sgr(st) + "see " + linkOpen(linkA) + sgr(linkStyle(st)) + brokenA + sgr(st) + linkEnd + " now" + sgr(0)
 	if out != want {
 		t.Fatalf("gate gave %q, want %q", out, want)
 	}
@@ -171,6 +159,8 @@ func TestGateLetsOnlyALiveLinkThrough(t *testing.T) {
 		"a target rewritten on the way":   "see " + strings.ToUpper(span(linkA)) + " now",
 		"a target with more run on":       "see " + linkOpen(linkA+"/more") + "<" + linkA + ">" + linkEnd,
 		"a target out of a link's shape":  "see " + linkOpen("javascript:alert(1)") + "click" + linkEnd,
+		"a live target over its address":  "see " + linkOpen(linkA) + linkA + linkEnd,
+		"a live target over an autolink":  "see " + linkOpen(linkA) + "<" + linkA + ">" + linkEnd,
 		"a live target over other text":   "see " + linkOpen(linkA) + "<" + evil + ">" + linkEnd,
 		"a live target over a cut of it":  "see " + linkOpen(linkA) + "<https://artsfund.exa" + linkEnd,
 		"a live target over a www. host":  "see " + linkOpen(linkA) + "www.evil.test" + linkEnd,
@@ -184,14 +174,8 @@ func TestGateLetsOnlyALiveLinkThrough(t *testing.T) {
 				t.Errorf("%s: a hyperlink to %q got through: %q", name, m[1], out)
 			}
 		}
-		for _, p := range pieces(out) {
-			plain := ansi.Strip(p.text)
-			if p.target == linkA && plain == whole(linkA) {
-				continue
-			}
-			if linkable(plain) {
-				t.Errorf("%s: %q can be followed as text in %q", name, plain, out)
-			}
+		if plain := ansi.Strip(out); linkable(plain) {
+			t.Errorf("%s: %q can be followed as text", name, plain)
 		}
 		if Width(out) > Width(in) {
 			t.Errorf("%s: the row grew from %d to %d cells", name, Width(in), Width(out))
@@ -282,42 +266,52 @@ func TestAnOutsidersNoteKeepsItsMarks(t *testing.T) {
 	}
 }
 
-// Link finders disagree on where an address ends once it holds anything
-// but letters, digits and the commonest marks: Ghostty's stops at an
-// apostrophe, so "<https://example.org/o'brien>" would be followed as
-// https://example.org/o where OSC 8 does not get through. A live link
-// like that never shows as it is. It shows broken, and stays a hyperlink
-// to the whole address.
-func TestALinkAFinderMightCutShowsBroken(t *testing.T) {
+// A live link's address is never on screen as it is, whatever it holds
+// and however it was written. Link finders disagree on where an address
+// ends: Ghostty's stops at an apostrophe, kitty's follows a second address
+// inside the first, WezTerm's reads past a closing bracket. So none is
+// given an address to read. The text is the broken form and the hyperlink
+// carries the address.
+func TestALiveLinkIsNeverShownAsItIs(t *testing.T) {
 	for _, link := range []string{
+		linkA, linkB, "http://y.example", "https://x.example:8443/a_b/c-d.html?q=1&r=%20+x#top", "https://x.example/~me/",
 		"https://example.org/o'brien", "https://x.example/a*b", "https://x.example/a,b", "https://x.example/a;b",
 		"https://x.example/a!b", "https://x.example/a$b", "https://x.example/[1]", "https://x.example/a=",
 		"https://x.example/a.", "https://x.example/a:", "https://x.example/a?", "https://x.example/a-", "https://x.example/a_",
+		"https://x.example/?u=https://y.example/b", "https://x.example/www.y.example",
 	} {
 		live := core.LinksOf(link)
 		if !live.Has(link) {
 			t.Fatalf("%q is not a link a set can hold", link)
 		}
-		for _, text := range []string{"See <" + link + "> now", "See " + link + " now"} {
-			out := gate(strings.Join(wrap(fang(text, live), 80), "\n"), live)
-			if s := spansOn(t, out); len(s) != 1 || s[0] != link {
-				t.Errorf("%q: the hyperlink goes to %q", text, s)
-			}
-			if plain := ansi.Strip(out); strings.Contains(plain, "https://") || !strings.Contains(plain, "<hxxps://") {
-				t.Errorf("%q is drawn as %q", text, plain)
+		for _, text := range []string{"See " + link + " now", "See <" + link + "> now", "See <" + link + ">> now", "See (" + link + ")."} {
+			for _, width := range []int{80, 24, 9} {
+				out := gate(strings.Join(wrap(fang(text, live), width), "\n"), live)
+				for _, target := range spansOn(t, strings.ReplaceAll(out, "\n", "")) {
+					if target != link {
+						t.Errorf("%q at %d: a hyperlink goes to %q", text, width, target)
+					}
+				}
+				if !strings.Contains(out, linkOpen(link)) {
+					t.Errorf("%q at %d: no hyperlink to the link in %q", text, width, out)
+				}
+				plain := ansi.Strip(out)
+				for _, row := range strings.Split(plain, "\n") {
+					if linkableRow(row) {
+						t.Errorf("%q at %d: row %q can be followed as text", text, width, row)
+					}
+				}
+				if joined := strings.ReplaceAll(plain, "\n", ""); !strings.Contains(joined, Defang(link)) {
+					t.Errorf("%q at %d is drawn as %q", text, width, plain)
+				}
 			}
 		}
 		// Whatever writes such a link as it is, gate breaks its text.
-		out := gate("See "+linkOpen(link)+whole(link)+linkEnd, live)
-		if plain := ansi.Strip(out); linkable(plain) {
-			t.Errorf("gate left %q", plain)
-		}
-	}
-	// The usual kind is whole: a path, a query, a fragment, a port.
-	for _, link := range []string{linkA, linkB, "http://y.example", "https://x.example:8443/a_b/c-d.html?q=1&r=%20+x#top", "https://x.example/~me/"} {
-		live := core.LinksOf(link)
-		if got := ansi.Strip(gate(fang("See "+link+" now", live), live)); got != "See <"+link+"> now" {
-			t.Errorf("%q is drawn as %q", link, got)
+		for _, text := range []string{link, "<" + link + ">"} {
+			out := gate("See "+linkOpen(link)+text+linkEnd, live)
+			if plain := ansi.Strip(out); linkable(plain) {
+				t.Errorf("gate left %q", plain)
+			}
 		}
 	}
 }
@@ -413,16 +407,11 @@ func followable(plain string) bool {
 	return strings.Contains(strings.ToLower(plain), "www.")
 }
 
-// everyFinderReads is an address a terminal's own link finder reads to
-// its end, whichever terminal it is: nothing in it but letters, digits
-// and the marks no finder stops at, and a letter, digit or slash last.
-var everyFinderReads = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~/?#&=%:+@]*[A-Za-z0-9/]$`)
-
 // checkFollowed fails when a drawn frame gives a terminal anything to
 // follow that is not a live link: a hyperlink to any other target, or
-// text outside a whole live link's span that a terminal's own link
-// finder would take. It also fails on any escape that is neither a style
-// nor a hyperlink.
+// text a terminal's own link finder would take, in a hyperlink or out of
+// one. It also fails on any escape that is neither a style nor a
+// hyperlink.
 func checkFollowed(t *rapid.T, what, content string, live core.Links) {
 	t.Helper()
 	for _, m := range osc8RE.FindAllStringSubmatch(content, -1) {
@@ -441,20 +430,55 @@ func checkFollowed(t *rapid.T, what, content string, live core.Links) {
 		if open {
 			t.Fatalf("%s: a hyperlink is left open at the end of row %q", what, row)
 		}
-		for _, p := range pieces(row) {
-			plain := ansi.Strip(p.text)
-			if p.target != "" && plain == whole(p.target) {
-				// Shown as it is only when no link finder would cut it.
-				if !everyFinderReads.MatchString(p.target) {
-					t.Fatalf("%s: %q is shown as it is, and a link finder might follow less of it, on row %q", what, p.target, row)
-				}
-				continue
-			}
-			if followable(plain) {
-				t.Fatalf("%s: %q can be followed as text, on row %q", what, plain, row)
-			}
+		// The row as a terminal with no OSC 8 reads it, hyperlinks and
+		// all.
+		if plain := ansi.Strip(row); followable(plain) {
+			t.Fatalf("%s: %q can be followed as text", what, plain)
 		}
 	}
+}
+
+// genLink is an address a set can hold, or text close to one: the
+// shape's own characters, with the pieces that make text read as another
+// address mixed in.
+func genLink(t *rapid.T) string {
+	link := rapid.SampledFrom([]string{"http://", "https://"}).Draw(t, "scheme") +
+		rapid.StringMatching(`[a-z0-9]([a-z0-9.\-]{0,12}[a-z0-9])?(:[0-9]{1,4})?`).Draw(t, "host")
+	bits := rapid.SliceOfN(rapid.SampledFrom([]string{"a", "Z", "9", "-", ".", "_", "~", ":", "/", "?", "#", "[", "]", "@", "!", "$", "&", "'",
+		"*", "+", ",", ";", "=", "%20", "www.", "WWW.", "http://", "https://", "hxxps://", "://", "evil.test", "[.]", "ftp://", "long-long-"}), 0, 20).Draw(t, "rest")
+	if len(bits) > 0 {
+		link += rapid.SampledFrom([]string{"/", "?", "#"}).Draw(t, "after") + strings.Join(bits, "")
+	}
+	return link
+}
+
+// Whatever a live link's address holds, however it is written into
+// outside text and whatever the width, its rows read as no address, and
+// the only hyperlink is the one to it.
+func TestAnyLiveLinkIsInertTextAtAnyWidth(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		link := genLink(t)
+		if !core.LinkShape(link) {
+			t.Skip("not a link a set can hold")
+		}
+		live := core.LinksOf(link)
+		text := strings.ReplaceAll(rapid.SampledFrom([]string{"%s", "see %s now", "<%s>", "see <%s>> now", "(%s).", "x.y/%s", "**%s**", "see:%s", "\"%s\""}).Draw(t, "around"), "%s", link)
+		width := rapid.IntRange(1, 120).Draw(t, "width")
+		for name, rows := range map[string][]string{
+			"wrapped":   wrap(fang(text, live), width),
+			"cut":       {truncate(fang(text, live), width)},
+			"card text": cardLines(text, true, live, width),
+		} {
+			out := gate(strings.Join(rows, "\n"), live)
+			checkFollowed(t, name, out, live)
+			if strings.Contains(ansi.Strip(out), link) {
+				t.Fatalf("%s: the address is on screen as it is:\n%q", name, out)
+			}
+			if name == "wrapped" && !strings.Contains(out, linkOpen(link)) {
+				t.Fatalf("%s: no hyperlink to the link in\n%q", name, out)
+			}
+		}
+	})
 }
 
 func genOutsideCard(t *rapid.T, id int64) core.Card {
@@ -536,17 +560,17 @@ func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 }
 
 // With a live link in the set, each place that draws outside text shows
-// it whole, as a hyperlink to exactly that address, beside a link that is
-// not live and stays broken.
-func TestALiveLinkIsWholeWhereOutsideTextIsDrawn(t *testing.T) {
+// it broken, as a hyperlink to exactly that address, beside a link that
+// is not live and is no hyperlink.
+func TestALiveLinkIsAHyperlinkWhereOutsideTextIsDrawn(t *testing.T) {
 	live := core.LinksOf(linkA)
 	evil := "hxxps://evil[.]test/x"
 	text := "Arts fund: <" + linkA + "> and " + evil
 	shows := func(t *testing.T, content string) {
 		t.Helper()
 		plain := ansi.Strip(content)
-		if !strings.Contains(plain, "<"+linkA+">") {
-			t.Fatalf("the live link is not whole:\n%s", plain)
+		if !strings.Contains(plain, brokenA) || strings.Contains(plain, linkA) {
+			t.Fatalf("the live link is not shown broken:\n%s", plain)
 		}
 		if !strings.Contains(content, linkOpen(linkA)) {
 			t.Fatalf("no hyperlink to the live link:\n%q", content)

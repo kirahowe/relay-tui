@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	e2eLink       = "https://artsfund.example/grants/2027"
-	e2eLong       = "https://artscouncil.example/apply/spring-round?year=2027&ref=newsletter"
-	e2eLongBroken = "hxxps://artscouncil[.]example/apply/spring-round?year=2027&ref=newsletter"
-	e2eOther      = "https://bit.example/3xQ9"
-	e2eBroken     = "hxxps://bit[.]example/3xQ9"
+	e2eLink        = "https://artsfund.example/grants/2027"
+	e2eLinkBroken  = "hxxps://artsfund[.]example/grants/2027"
+	e2eLong        = "https://artscouncil.example/apply/spring-round?year=2027&ref=newsletter"
+	e2eLongBroken  = "hxxps://artscouncil[.]example/apply/spring-round?year=2027&ref=newsletter"
+	e2eOther       = "https://bit.example/3xQ9"
+	e2eOtherBroken = "hxxps://bit[.]example/3xQ9"
 )
 
 // linksHub is a hub with one message ready that quotes three links from
@@ -33,7 +34,7 @@ func linksHub() fakehub.Config {
 	cfg.Ready = []json.RawMessage{json.RawMessage(`{"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 4,
 		"title": "Two grants worth a look",
 		"lines": ["Arts fund spring round, due 1 Dec: <` + e2eLink + `>", "The council's form: <` + e2eLong + `>",
-		          "A forum post pointed here too: ` + e2eBroken + `"],
+		          "A forum post pointed here too: ` + e2eOtherBroken + `"],
 		"from": "Drew on: the web page grants-2027.html", "outsider": true,
 		"message": 4, "messageKind": "note", "urgency": "normal", "thread": 4, "replyTo": 4, "replies": []}`)}
 	return cfg
@@ -102,45 +103,57 @@ func (h *hubHarness) targets() map[string]bool {
 	return out
 }
 
+// noAddressAsText fails when the program has written an address anywhere
+// but in a hyperlink's target: on a row, a terminal's own link finder
+// could follow it, or some of it.
+func (h *hubHarness) noAddressAsText(t *testing.T) {
+	t.Helper()
+	text := writtenLink.ReplaceAllString(h.emu.written(), "")
+	for _, scheme := range []string{"https://", "http://"} {
+		if i := strings.Index(text, scheme); i >= 0 {
+			t.Fatalf("an address was written as text: %q", text[i:min(len(text), i+60)])
+		}
+	}
+}
+
 func TestALiveLinkReachesTheTerminalAsAHyperlink(t *testing.T) {
 	h := startHub(t, linksHub(), 100, 30, "")
 	h.waitLog("links")
 	h.keys("R")
 	h.waitScreen("the ready view", contains("Two grants worth a look"))
 
-	// The live link is whole, and the terminal holds a hyperlink to
-	// exactly that address under every cell of it.
-	h.wait("the live link as a hyperlink", h.screen, func(string) bool { return h.linked("<"+e2eLink+">", e2eLink) })
-	// The long one fits a row of this width, so it is whole too.
-	h.wait("the long link as a hyperlink", h.screen, func(string) bool { return h.linked("<"+e2eLong+">", e2eLong) })
-	// The third is not live: broken, and no hyperlink under it.
-	if !h.unlinked(e2eBroken) {
+	// The live link reads broken, as every link does, and the terminal
+	// holds a hyperlink to exactly its address under every cell of it.
+	h.wait("the live link as a hyperlink", h.screen, func(string) bool { return h.linked(e2eLinkBroken, e2eLink) })
+	h.wait("the long link as a hyperlink", h.screen, func(string) bool { return h.linked(e2eLongBroken, e2eLong) })
+	// The third is not live: the same kind of text, with no hyperlink
+	// under it.
+	if !h.unlinked(e2eOtherBroken) {
 		t.Fatalf("the broken link is not plain text:\n%s", h.screen())
 	}
 
 	// Kept on another device, it becomes a hyperlink here.
-	h.say("keep-link " + e2eBroken)
-	h.wait("the kept link as a hyperlink", h.screen, func(string) bool { return h.linked("<"+e2eOther+">", e2eOther) })
+	h.say("keep-link " + e2eOtherBroken)
+	h.wait("the kept link as a hyperlink", h.screen, func(string) bool { return h.linked(e2eOtherBroken, e2eOther) })
 
-	// Dropped, a link is broken again and the terminal no longer holds a
+	// Dropped, a link reads as it did and the terminal no longer holds a
 	// hyperlink for it.
 	h.say("drop-link " + e2eLink)
-	h.wait("the dropped link broken", h.screen, func(s string) bool {
-		return h.unlinked("hxxps://artsfund[.]example/grants/2027")
-	})
+	h.wait("the dropped link with no hyperlink", h.screen, func(s string) bool { return h.unlinked(e2eLinkBroken) })
 
-	// Nothing but those three addresses was ever written as a target.
+	// Nothing but those three addresses was ever written as a target, and
+	// no address was written as text.
 	for target := range h.targets() {
 		if target != e2eLink && target != e2eLong && target != e2eOther {
 			t.Errorf("a hyperlink to %q was written", target)
 		}
 	}
+	h.noAddressAsText(t)
 }
 
-// On a narrow screen the long link does not fit a row: it shows broken,
-// so no row holds a shorter address, and every piece of it still opens
-// the whole one.
-func TestALinkLongerThanItsRowShowsBrokenAndOpensTheWholeAddress(t *testing.T) {
+// On a narrow screen the long link does not fit a row. It is wrapped as
+// any text is, and every piece of it opens the whole address.
+func TestALinkLongerThanItsRowOpensTheWholeAddressFromEachRow(t *testing.T) {
 	h := startHub(t, linksHub(), 60, 30, "")
 	h.waitLog("links")
 	h.keys("R")
@@ -161,7 +174,7 @@ func TestALinkLongerThanItsRowShowsBrokenAndOpensTheWholeAddress(t *testing.T) {
 	}
 	var shown string
 	h.wait("the long link broken over rows", h.screen, func(s string) bool {
-		x, y, ok := place(s, "<hxxps://artscouncil[.]example")
+		x, y, ok := place(s, "hxxps://artscouncil[.]example")
 		if !ok {
 			return false
 		}
@@ -182,22 +195,19 @@ func TestALinkLongerThanItsRowShowsBrokenAndOpensTheWholeAddress(t *testing.T) {
 		}
 		return true
 	})
-	if shown != "<"+e2eLongBroken+">" {
-		t.Fatalf("the rows show %q, want the whole link in its broken form", shown)
+	if shown != e2eLongBroken {
+		t.Fatalf("the rows show %q, want the link in its broken form", shown)
 	}
-	screen := h.screen()
-	if strings.Contains(screen, "https://artscouncil") {
-		t.Fatalf("part of the long link shows as it is:\n%s", screen)
-	}
-	// The short one still fits a row here, and is whole.
-	if !h.linked("<"+e2eLink+">", e2eLink) {
-		t.Fatalf("the short link is not a whole hyperlink:\n%s", screen)
+	// The short one fits a row here.
+	if !h.linked(e2eLinkBroken, e2eLink) {
+		t.Fatalf("the short link is not a hyperlink:\n%s", h.screen())
 	}
 	for target := range h.targets() {
 		if target != e2eLink && target != e2eLong {
 			t.Errorf("a hyperlink to %q was written", target)
 		}
 	}
+	h.noAddressAsText(t)
 }
 
 // A relay without the method leaves every link broken, as before.
@@ -208,11 +218,9 @@ func TestWithoutRelaysLinksEveryLinkStaysBroken(t *testing.T) {
 	h.waitLog("ready")
 	h.keys("R")
 	h.waitScreen("the ready view", contains("Two grants worth a look"))
-	screen := h.waitScreen("the links broken", contains("hxxps://artsfund[.]example/grants/2027"))
-	if strings.Contains(screen, "https://") {
-		t.Fatalf("a link is whole:\n%s", screen)
-	}
+	h.waitScreen("the links broken", contains(e2eLinkBroken))
 	if got := h.targets(); len(got) != 0 {
 		t.Fatalf("hyperlinks were written: %v", got)
 	}
+	h.noAddressAsText(t)
 }

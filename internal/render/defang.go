@@ -75,8 +75,8 @@ var schemeSepRE = regexp.MustCompile("(?i)hxxps?://|://")
 
 // defangLines is a last check on rendered lines: markdown can put a
 // "://" together from pieces (an emphasis mark between the slashes), which
-// Defang on the source did not see. A line that shows one anywhere but in
-// a whole live link's span is shown plain and defanged.
+// Defang on the source did not see. A line that shows one is shown plain
+// and defanged, its hyperlinks gone with its styles.
 func defangLines(lines []string) []string {
 	out := make([]string, len(lines))
 	for i, l := range lines {

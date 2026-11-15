@@ -12,31 +12,30 @@ import (
 // This file decides what the dashboard gives a terminal to follow. It
 // is the only place that does.
 //
-// Text an outsider may have shaped has its links broken (Defang), all
-// but relay's live links: an address that is exactly a member of the set
-// relay sent this connection (core.Links) is drawn as an OSC 8
-// hyperlink, between angle brackets. The terminal is told the whole
-// address, so a click opens the one relay judged whatever the pane does
-// to the text it shows for it.
+// Text an outsider may have shaped is inert: every link in it is shown
+// broken (Defang), relay's live links included. A live link is an address
+// that is exactly a member of the set relay sent this connection
+// (core.Links), and it differs from any other in one way: its broken text
+// is an OSC 8 hyperlink whose target is the address. The address reaches
+// the terminal in that target and nowhere else, so what a click opens
+// never depends on how a terminal, or anything else, reads text. Where
+// OSC 8 does not get through there is nothing to follow.
 //
-// Three steps hold that up, each on its own:
+// Two steps hold that up, each on its own:
 //
-//   - fang makes outside text safe where it enters: a live link becomes
-//     a link span, everything else is broken.
-//   - wrap and truncate keep a link span whole on one row, or show it in
-//     its broken form. A row never shows part of a live link as it is,
-//     since the start of an address is another address, one nobody took,
-//     and a terminal that does not know OSC 8 would follow it.
+//   - fang makes outside text safe where it enters: every link is
+//     broken, and a live one becomes a link span over its broken form.
 //   - gate, on every frame that leaves render, lets a hyperlink through
-//     only when its target is in the set, and only over text that is the
-//     whole address, where any link finder would read it whole, or no
-//     address at all. Whatever happened to a span
-//     between fang and the screen (a case change, a cut, a rewrite), a
-//     target that is not a live link never reaches the terminal.
+//     only when its target is in the set, and breaks whatever in its text
+//     could be followed. Whatever happened to a span between fang and the
+//     screen (a case change, a cut, a rewrite), a target that is not a
+//     live link never reaches the terminal.
 //
 // A link span is plain text with an OSC 8 sequence either side and no
 // style of its own: gate gives it its look, so the code between can
-// style, tint and recolour the text around it as it always has.
+// style, tint and recolour the text around it as it always has. It can be
+// wrapped or cut anywhere, since no part of a broken link can be
+// followed, and each row's piece of it opens the whole address.
 
 // linkEnd ends a hyperlink.
 const linkEnd = "\x1b]8;;\x07"
@@ -52,49 +51,21 @@ var osc8RE = regexp.MustCompile("\x1b\\]8;;([^\x07\x1b]*)\x07")
 func hasLinks(s string) bool { return strings.Contains(s, "\x1b]8;") }
 
 // span is a live link as fang writes it: a hyperlink to the address,
-// over the address as it may be shown (shown).
-func span(link string) string { return linkOpen(link) + shown(link) + linkEnd }
+// over the address in its broken form.
+func span(link string) string { return linkOpen(link) + Defang(link) + linkEnd }
 
-// whole is a live link between angle brackets, the marks RFC 3986 gives
-// for an address in running text.
-func whole(link string) string { return "<" + link + ">" }
-
-// plainLinkRE is an address every common link finder reads to its end:
-// letters, digits and the marks none of them stops at, ending in a
-// letter, a digit or a slash. Finders differ on the rest. Ghostty's stops
-// at an apostrophe, several drop a last comma or colon, and brackets are
-// read each in its own way.
-var plainLinkRE = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~/?#&=%:+@]*[A-Za-z0-9/]$`)
-
-// readsWhole says a terminal's own link finder, given the link between
-// angle brackets, follows all of it and nothing short of it. Where OSC 8
-// does not get through, that finder is what a click goes by.
-func readsWhole(link string) bool { return plainLinkRE.MatchString(link) }
-
-// shown is how a live link reads where a row has room for it: as it is,
-// between angle brackets, when any finder would read it whole
-// (readsWhole), and otherwise in its broken form. The start of an address
-// is another address, so text a finder might cut is never left for one
-// to cut.
-func shown(link string) string {
-	if readsWhole(link) {
-		return whole(link)
-	}
-	return brokenForm(link)
-}
-
-// brokenForm is how a live link reads where a row has no room for it:
-// broken as any other link is, so no part of it can be followed as text.
-func brokenForm(link string) string { return "<" + Defang(link) + ">" }
+// autolink is a live link between Markdown's angle brackets, where the
+// parser reads it as a link. Only Markdown source holds one, never a row.
+func autolink(link string) string { return "<" + link + ">" }
 
 var wordRE = regexp.MustCompile(`\S+`)
 
-// fang makes outside text safe to draw: every link in it broken, except
-// that a word holding a live link (core.LinkIn) keeps it, as a link
-// span. What stands before the link in its word has every dot broken, as
+// fang makes outside text safe to draw: every link in it broken, and a
+// live link in a word (core.LinkIn) made a link span over its broken
+// form. What stands before the link in its word has every dot broken, as
 // relay breaks a word that holds a link. t has no escape sequences: the
-// caller has escaped or sanitized it. With no live links every link is
-// broken.
+// caller has escaped or sanitized it. With no live links no word gets a
+// span.
 func fang(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
 		before, link, after, ok := core.LinkIn(w, live)
@@ -108,7 +79,8 @@ func fang(t string, live core.Links) string {
 
 // fangSource is fang for Markdown source: a live link stays as text, in
 // Markdown's own angle brackets, so the parser reads it as a link and the
-// renderer draws the span (mdRenderer.link). Every other link is broken.
+// renderer draws the span over its broken form (mdRenderer.link). Every
+// other link is broken here.
 func fangSource(t string, live core.Links) string {
 	return wordRE.ReplaceAllStringFunc(t, func(w string) string {
 		before, link, after, ok := core.LinkIn(w, live)
@@ -116,7 +88,7 @@ func fangSource(t string, live core.Links) string {
 			return breakWord(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(breakWord(before)) + whole(link) + after
+		return breakDots(breakWord(before)) + autolink(link) + after
 	})
 }
 
@@ -164,76 +136,6 @@ func pieces(row string) []piece {
 	return out
 }
 
-// join puts pieces back into a row.
-func join(ps []piece) string {
-	var b strings.Builder
-	for _, p := range ps {
-		if p.target == "" {
-			b.WriteString(p.text)
-			continue
-		}
-		b.WriteString(linkOpen(p.target) + p.text + linkEnd)
-	}
-	return b.String()
-}
-
-// hyphenStand stands for a hyphen in a link that is to stay on one row,
-// while the text is wrapped: the wrapper breaks a word at a hyphen.
-const hyphenStand = "\ue000"
-
-// fitLinks readies the link spans in s for rows of width cells. A word
-// that fits a row keeps its links whole and will not be broken across
-// rows; in a word longer than a row the links are shown in their broken
-// form, since such a word is cut wherever the row ends. held says hyphens
-// were stood in for, to be put back once the text is wrapped.
-func fitLinks(s string, width int) (out string, held bool) {
-	if !hasLinks(s) {
-		return s, false
-	}
-	// Text that already holds the stand-in cannot be told from one
-	// stood in for, so nothing is held: every link shows broken.
-	can := !strings.Contains(s, hyphenStand)
-	out = wordRE.ReplaceAllStringFunc(s, func(w string) string {
-		if !hasLinks(w) {
-			return w
-		}
-		fits := can && Method.StringWidth(w) <= width
-		ps := pieces(w)
-		for i, p := range ps {
-			switch {
-			case p.target == "" || p.text != whole(p.target):
-			case fits:
-				ps[i].text = strings.ReplaceAll(p.text, "-", hyphenStand)
-				held = true
-			default:
-				ps[i].text = brokenForm(p.target)
-			}
-		}
-		return join(ps)
-	})
-	return out, held
-}
-
-// cutLinks shows in its broken form every whole link in s that a cut to
-// width cells would not keep whole. Breaking a link makes it longer, so
-// the cut still falls inside it, in text that is already broken.
-func cutLinks(s string, width int) string {
-	if !hasLinks(s) {
-		return s
-	}
-	ps := pieces(s)
-	col := 0
-	for i, p := range ps {
-		w := Method.StringWidth(p.text)
-		// A cut keeps width-1 cells and ends with an ellipsis.
-		if p.target != "" && p.text == whole(p.target) && col+w > width-1 {
-			ps[i].text = brokenForm(p.target)
-		}
-		col += w
-	}
-	return join(ps)
-}
-
 // schemeRunRE finds a "://" with a scheme before it: a broken http
 // scheme's, which is longer than the other match, one character of any
 // other scheme and the "://".
@@ -267,14 +169,11 @@ func linkableRow(plain string) bool {
 }
 
 // unsafeRow says a rendered row of outside text shows something a
-// terminal could follow other than a whole live link in its span.
+// terminal could follow as text. A hyperlink's own text counts as any
+// other does: a live link's is its broken form.
 func unsafeRow(row string) bool {
 	for _, p := range pieces(row) {
-		plain := ansi.Strip(p.text)
-		if p.target != "" && plain == whole(p.target) && readsWhole(p.target) {
-			continue
-		}
-		if linkableRow(plain) {
+		if linkableRow(ansi.Strip(p.text)) {
 			return true
 		}
 	}
@@ -289,9 +188,10 @@ func linkStyle(st style) style {
 
 // gate is the last thing every frame goes through. It lets a hyperlink
 // reach the terminal only when its target is a live link, and only over
-// text that is that whole address or holds no address at all; any other
-// span loses its hyperlink or has its text broken, cut back to the cells
-// it had so the frame keeps its shape. What passes gets a link's look.
+// text that holds no address a terminal could follow. A span to any other
+// target loses its hyperlink, and text in a span that could be followed is
+// broken, cut back to the cells it had so the frame keeps its shape. What
+// passes gets a link's look.
 func gate(content string, live core.Links) string {
 	if !hasLinks(content) {
 		return content
@@ -338,7 +238,7 @@ func gateRow(row string, live core.Links) string {
 			through(truncate(Defang(p.text), Method.StringWidth(p.text)), false)
 		default:
 			text := p.text
-			if plain := ansi.Strip(text); !(plain == whole(p.target) && readsWhole(p.target)) && linkableRow(plain) {
+			if linkableRow(ansi.Strip(text)) {
 				text = truncate(Defang(text), Method.StringWidth(text))
 			}
 			b.WriteString(linkOpen(p.target) + sgr(linkStyle(cur)))

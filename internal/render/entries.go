@@ -24,7 +24,7 @@ func Entries(prev *core.Entry, es []core.Entry, width int, now time.Time) []stri
 type expand struct{ tools, thinking bool }
 
 // entriesAs is Entries with blocks shown as x says and relay's live
-// links, which a reply written under contamination keeps whole.
+// links, which a reply written under contamination keeps as hyperlinks.
 func entriesAs(prev *core.Entry, es []core.Entry, x expand, live core.Links, width int, now time.Time) []string {
 	var out []string
 	for i := range es {

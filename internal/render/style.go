@@ -281,23 +281,17 @@ func expandTabs(line string) string {
 
 // wrap word-wraps styled text to width and returns self-contained lines.
 // ansi.Wrap can leave a line too wide (it does with "  -  ·   -" at 8
-// columns), so any such line is then cut hard. A live link stays whole on
-// one row when its word fits a row, and shows broken when it does not
-// (fitLinks).
+// columns), so any such line is then cut hard. A live link is wrapped as
+// any other text is: its text is broken already, and each row's piece of
+// it stays a hyperlink to the whole address (selfContained).
 func wrap(s string, width int) []string {
 	width = max(width, 1)
-	s, held := fitLinks(s, width)
 	var lines []string
 	for _, l := range strings.Split(Method.Wrap(s, width, ""), "\n") {
 		if Method.StringWidth(l) > width {
 			lines = append(lines, hardwrap(l, width)...)
 		} else {
 			lines = append(lines, l)
-		}
-	}
-	if held {
-		for i, l := range lines {
-			lines[i] = strings.ReplaceAll(l, hyphenStand, "-")
 		}
 	}
 	return selfContained(lines)
@@ -321,12 +315,10 @@ func hardwrap(s string, width int) []string {
 // truncate cuts one line to width, ending it with … when cut. ansi's
 // Truncate can measure a cluster differently from StringWidth (it did
 // with "A" and U+FE0F), so the result is measured and cut again if needed.
-// A live link the cut would fall inside is shown broken first (cutLinks).
 func truncate(s string, width int) string {
 	if Method.StringWidth(s) <= width {
 		return s
 	}
-	s = cutLinks(s, width)
 	for n := width; n > 0; n-- {
 		r := selfContained([]string{Method.Truncate(s, n, "…")})[0]
 		if Method.StringWidth(r) <= width {

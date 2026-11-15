@@ -54,8 +54,8 @@ func cardLines(t string, outsider bool, live core.Links, width int) []string {
 
 // drawn is the last step for rows of outside text, after everything that
 // decides what they show: a row that shows something a terminal could
-// follow, other than a whole live link in its span, is shown plain and
-// broken (defangLines). Rows that are not from outside pass as they are.
+// follow as text is shown plain and broken (defangLines). Rows that are
+// not from outside pass as they are.
 func drawn(rows []string, outsider bool) []string {
 	if !outsider {
 		return rows
