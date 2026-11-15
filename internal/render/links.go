@@ -209,15 +209,36 @@ func cutLinks(s string, width int) string {
 	return join(ps)
 }
 
+// schemeRunRE finds a "://" with a scheme before it: a broken http
+// scheme's, which is longer than the other match, one character of any
+// other scheme and the "://".
+var schemeRunRE = regexp.MustCompile(`(?i)hxxps?://|[a-z0-9+.\-]://`)
+
 // linkable says whether text holds something a terminal could follow by
-// itself: a "://" that is not a broken http scheme's, or a www. host.
+// itself: a "://" after a scheme that is not a broken http one, or a
+// www. host. A "://" with no scheme before it is not an address.
 func linkable(plain string) bool {
-	for _, m := range schemeSepRE.FindAllString(plain, -1) {
-		if len(m) == 3 {
+	for _, m := range schemeRunRE.FindAllString(plain, -1) {
+		if len(m) == 4 {
 			return true
 		}
 	}
 	return strings.Contains(strings.ToLower(plain), "www.")
+}
+
+// cutTailRE is what a row can begin with when a wrap or a cut fell
+// inside the scheme of a broken link: the end of hxxp or hxxps, then
+// "://". None of them is a scheme, and the address after it is broken.
+var cutTailRE = regexp.MustCompile(`^\s*(?i:xxps?|xps?|ps?|s)://`)
+
+// linkableRow is linkable for a row, or a piece of one, as drawn: what a
+// cut left of a broken scheme at its start does not count. A row that
+// only holds the rest of a broken link then stays as relay sent it.
+func linkableRow(plain string) bool {
+	if loc := cutTailRE.FindStringIndex(plain); loc != nil {
+		plain = plain[loc[1]:]
+	}
+	return linkable(plain)
 }
 
 // unsafeRow says a rendered row of outside text shows something a
@@ -228,7 +249,7 @@ func unsafeRow(row string) bool {
 		if p.target != "" && plain == whole(p.target) {
 			continue
 		}
-		if linkable(plain) {
+		if linkableRow(plain) {
 			return true
 		}
 	}
@@ -292,7 +313,7 @@ func gateRow(row string, live core.Links) string {
 			through(truncate(Defang(p.text), Method.StringWidth(p.text)), false)
 		default:
 			text := p.text
-			if plain := ansi.Strip(text); plain != whole(p.target) && linkable(plain) {
+			if plain := ansi.Strip(text); plain != whole(p.target) && linkableRow(plain) {
 				text = truncate(Defang(text), Method.StringWidth(text))
 			}
 			b.WriteString(linkOpen(p.target) + sgr(linkStyle(cur)))

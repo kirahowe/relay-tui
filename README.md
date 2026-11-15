@@ -252,9 +252,12 @@ line is then a tinted bar. A checklist shows a green ✓ and struck-through
 text for a done item and ○ for an open one. The list shows the first six
 items. A tracker is a grid: the column names across the top, then one row
 per line, with ● for done, × for skipped and ○ for open. A note keeps the
-line breaks it was written with. A `#` heading and `**bold**` are bold,
-and a list line's marker is faint. A card of a kind relay-tui does not know
-shows the text form relay sends with every card.
+line breaks it was written with. In a note of your own a `#` heading and
+`**bold**` are bold, and a list line's marker is faint. A note with text
+from outside shows exactly as relay sent it, marks and all: taking a
+mark out changes what the text reads as, and relay checked it as it was.
+A card of a kind relay-tui does not know shows the text form relay sends
+with every card.
 
 Keys on the board:
 

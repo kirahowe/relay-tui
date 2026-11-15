@@ -199,30 +199,86 @@ func TestGateLetsOnlyALiveLinkThrough(t *testing.T) {
 	}
 }
 
-// A hard wrap can fall between a broken link's scheme and its "://", and
-// the next row then starts with "://host[.]tld". Nothing can follow that
-// text, but the row check counts any "://" without a broken scheme before
-// it. The worst either check does with such a row is break it once more.
-func TestARowThatStartsInsideABrokenSchemeIsOnlyBrokenAgain(t *testing.T) {
+// A hard wrap can fall inside a broken link's scheme, and the next row
+// then starts with "://host[.]tld" or "s://host[.]tld". Nothing can
+// follow that, so the row stays as relay sent it. The same letters
+// anywhere else on a row are a scheme, and are broken.
+func TestARowThatStartsInsideABrokenSchemeStaysAsSent(t *testing.T) {
 	live := core.LinksOf(linkB)
-	for _, tail := range []string{"://evil[.]test/x", "s://evil[.]test/x", "ps://evil[.]test/x"} {
+	for _, tail := range []string{"://evil[.]test/x", "s://evil[.]test/x", "ps://evil[.]test/x", "  xxps://evil[.]test/x", "p://evil[.]test"} {
 		rows := drawn([]string{"hxxp", tail}, true)
-		if got := ansi.Strip(rows[1]); linkable(got) || !strings.Contains(got, "evil[.]test/x") {
-			t.Errorf("drawn left %q of %q", got, tail)
-		}
-		if strings.Contains(rows[1], "\x1b]") {
-			t.Errorf("drawn made a hyperlink of %q: %q", tail, rows[1])
+		if rows[1] != tail {
+			t.Errorf("drawn changed %q to %q", tail, rows[1])
 		}
 	}
-	// The same tail as a piece of a live link shown broken: the hyperlink
-	// keeps its target, and the text stays inside the cells it had.
+	for _, real := range []string{"see s://evil.test/x", "x ps://evil.test", "https://evil.test", "shttp://evil.test", "see www.evil.test"} {
+		rows := drawn([]string{real}, true)
+		if got := ansi.Strip(rows[0]); linkable(got) || got == real {
+			t.Errorf("drawn left %q as %q", real, got)
+		}
+	}
+	// The same tail as a piece of a live link shown broken: the piece is
+	// left alone and keeps its target.
 	piece := linkOpen(linkB) + "://artscouncil[.]example/apply/s" + linkEnd
 	out := gate(piece, live)
 	if s := spansOn(t, out); len(s) != 1 || s[0] != linkB {
 		t.Fatalf("the piece links to %q", s)
 	}
-	if plain := ansi.Strip(out); linkable(plain) || Width(out) > Width(piece) {
-		t.Fatalf("gate left %q, %d cells for %d", plain, Width(out), Width(piece))
+	if plain := ansi.Strip(out); plain != "://artscouncil[.]example/apply/s" {
+		t.Fatalf("gate changed the piece to %q", plain)
+	}
+}
+
+// Outside text is drawn exactly as relay sent it: no character is taken
+// away and none is changed, apart from the line breaks wrapping adds. So
+// what relay checked is what the screen shows. The marks a note of the
+// operator's own is dressed by stay in an outsider's.
+func TestOutsideTextIsDrawnAsItWasSent(t *testing.T) {
+	// Text with every mark the note's dressing reads, and nothing a link
+	// could be made of that relay would not have broken already.
+	piece := rapid.SampledFrom([]string{"ev**il.**example/steal?d=1", "**bold**", "# Heading", "## Two", "- item", "* star", "1. one",
+		"2) two", "word", "a.b", "x_y_z", "`code`", "~~no~~", "[l](p)", "<tag>", "hxxps://evil[.]test/x", "é", "世界", "  ", "\n", "\n\n", "\t",
+		"*", "**", "#", ">", "www", "ht", "tp", ":", "//", "."})
+	solid := func(s string) string { return strings.Join(strings.Fields(s), "") }
+	rapid.Check(t, func(t *rapid.T) {
+		text := strings.Join(rapid.SliceOfN(piece, 1, 12).Draw(t, "pieces"), rapid.SampledFrom([]string{" ", "", "\n"}).Draw(t, "sep"))
+		// Only text relay could send: nothing in it can be followed.
+		if linkable(text) {
+			t.Skip("holds a link relay would have broken")
+		}
+		width := rapid.IntRange(8, 80).Draw(t, "width")
+		want := solid(core.EscapeNonPrinting(strings.ReplaceAll(text, "\t", "    ")))
+		for name, rows := range map[string][]string{
+			"a note":       noteLines(text, true, core.Links{}, width),
+			"card text":    cardLines(text, true, core.Links{}, width),
+			"a check item": checkLines(core.CardElem{CardText: core.CardText{Text: strings.ReplaceAll(text, "\n", " "), Outsider: true}}, core.Links{}, width+2),
+		} {
+			got := solid(strings.Join(plainRows(rows), "\n"))
+			if name == "a check item" {
+				// Its ring and its text on one line.
+				got = strings.TrimPrefix(got, "○")
+				if got != solid(core.EscapeNonPrinting(strings.ReplaceAll(strings.ReplaceAll(text, "\n", " "), "\t", "    "))) {
+					t.Fatalf("%s at %d drew %q for %q", name, width, got, text)
+				}
+				continue
+			}
+			if got != want {
+				t.Fatalf("%s at %d drew %q, want %q (from %q)", name, width, got, want, text)
+			}
+		}
+	})
+}
+
+// The same note from the operator is dressed, and from an outsider it is
+// not: the bold marks stay, so the row cannot read as an address.
+func TestAnOutsidersNoteKeepsItsMarks(t *testing.T) {
+	text := "# Grants\n- see ev**il.**example/steal?d=1"
+	if got := strings.Join(plainRows(noteLines(text, false, core.Links{}, 60)), "|"); got != "Grants|- see evil.example/steal?d=1" {
+		t.Fatalf("the operator's own note drew %q", got)
+	}
+	got := strings.Join(plainRows(noteLines(text, true, core.Links{}, 60)), "|")
+	if got != "# Grants|- see ev**il.**example/steal?d=1" {
+		t.Fatalf("an outsider's note drew %q", got)
 	}
 }
 

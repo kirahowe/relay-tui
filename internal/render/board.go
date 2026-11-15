@@ -164,43 +164,40 @@ var (
 )
 
 // noteLines draws a note's text, width wide, line by line as it was
-// written: every line break stays. A # heading is bold, **text** is bold,
-// and a list line's marker is faint with its text hanging beside it.
+// written: every line break stays.
 //
-// text is as relay sent it. The marks are read first, and what is left
-// to draw is made safe piece by piece (cardText), so a mark never sits
-// inside a link span and a span is never rewritten. Taking a mark out can
-// still put an address together from its pieces ("https:/**/**x.test"),
-// so the rows of outside text are checked once more as drawn.
+// The operator's own note is dressed: a # heading is bold, **text** is
+// bold, and a list line's marker is faint with its text hanging beside
+// it. Text an outsider may have written is never dressed. It is drawn as
+// relay sent it, mark for mark (cardLines), because dressing takes
+// characters away, and what is left can read as an address relay never
+// saw: "ev**il.**example/x" would show as evil.example/x. What relay
+// checked is then what is on the screen.
 func noteLines(text string, outsider bool, live core.Links, width int) []string {
-	safe := func(s string) string { return cardText(s, outsider, live) }
+	if outsider {
+		return cardLines(text, true, live, width)
+	}
 	inline := func(s string) string {
-		var b strings.Builder
-		at := 0
-		for _, m := range noteBold.FindAllStringSubmatchIndex(s, -1) {
-			b.WriteString(safe(s[at:m[0]]))
-			b.WriteString(styled(bold, safe(s[m[2]:m[3]])))
-			at = m[1]
-		}
-		b.WriteString(safe(s[at:]))
-		return b.String()
+		return noteBold.ReplaceAllStringFunc(s, func(m string) string {
+			return styled(bold, noteBold.FindStringSubmatch(m)[1])
+		})
 	}
 	var out []string
-	for _, l := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+	for _, l := range strings.Split(cardText(text, false, live), "\n") {
 		switch {
 		case strings.TrimSpace(l) == "":
 			out = append(out, "")
 		case noteHeading.MatchString(l):
-			out = append(out, wrap(styled(bold, safe(noteHeading.FindStringSubmatch(l)[1])), width)...)
+			out = append(out, wrap(styled(bold, noteHeading.FindStringSubmatch(l)[1]), width)...)
 		case noteItem.MatchString(l):
 			m := noteItem.FindStringSubmatch(l)
-			lead := strings.Repeat(" ", min(len(m[1]), 8)) + styled(faint, safe(m[2])) + " "
+			lead := strings.Repeat(" ", min(len(m[1]), 8)) + styled(faint, m[2]) + " "
 			out = append(out, hang(lead, inline(m[3]), width)...)
 		default:
 			out = append(out, wrap(inline(l), width)...)
 		}
 	}
-	return drawn(out, outsider)
+	return out
 }
 
 // cellGlyph is how a tracker cell shows: a dot when done, a cross when
