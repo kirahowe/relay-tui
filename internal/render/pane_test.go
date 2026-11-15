@@ -1,6 +1,8 @@
 package render
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -348,5 +350,113 @@ func TestHiddenPayloadShowsInDetail(t *testing.T) {
 	out := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 60), "\n"))
 	if !strings.Contains(out, `Venues\udb40\udd00\udb40\udd01\ufe0f`) || strings.ContainsRune(out, 0xE0100) || strings.ContainsRune(out, 0xFE0F) {
 		t.Errorf("hidden code points not escaped:\n%s", out)
+	}
+}
+
+// The pane writes its marks for what is above and below over the first
+// and last rows of its window. The selection is kept clear of both: one
+// that fits between the marks is on the screen whole, and any other is
+// there from its first row.
+func TestThePaneKeepsTheSelectionClearOfItsMarks(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(1, 80).Draw(t, "rows")
+		var pr parts
+		for i := range n {
+			pr.body = append(pr.body, "row "+strconv.Itoa(i)+".")
+		}
+		for range rapid.IntRange(0, 2).Draw(t, "head") {
+			pr.head = append(pr.head, "head")
+		}
+		for range rapid.IntRange(0, 2).Draw(t, "foot") {
+			pr.foot = append(pr.foot, "foot")
+		}
+		pr.selA = rapid.IntRange(0, n-1).Draw(t, "selA")
+		pr.selB = rapid.IntRange(pr.selA+1, n).Draw(t, "selB")
+		height := rapid.IntRange(1, 40).Draw(t, "height")
+		avail := height - len(pr.head) - len(pr.foot)
+		if avail < 1 {
+			t.Skip("no room for the body")
+		}
+		out, _ := paneDraw(core.State{}, pr, 20, height)
+		if len(out) != height {
+			t.Fatalf("%d rows drawn in a pane of %d", len(out), height)
+		}
+		if !slices.Contains(out, pr.body[pr.selA]) {
+			t.Fatalf("the selection's first row is not on the screen:\n%s", strings.Join(out, "\n"))
+		}
+		room := avail
+		if avail >= 3 && n > avail {
+			room = avail - 2 // a mark above and a mark below
+		}
+		if pr.selB-pr.selA > room {
+			return
+		}
+		for i := pr.selA; i < pr.selB; i++ {
+			if !slices.Contains(out, pr.body[i]) {
+				t.Fatalf("row %d of the selection %d to %d is not on the screen:\n%s", i, pr.selA, pr.selB, strings.Join(out, "\n"))
+			}
+		}
+	})
+}
+
+// An open card with more lines than the pane has rows keeps the selected
+// line on the screen, on the bar, whichever line it is: what x acts on is
+// what is drawn as selected.
+func TestTheSelectedLineOfATallCardIsOnTheScreen(t *testing.T) {
+	const n = 40
+	label := func(i int) string { return "line number " + strconv.Itoa(i) + "." }
+	var labels []string
+	list := core.Card{ID: 1899, Kind: core.CardChecklist, Status: core.CardActive, Rev: 1899, Title: ct("List")}
+	for i := range n {
+		labels = append(labels, label(i))
+		list.Items = append(list.Items, core.CardElem{ID: i + 1, CardText: ct(label(i))})
+	}
+	surface := plainSurface(t, 1898, true, "Text from a page.", labels...)
+	for _, c := range []core.Card{surface, list} {
+		for line := 1; line <= n; line++ {
+			s := detail(boardState(true, c), c.ID, line, 0)
+			if got := core.BoardLine(s.Board, c); got != line {
+				t.Fatalf("%s: the cursor is on line %d, want %d", c.Kind, got, line)
+			}
+			lines := PaneLines(s.App, s.State, t0, 60, 24)
+			barred := false
+			for _, l := range lines {
+				if strings.Contains(ansi.Strip(l), label(line-1)) {
+					barred = strings.Contains(l, sgr(selBar))
+				}
+			}
+			if !barred {
+				t.Errorf("%s, line %d: the selected line is not on the screen on the bar:\n%s", c.Kind, line, ansi.Strip(strings.Join(lines, "\n")))
+			}
+		}
+	}
+}
+
+// In the list the selected card is on the screen whole, its bottom border
+// too: that is where its frame says "from outside".
+func TestTheSelectedCardsFootIsOnTheScreenInTheList(t *testing.T) {
+	var cards []core.Card
+	for i := range 4 {
+		c := plainSurface(t, int64(1910+i), true, "Text from a page, card "+strconv.Itoa(i)+".", "one", "two", "three", "four", "five", "six")
+		c.Owner = "steward"
+		cards = append(cards, c)
+	}
+	for sel, c := range cards {
+		s := boardState(true, cards...)
+		s.Board.SelID = c.ID
+		plain := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 24), "\n"))
+		at := strings.Index(plain, "card "+strconv.Itoa(sel)+".")
+		if at < 0 {
+			t.Errorf("card %d selected: its text is not on the screen:\n%s", sel, plain)
+			continue
+		}
+		// The selected card's rows: from its text to the next blank row.
+		rest := plain[at:]
+		if end := strings.Index(rest, "\n\n"); end >= 0 {
+			rest = rest[:end]
+		}
+		if !strings.Contains(rest, "from outside") {
+			t.Errorf("card %d selected: its rows on the screen do not say \"from outside\":\n%s", sel, plain)
+		}
 	}
 }

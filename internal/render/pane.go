@@ -393,9 +393,16 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 		case pr.scrolls:
 			start = min(max(s.Pane.Scroll, 0), maxScroll)
 		case len(pr.body) > avail:
-			start = max(pr.selB-avail, 0)
-			if pr.selA < start {
-				start = pr.selA
+			// The window's first and last rows give way to the marks for
+			// what is above and below, so the selection is kept clear of
+			// both. One taller than the room shows from its first row.
+			mark := 0
+			if avail >= 3 {
+				mark = 1
+			}
+			start = max(pr.selB+mark-avail, 0)
+			if pr.selA-mark < start {
+				start = max(pr.selA-mark, 0)
 			}
 			start = min(start, maxScroll)
 		}
