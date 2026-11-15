@@ -62,8 +62,9 @@ func detail(s core.Single, id int64, line, col int) core.Single {
 }
 
 // surfaceCard is relay's fixture card of that name as a card on the board,
-// with the id given: its surface folded from the card's messages, and the
-// live links its role's file lists.
+// with the id given: its surface folded from the card's messages and the
+// links relay lists beside it. The set returned is the connection's, the
+// live links its role's file names.
 func surfaceCard(t testing.TB, name string, id int64) (core.Card, core.Links) {
 	t.Helper()
 	s, outsider, live := readCard(t, name)
@@ -86,12 +87,12 @@ func surfaceCard(t testing.TB, name string, id int64) (core.Card, core.Links) {
 	}
 	c := core.Card{ID: id, Kind: core.CardSurface, Status: core.CardActive, Rev: wire.Rev, Owner: wire.Owner,
 		Title: core.CardText{Text: wire.Title.Text, Outsider: outsider, Rev: wire.Rev}, Text: wire.Text,
-		Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}}
+		Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}, Links: live.Own, Listed: live.Listed}
 	for _, l := range wire.Labels {
 		c.Labels.Private = c.Labels.Private || l == "private"
 		c.Labels.Contaminated = c.Labels.Contaminated || l == "contaminated"
 	}
-	return c, live
+	return c, live.Of(nil, false)
 }
 
 func TestBoardGolden(t *testing.T) {

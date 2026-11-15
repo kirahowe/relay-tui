@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kirahowe/relay-tui/internal/core"
 )
@@ -115,23 +118,76 @@ func TestAnInputOpsParamsAreExactlyTheContractsFive(t *testing.T) {
 }
 
 // relay's three fixture cards read as native surface cards through the
-// function that reads an answer to _relay/cards.
+// function that reads an answer to _relay/cards, each with the list of
+// links relay sends beside it.
 func TestRelaysSurfaceFixtureCardsAreNative(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		inputs   int
 		outsider bool
-	}{{"checklist", 4, false}, {"note", 0, false}, {"hostile", 3, true}} {
+		links    int
+	}{{"checklist", 4, false, 0}, {"note", 0, false, 0}, {"hostile", 3, true, 1}} {
 		t.Run(c.name, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "surfaces", c.name+".card.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := oneCard(t, string(raw))
+			got := oneCard(t, readSurfaceFixture(t, c.name))
 			if got.Kind != core.CardSurface || !got.Native() || got.Surface.Outsider != c.outsider || len(got.Inputs()) != c.inputs {
 				t.Fatalf("kind %q, outsider %v, %d inputs", got.Kind, got.Surface != nil && got.Surface.Outsider, len(got.Inputs()))
 			}
+			if !got.Listed || len(got.Links) != c.links || got.LinksLeftOut != 0 {
+				t.Fatalf("listed %v, links %+v, %d left out", got.Listed, got.Links, got.LinksLeftOut)
+			}
 		})
+	}
+}
+
+func readSurfaceFixture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "surfaces", name+".card.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+var hyperlinkRE = regexp.MustCompile(`\x1b\]8;[^;]*;([^\x07\x1b]*)(?:\x07|\x1b\\)`)
+
+// relay's hostile fixture card, read as an answer to _relay/cards and
+// drawn on the board, gives the terminal one address to open: the link
+// relay lists beside the card, and only while that address is one of the
+// connection's live links. The address is never on screen as text.
+func TestRelaysHostileSurfaceCardKeepsItsListedLink(t *testing.T) {
+	const kept = "https://kept.example/fund"
+	raw := readSurfaceFixture(t, "hostile")
+	c := oneCard(t, raw)
+	if len(c.Links) != 1 || c.Links[0] != (core.Link{Address: kept, Shown: "hxxps://kept[.]example/fund"}) {
+		t.Fatalf("links %+v", c.Links)
+	}
+	s := core.Single{App: core.App{Live: true, PaneFocus: true, Board: core.Board{Asked: true}},
+		State: core.State{Phase: core.Idle, Ready: true}}
+	s, _ = core.ReduceSingle(s, Cards(json.RawMessage(`{"rev": 1900, "cards": [`+raw+`]}`), nil, t0))
+	for name, view := range map[string]core.Single{"the list": s, "the open card": showCard(s, c.ID)} {
+		for _, live := range []core.Links{core.LinksOf(kept), {}} {
+			view.App.Links = live
+			lines := paneRaw(view)
+			var targets []string
+			for _, l := range lines {
+				for _, m := range hyperlinkRE.FindAllStringSubmatch(l, -1) {
+					if m[1] != "" {
+						targets = append(targets, m[1])
+					}
+				}
+			}
+			if live.Empty() && len(targets) != 0 {
+				t.Errorf("%s, no live link: hyperlinks %q", name, targets)
+			}
+			if !live.Empty() && (len(targets) != 1 || targets[0] != kept) {
+				t.Errorf("%s: hyperlinks %q, want the one to %s", name, targets, kept)
+			}
+			text := ansi.Strip(strings.Join(lines, "\n"))
+			if !strings.Contains(text, "hxxps://kept[.]example/fund") {
+				t.Errorf("%s: the link's broken form is not on screen:\n%s", name, text)
+			}
+			noLiveLink(t, name, text)
+		}
 	}
 }
 

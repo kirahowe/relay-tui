@@ -359,15 +359,23 @@ func TestSurfaceRowsBrokenLinkWrappedAfterTheSchemeIsNotFollowable(t *testing.T)
 	}
 }
 
-// card is a surface card as relay sends it, and its pair: what a role
-// wrote, which says which links are live.
+// card is a surface card as relay sends it, with the live links relay
+// lists beside it. Its pair is what a role wrote, which says which links
+// the connection keeps live.
 type card struct {
 	Surface struct {
 		Outsider bool             `json:"outsider"`
 		A2UI     []jsontext.Value `json:"a2ui"`
 	} `json:"surface"`
+	Links []struct {
+		Address string `json:"address"`
+		Shown   string `json:"shown"`
+	} `json:"links"`
 }
 
+// readCard reads relay's fixture card of that name: its surface, whether
+// it is from outside, and the links to draw it with, which are the
+// connection's set from the role's file and the card's own list.
 func readCard(t testing.TB, name string) (a2ui.Surface, bool, core.Links) {
 	t.Helper()
 	read := func(file string, into any) {
@@ -398,7 +406,11 @@ func readCard(t testing.TB, name string) (a2ui.Surface, bool, core.Links) {
 	if len(ss) != 1 {
 		t.Fatalf("%s: %d surfaces", name, len(ss))
 	}
-	return ss[0], c.Surface.Outsider, core.LinksOf(role.Live...)
+	var own []core.Link
+	for _, l := range c.Links {
+		own = append(own, core.Link{Address: l.Address, Shown: l.Shown})
+	}
+	return ss[0], c.Surface.Outsider, core.LinksOf(role.Live...).Of(own, true)
 }
 
 // relay's three fixture cards each draw whole at the widths of the board's
