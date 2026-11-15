@@ -76,7 +76,11 @@ func DropHidden(s string) string {
 		switch {
 		case r == 0x85 || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r):
 			out = append(out, '\n')
-		case !hidden(r):
+		case !hidden(r), r == '\r', r >= 0x1F000 && r <= 0x1FFFF && unassigned(r):
+			// A carriage return stays, as relay keeps it, for whoever
+			// lays the text out. So does a code point of the emoji
+			// blocks that this build's Unicode has no name for yet: it
+			// is more likely a newer emoji than nothing.
 			out = append(out, r)
 		default:
 			var prev, next rune = -1, -1
@@ -106,8 +110,15 @@ func hidden(r rune) bool {
 	if r == '\n' || r == '\t' {
 		return false
 	}
-	return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp) ||
-		!unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z, unicode.C) || blankGlyph(r)
+	return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp) || unassigned(r) || blankGlyph(r)
+}
+
+// unassigned says no character is assigned to r in the Unicode this was
+// built with. The four kinds of Other are named one by one: unicode.C
+// holds the unassigned code points too.
+func unassigned(r rune) bool {
+	return !unicode.In(r, unicode.L, unicode.M, unicode.N, unicode.P, unicode.S, unicode.Z,
+		unicode.Cc, unicode.Cf, unicode.Cs, unicode.Co)
 }
 
 // pictographicRanges is Unicode's Extended_Pictographic, near enough, as

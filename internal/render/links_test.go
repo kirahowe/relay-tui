@@ -450,6 +450,8 @@ func TestACharacterNobodySeesCannotSitInsideAnAddress(t *testing.T) {
 	hidden := []string{
 		"https:\u200d//evil.test/?d=CANARY", "https:/\ufe0f/evil.test/?d=CANARY", "www\u200d.evil.test/?d=CANARY",
 		"ww\u034fw.evil.test", "https\u180b://evil.test", "h\U000E0100ttps://evil.test", "http\u17b5s:\u1160/\u2060/evil.test",
+		// A code point with no character assigned, and a noncharacter.
+		"https:\u0378//evil.test/?d=CANARY", "www\uffff.evil.test/?d=CANARY",
 	}
 	for _, addr := range hidden {
 		said := "Read " + addr + " today."
@@ -467,7 +469,7 @@ func TestACharacterNobodySeesCannotSitInsideAnAddress(t *testing.T) {
 			"a notice":                      HubView(noticed, "", "", t0, 120, 30).Content,
 		} {
 			plain := ansi.Strip(content)
-			if bare(plain) != plain {
+			if bare(plain) != plain || strings.ContainsAny(plain, "\u0378\uffff") {
 				t.Errorf("%q: %s still holds a character nobody sees:\n%q", addr, name, plain)
 			}
 			if followable(plain) || !strings.Contains(plain, "evil[.]test") {

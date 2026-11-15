@@ -122,15 +122,22 @@ func TestInvisibleCodePointsAreEscaped(t *testing.T) {
 // and the joiner or selector that holds an emoji together.
 func TestDropHidden(t *testing.T) {
 	for in, want := range map[string]string{
-		"https:\u200d//evil.test":                     "https://evil.test",
-		"https:/\ufe0f/evil.test":                     "https://evil.test",
-		"www\u200d.evil.test":                         "www.evil.test",
-		"ww\u034fw.ev\u180bil.te\u17b5st":             "www.evil.test",
-		"h\U000E0100ttps\u1160://x\u2060y":            "https://xy",
-		"a\u00adb\u200bc\u200ed\ufeffe":               "abcde",
-		"a\u2800b\x1bc\ue000d":                        "abcd",
-		"e\u0301 stays":                               "e\u0301 stays",
-		"plain text\n\twith a tab":                    "plain text\n\twith a tab",
+		"https:\u200d//evil.test":          "https://evil.test",
+		"https:/\ufe0f/evil.test":          "https://evil.test",
+		"www\u200d.evil.test":              "www.evil.test",
+		"ww\u034fw.ev\u180bil.te\u17b5st":  "www.evil.test",
+		"h\U000E0100ttps\u1160://x\u2060y": "https://xy",
+		"a\u00adb\u200bc\u200ed\ufeffe":    "abcde",
+		"a\u2800b\x1bc\ue000d":             "abcd",
+		"e\u0301 stays":                    "e\u0301 stays",
+		"plain text\n\twith a tab":         "plain text\n\twith a tab",
+		// A code point with no character assigned, and a noncharacter.
+		"https:\u0378//evil.test": "https://evil.test",
+		"www\uffff.evil.test":     "www.evil.test",
+		// One of the emoji blocks that has no name yet stays, and so does
+		// a carriage return.
+		"new \U0001FFFD emoji": "new \U0001FFFD emoji",
+		"a\r\nb":               "a\r\nb",
 		"Done \U0001F469\u200d\U0001F4BB and ⚠\ufe0f": "Done \U0001F469\u200d\U0001F4BB and ⚠\ufe0f",
 		"": "",
 	} {
@@ -162,6 +169,10 @@ func TestDropHiddenKeepsEmojiGlueAsRelayDoes(t *testing.T) {
 	}
 	// Outside an emoji sequence they are still removed.
 	for in, want := range map[string]string{
+		man + "\u200da":              man + "a", // a joiner after an emoji, with no emoji after it
+		man + "\u200d" + "1":         man + "1",
+		"1\ufe0f":                    "1", // a selector after a digit with no keycap
+		"#\ufe0fx":                   "#x",
 		"a\u200db":                   "ab",
 		man + "\u200d":               man,
 		"\u200d" + woman:             woman,
@@ -179,6 +190,29 @@ func TestDropHiddenKeepsEmojiGlueAsRelayDoes(t *testing.T) {
 	} {
 		if got := DropHidden(in); got != want {
 			t.Errorf("DropHidden(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Every range of the list of emoji is in use: one emoji from each keeps
+// the selector after it, and its neighbours outside the list do not. The
+// code points are written out here, apart from the list under test.
+func TestEveryRangeOfEmojiKeepsItsSelector(t *testing.T) {
+	for _, r := range []rune{0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x2195, 0x21A9, 0x231A, 0x2328, 0x2388, 0x23CF,
+		0x23EA, 0x23F8, 0x24C2, 0x25AA, 0x25B6, 0x25C0, 0x25FB, 0x2600, 0x2764, 0x27BF, 0x2934, 0x2B05, 0x2B1B, 0x2B50,
+		0x2B55, 0x3030, 0x303D, 0x3297, 0x3299, 0x1F004, 0x1F10D, 0x1F12F, 0x1F170, 0x1F17E, 0x1F18E, 0x1F191,
+		0x1F1AD, 0x1F201, 0x1F600, 0x1FAE0, 0x1FC00} {
+		in := string(r) + "\ufe0f"
+		if got := DropHidden(in); got != in {
+			t.Errorf("%U lost its selector: %q", r, got)
+		}
+		if in := string(r) + "\u200d" + string(r); DropHidden(in) != in {
+			t.Errorf("%U lost its joiner", r)
+		}
+	}
+	for _, r := range []rune{'A', '9', 0x00AA, 0x2123, 0x2193, 0x24B6, 0x25FF, 0x27C0, 0x1F130, 0x1F1E6, 0x1F200, 0x20000} {
+		if got := DropHidden(string(r) + "\ufe0f"); got != string(r) {
+			t.Errorf("%U kept a selector: %q", r, got)
 		}
 	}
 }
