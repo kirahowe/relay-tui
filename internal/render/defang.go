@@ -20,13 +20,22 @@ import (
 // a space or a character that usually closes a URL in prose or markdown.
 var urlRE = regexp.MustCompile("(?i)(?:[a-z][a-z0-9+.\\-]*://|www\\.)[^\\s<>\"'`)\\]\\x1b]*")
 
+// schemeName is a scheme by itself, as it stands before "://".
+var schemeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.\-]*$`)
+
 // Defang defangs every URL in s. Every dot in it becomes [.], http and
 // https become hxxp and hxxps, and any other scheme's :// becomes [:]//,
 // so no "://" is left. s should be sanitized first.
 func Defang(s string) string {
+	dots := func(t string) string {
+		return strings.ReplaceAll(strings.ReplaceAll(t, "[.]", "."), ".", "[.]")
+	}
 	out := urlRE.ReplaceAllStringFunc(s, func(u string) string {
 		scheme, rest := "", u
-		if i := strings.Index(u, "://"); i >= 0 {
+		// What stands before the first "://" is the scheme only when it
+		// is one. In www.evil.test/?u=http://x it is a host and a path,
+		// and its dots are broken with the rest.
+		if i := strings.Index(u, "://"); i >= 0 && schemeName.MatchString(u[:i]) {
 			scheme, rest = u[:i], u[i+3:]
 			switch strings.ToLower(scheme) {
 			case "http":
@@ -36,16 +45,19 @@ func Defang(s string) string {
 			case "hxxp", "hxxps": // defanged already
 				scheme += "://"
 			default:
-				scheme += "[:]//"
+				// A scheme may hold dots (www.x.io://y), and so read as
+				// a www. host by itself.
+				scheme = dots(scheme) + "[:]//"
 			}
 		}
 		// Every dot loses its power, in the path and query too, so a
 		// second host riding in the URL (?next=www.evil.test/?d=1) is
 		// broken as well as the first, as relay's own defang does.
-		return scheme + strings.ReplaceAll(strings.ReplaceAll(rest, "[.]", "."), ".", "[.]")
+		return scheme + dots(rest)
 	})
 	// A "://" can be left that the match did not own (it came from the
-	// middle of another URL's host); none survives but hxxp(s)://.
+	// middle of another URL's host, or after a www. host's path); none
+	// survives but hxxp(s)://.
 	return schemeSepRE.ReplaceAllStringFunc(out, func(m string) string {
 		if len(m) > 3 {
 			return m

@@ -20,6 +20,11 @@ func TestDefangKnown(t *testing.T) {
 		"www.example.com/a":      "www[.]example[.]com/a",
 		"[x](https://a.io/p)":    "[x](hxxps://a[.]io/p)",
 		"no links here. Really.": "no links here. Really.",
+		// Regression: a www. host with a scheme later in its word is
+		// broken too, and so is a scheme that reads as a www. host.
+		"www.evil.test/?u=http://x.test/a": "www[.]evil[.]test/?u=http[:]//x[.]test/a",
+		"seewww.evil.test/xhttps://a.io":   "seewww[.]evil[.]test/xhttps[:]//a[.]io",
+		"www.x-y.io://foo.bar":             "www[.]x-y[.]io[:]//foo[.]bar",
 	} {
 		if got := Defang(in); got != want {
 			t.Errorf("Defang(%q) = %q, want %q", in, got, want)
@@ -37,7 +42,7 @@ func genURLText(t *rapid.T) string {
 	} else {
 		url = "www." + url
 	}
-	around := rapid.SampledFrom([]string{"%s", "see %s now", "**%s**", "_%s_", "[l](%s)", "<%s>", "`%s`", "```\n%s\n```", "- %s\n- %s", "a\x1b]8;;%s\x07click\x1b]8;;\x07", "h\x1bttp://%s", "http:*/*/%s", "https:/\u200b/%s"}).Draw(t, "around")
+	around := rapid.SampledFrom([]string{"%s", "see %s now", "www.evil.test/?u=%s", "www.evil.io://%s", "**%s**", "_%s_", "[l](%s)", "<%s>", "`%s`", "```\n%s\n```", "- %s\n- %s", "a\x1b]8;;%s\x07click\x1b]8;;\x07", "h\x1bttp://%s", "http:*/*/%s", "https:/\u200b/%s"}).Draw(t, "around")
 	return strings.ReplaceAll(around, "%s", url)
 }
 
