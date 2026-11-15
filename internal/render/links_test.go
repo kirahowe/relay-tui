@@ -32,6 +32,9 @@ func TestFang(t *testing.T) {
 		"x.y/" + linkA: "x[.]y/" + span(linkA),
 		// And is broken as any word is, whatever it is made of.
 		"é://evil.test/x=" + linkA: "é[:]//evil[.]test/x=" + span(linkA),
+		// Its dots are broken first, so a scheme that ran on from one is
+		// seen and broken too.
+		"a.https:/y.pl/x=" + linkA: "a[.]hxxps:/y[.]pl/x=" + span(linkA),
 		// Text run on after a live link makes another address.
 		linkA + "/more":         "hxxps://artsfund[.]example/grants/2027/more",
 		"https://evil.test/x":   "hxxps://evil[.]test/x",
@@ -820,6 +823,11 @@ var (
 		"a\x1b]8;;https://evil.test\x07click\x1b]8;;\x07", "<https://evil.test/x>", "ww**w.**evil.test",
 		"https\u200d://evil.test/?d=1", "é://evil.test/x", "https\u2060://evil.test", "x\u200d://evil.test", "hxxps://evil.test/?d=1",
 		"fxp://files[.]example/a", "ftp\u200d://evil.test",
+		// A scheme a finder follows with no "//" after its colon, and
+		// names that only end like one.
+		"https:/x.pl", "http:/evil.test/x", "https:evil.test", "HTTPS:/Evil.test", `https:\\evil.test`, "ssh:CANARY@evil.test", "sftp:u@evil.test",
+		"file:/tmp/x.command", "magnet:?xt=urn:btih:CANARY", "news:alt.CANARY", "git:evil.test/x", "abcdefgxssh:u@evil.test", "mailto:me@evil.test",
+		"ht**tp**s:/evil.test", "**ssh:**u@evil.test",
 		// A character nobody sees inside the separator, the scheme or www.
 		"https:\u200d//evil.test/?d=1", "https:/\ufe0f/evil.test", "www\u200d.evil.test", "ww\u034fw.evil.test",
 		"https\u180b://evil.test", "h\U000E0100ttps://evil.test/x", "http\u17b5s:\u1160/\u2060/evil.test", "www.\u200bevil.test"}
@@ -921,8 +929,52 @@ func followable(plain string) bool {
 		}
 		rest = rest[i+3:]
 	}
+	// A scheme a finder follows with a colon and no "//" after it: a web
+	// scheme before a slash, a backslash, a letter or a digit, and ssh,
+	// sftp, file, magnet, news and git before anything but a space.
+	// Only ASCII letters are lowered: a letter of another script that
+	// lowers to an ASCII one (İ, the Kelvin sign) is not that letter to a
+	// finder.
+	lower := strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, plain)
+	for _, name := range []string{"https", "http", "ftp", "ssh", "sftp", "file", "magnet", "news", "git"} {
+		for at := 0; ; {
+			i := strings.Index(lower[at:], name+":")
+			if i < 0 {
+				break
+			}
+			i += at
+			at = i + 1
+			after := lower[i+len(name)+1:]
+			// A slashless name that starts a row's text is what a cut
+			// left of a word relay leaves as written (the name ran on from
+			// a letter), as a cut leaves the tail of hxxp: the same name
+			// stands there in relay's own text, unwrapped.
+			if web := name == "https" || name == "http" || name == "ftp"; !web && strings.TrimLeft(lower[:i], " │") == "" {
+				continue
+			}
+			// A name run on from an ASCII letter or digit is part of
+			// another word, as relay leaves it; and relay's escape for a
+			// hidden character after the colon is that character, shown.
+			if after == "" || strings.HasPrefix(after, "//") || strings.HasPrefix(after, `\u{`) ||
+				(i > 0 && strings.ContainsRune("abcdefghijklmnopqrstuvwxyz0123456789", rune(lower[i-1]))) {
+				continue
+			}
+			c := after[0]
+			if name == "https" || name == "http" || name == "ftp" {
+				if c == '/' || c == '\\' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') {
+					return true
+				}
+			} else if !unicode.IsSpace(rune(c)) {
+				return true
+			}
+		}
+	}
 	// A www. with more of its word after it than closing marks.
-	lower := strings.ToLower(plain)
 	for i := strings.Index(lower, "www."); i >= 0; {
 		after, n := utf8.DecodeRuneInString(lower[i+4:])
 		if n > 0 && !unicode.IsSpace(after) && !strings.ContainsRune(`)>".,;!]':?*~\`, after) {

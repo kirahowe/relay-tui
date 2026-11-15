@@ -159,9 +159,14 @@ selection and no tints. Your messages are then drawn in boxes.
 Once the session has read text from outside (the agent reports it in
 `_meta["agentloop/labels"]`), URLs in what the agent writes (replies,
 notices, tool names, arguments and output) show defanged, as
-`hxxps://host[.]tld/path`, so a click cannot carry data out. The label
-itself is never shown, and nothing is held or withheld because of it.
-relay-tui never sends `resource_link` blocks.
+`hxxps://host[.]tld/path`, so a click cannot carry data out. A scheme
+that a link finder follows with no `//` after it is broken too, in the
+forms relay writes: `https:/host.tld` reads `hxxps:/host[.]tld`, and
+`ssh:`, `sftp:`, `file:`, `magnet:`, `news:` and `git:` have their colon
+bracketed, as in `ssh[:]user@host[.]tld`. `mailto:`, `tel:` and `sms:`
+are left as written for now. The label itself is never shown, and
+nothing is held or withheld because of it. relay-tui never sends
+`resource_link` blocks.
 
 In such a session relay-tui first takes every hidden character out of
 what the agent writes: a zero-width space or joiner, a variation

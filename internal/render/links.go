@@ -69,6 +69,10 @@ var wordRE = regexp.MustCompile(`\S+`)
 // caller has escaped or sanitized it. With no live links no word gets a
 // span.
 //
+// What stands before a link in its word has its dots broken first and
+// goes through Defang after: a dot broken later could lay bare a scheme
+// that ran on from it, where Defang would no longer see it.
+//
 // Every word goes through Defang, whatever it looks like: one function
 // says what a link is, and no second test decides which words it sees.
 // Defang changes nothing in a word it or relay broke already, so text
@@ -85,7 +89,7 @@ func fang(t string, live core.Links) string {
 			// the one relay listed, and only when it is in the
 			// connection's set too.
 			if before, own, after, ok := core.Anchored(w, live.Own); ok && live.Has(own.Address) {
-				return breakDots(Defang(before), true) + anchor(own) + after
+				return Defang(breakDots(before, true)) + anchor(own) + after
 			}
 			return Defang(w)
 		}
@@ -96,7 +100,7 @@ func fang(t string, live core.Links) string {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(Defang(before), true) + span(link) + after
+		return Defang(breakDots(before, true)) + span(link) + after
 	})
 }
 
@@ -117,7 +121,7 @@ func fangSource(t string, live core.Links) string {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(Defang(before), true) + autolink(link) + after
+		return Defang(breakDots(before, true)) + autolink(link) + after
 	})
 }
 
@@ -151,16 +155,17 @@ func pieces(row string) []piece {
 }
 
 // linkable says whether text holds something a terminal could follow by
-// itself: a "://" after anything but a broken scheme, or a www. host. It
-// is the check on rows as drawn, and what it finds is what Defang breaks
-// (schemeSepRE is Defang's own).
+// itself: a "://" after anything but a broken scheme, a www. host, or a
+// scheme a finder follows with a colon and no "//". It is the check on
+// rows as drawn, and what it finds is what Defang breaks (schemeSepRE
+// and colonSchemes are Defang's own).
 func linkable(plain string) bool {
 	for _, m := range schemeSepRE.FindAllString(plain, -1) {
 		if len(m) == 3 {
 			return true
 		}
 	}
-	return wwwHostRE.MatchString(plain)
+	return wwwHostRE.MatchString(plain) || len(colonSchemes(plain)) > 0
 }
 
 // wwwHostRE finds www. with more of a word after it. A www. that ends its

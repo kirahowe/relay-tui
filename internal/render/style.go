@@ -281,7 +281,8 @@ func expandTabs(line string) string {
 
 // wrap word-wraps styled text to width and returns self-contained lines.
 // ansi.Wrap can leave a line too wide (it does with "  -  ·   -" at 8
-// columns), so any such line is then cut hard. A live link is wrapped as
+// columns), so any such line is then cut hard. A row that a cut starts
+// in the middle of a word is looked at once more (cutSchemes). A live link is wrapped as
 // any other text is: its text is broken already, and each row's piece of
 // it stays a hyperlink to the whole address (selfContained).
 func wrap(s string, width int) []string {
@@ -294,7 +295,7 @@ func wrap(s string, width int) []string {
 			lines = append(lines, l)
 		}
 	}
-	return selfContained(lines)
+	return selfContained(cutSchemes(s, lines, width))
 }
 
 // hardwrap cuts unstyled text at width without looking for word breaks.
