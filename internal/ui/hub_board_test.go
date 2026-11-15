@@ -236,7 +236,7 @@ func TestHubTicksASurfaceCardsBox(t *testing.T) {
 	h.waitScreen("the fourth box", func(string) bool { return h.emu.selected("Paper map") })
 	h.keys("x")
 	s := h.waitScreen("the refusal", contains("Refused."))
-	s = h.waitScreen("relay's reason", contains("was changed at rev"))
+	s = h.waitScreen("relay's reason", contains("has changed since rev"))
 	if strings.Contains(s, "✓ Paper map") {
 		t.Errorf("the refused box shows ticked:\n%s", s)
 	}

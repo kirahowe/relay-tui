@@ -180,8 +180,13 @@ func (b *board) input(c map[string]any, params map[string]any) (json.RawMessage,
 	if !ok {
 		return nil, refused("input needs seen: the card's rev when you read it.")
 	}
-	if num(seen) != num(c["rev"]) {
-		return nil, refused(fmt.Sprintf("Card %v was changed at rev %v, after rev %v. Read the card again before you change it.", id, num(c["rev"]), num(seen)))
+	// Neither refusal says which rev the card is at, as relay's do not:
+	// the op cannot be sent again without the card being read.
+	if num(seen) < num(c["rev"]) {
+		return nil, refused(fmt.Sprintf("Card %v has changed since rev %v. Read the card again before you change it.", id, num(seen)))
+	}
+	if num(seen) > num(c["rev"]) {
+		return nil, refused("seen must be a rev you read. Read the card again for it.")
 	}
 	create := surfaceMessage(c)
 	path, _ := params["path"].(string)

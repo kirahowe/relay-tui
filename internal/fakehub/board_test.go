@@ -87,7 +87,8 @@ func TestAnInputIsRefusedAsRelayRefusesIt(t *testing.T) {
 		want   string
 	}{
 		{"no seen", without("seen"), "input needs seen: the card's rev when you read it."},
-		{"stale seen", with("seen", 1800), "Card 1840 was changed at rev 1852, after rev 1800. Read the card again before you change it."},
+		{"stale seen", with("seen", 1800), "Card 1840 has changed since rev 1800. Read the card again before you change it."},
+		{"seen past the rev", with("seen", 1900), "seen must be a rev you read. Read the card again for it."},
 		{"unbound path", with("path", "/items/0/text"), "Nothing on card 1840 takes input at that path."},
 		{"no path", without("path"), "Nothing on card 1840 takes input at that path."},
 		{"a literal box has no path", with("path", ""), "Nothing on card 1840 takes input at that path."},
@@ -120,7 +121,7 @@ func TestBumpCardMovesTheRevWithoutTellingTheClient(t *testing.T) {
 	h, op := opHub(t)
 	h.control(context.Background(), "bump-card 1840")
 	_, err := op(map[string]any{"card": 1840, "op": "input", "path": "/items/1/done", "value": true, "seen": 1852})
-	if err == nil || !strings.Contains(err.Error(), "Card 1840 was changed at rev 1861, after rev 1852.") {
+	if err == nil || !strings.Contains(err.Error(), "Card 1840 has changed since rev 1852.") {
 		t.Fatalf("error %v", err)
 	}
 	if done(t, h, 1) {
