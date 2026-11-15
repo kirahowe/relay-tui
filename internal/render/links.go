@@ -165,9 +165,10 @@ func linkable(plain string) bool {
 // wwwHostRE finds www. with more of a word after it. A www. that ends its
 // word, or has only a closing mark after it, names no host: Defang leaves
 // that dot as relay does, the full stop after a word that happens to be
-// www. Anything else after it may be read as a host, or as a user name
-// before one (www.@evil.test).
-var wwwHostRE = regexp.MustCompile(`(?i)www\.[^\s)>".,;!\]':?*~]`)
+// www. Neither does one before a backslash, which is how a line break in
+// a one-line text is written (cardLine). Anything else after it may be
+// read as a host, or as a user name before one (www.@evil.test).
+var wwwHostRE = regexp.MustCompile(`(?i)www\.[^\s)>".,;!\]':?*~\\]`)
 
 // cutTailRE is what a row can begin with when a wrap or a cut fell
 // inside the scheme of a broken link, or straight after it: the end of

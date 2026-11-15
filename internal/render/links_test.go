@@ -438,7 +438,7 @@ func relaySends(text string) bool {
 // follows than closing marks: a name, or a user name before one. The full
 // stop after a word that is www is none.
 func TestTheRowCheckTellsAHostFromAFullStop(t *testing.T) {
-	for _, row := range []string{"see www.", "(see www.)", "is it www.?", "the end of [www.]", `"www."`, "www.**", "hxxps://x[.]example/www."} {
+	for _, row := range []string{"see www.", "(see www.)", "is it www.?", "the end of [www.]", `"www."`, "www.**", "hxxps://x[.]example/www.", `Type www.\nthen the name`} {
 		if linkable(row) {
 			t.Errorf("%q is taken for a host", row)
 		}
@@ -447,6 +447,16 @@ func TestTheRowCheckTellsAHostFromAFullStop(t *testing.T) {
 		if !linkable(row) {
 			t.Errorf("%q is not taken for a host", row)
 		}
+	}
+	// A line break in a one-line text is written as a backslash and an n.
+	// relay's "Type www." before one is drawn as it came, in a card's
+	// title and in a checklist item.
+	sent := "Type www.\nthen the name"
+	c := cardChecklist
+	c.Title = core.CardText{Text: sent, Outsider: true}
+	c.Items = []core.CardElem{{ID: 1, CardText: core.CardText{Text: sent, Outsider: true}}}
+	if plain := ansi.Strip(View(boardState(true, c), "", "", t0, 150, 30).Content); strings.Count(plain, `Type www.\nthen the name`) != 2 {
+		t.Errorf("a card draws:\n%s", plain)
 	}
 	// Markdown can put one together from a link's text and what follows
 	// it. The row is then drawn plain, and broken.
@@ -836,7 +846,7 @@ func followable(plain string) bool {
 	lower := strings.ToLower(plain)
 	for i := strings.Index(lower, "www."); i >= 0; {
 		after, n := utf8.DecodeRuneInString(lower[i+4:])
-		if n > 0 && !unicode.IsSpace(after) && !strings.ContainsRune(`)>".,;!]':?*~`, after) {
+		if n > 0 && !unicode.IsSpace(after) && !strings.ContainsRune(`)>".,;!]':?*~\`, after) {
 			return true
 		}
 		j := strings.Index(lower[i+4:], "www.")
