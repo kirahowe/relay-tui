@@ -976,36 +976,77 @@ func TestERetitlesASurfaceCardFromItsTitleLine(t *testing.T) {
 	}
 }
 
-func TestTheCursorFollowsAnInputAcrossAReplacement(t *testing.T) {
+const boxesChanged = "The card's boxes changed; select one again."
+
+func TestTheCursorStaysOnABoxWhileTheListOfBoxesIsTheSame(t *testing.T) {
 	old := surfaceCard(t, 10, 10, box{"/i/0", "Tent", false}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false})
 	onMap := func() Single {
 		s := onBoard(old)
 		s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown)
 		return s
 	}
-	replace := func(c Card) Board {
-		s, _ := ReduceSingle(onMap(), CardsChanged{At: t0, Rev: 101, Cards: []Card{c}})
-		return s.Board
+	// Another client's tick changes values and leaves the list alone.
+	s, _ := ReduceSingle(onMap(), CardsChanged{At: t0, Rev: 101, Cards: []Card{
+		surfaceCard(t, 10, 11, box{"/i/0", "Tent", true}, box{"/i/1", "Map", true}, box{"/i/2", "Stove", false})}})
+	if b := s.Board; b.Line != 2 || b.Message != "" {
+		t.Fatalf("another client's tick: line %d, message %q", b.Line, b.Message)
 	}
-	// Same path and label: the cursor stays.
-	b := replace(surfaceCard(t, 10, 11, box{"/i/0", "Tent", true}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false}))
-	if b.Line != 2 || b.Message != "" {
-		t.Fatalf("same place: line %d, message %q", b.Line, b.Message)
+	// relay's answer to the operator's own input does too.
+	s, fx := boardKeys(onMap(), PaneMark)
+	if len(effectsOf[SendCardOp](fx)) != 1 {
+		t.Fatal("no op sent")
 	}
-	// An item inserted above moves the path; the label finds it.
-	b = replace(surfaceCard(t, 10, 11, box{"/i/0", "New", false}, box{"/i/1", "Tent", false}, box{"/i/2", "Map", false}, box{"/i/3", "Stove", false}))
-	if b.Line != 3 || b.Message != "" {
-		t.Fatalf("moved: line %d, message %q", b.Line, b.Message)
+	answer := surfaceCard(t, 10, 11, box{"/i/0", "Tent", false}, box{"/i/1", "Map", true}, box{"/i/2", "Stove", false})
+	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &answer})
+	if b := s.Board; b.Line != 2 || b.Message != "" {
+		t.Fatalf("own answer: line %d, message %q", b.Line, b.Message)
 	}
-	// Two inputs with the label and neither on the path: not told apart.
-	b = replace(surfaceCard(t, 10, 11, box{"/j/0", "Map", false}, box{"/j/1", "Map", false}))
-	if b.Line != 2 || b.Message != "The selected box is gone; the cursor moved to the nearest one." {
-		t.Fatalf("ambiguous: line %d, message %q", b.Line, b.Message)
+	_, fx = boardKeys(s, PaneMark)
+	if ops := effectsOf[SendCardOp](fx); len(ops) != 1 || *ops[0].Op.Path != "/i/1" {
+		t.Fatalf("ops %+v", ops)
 	}
-	// Gone: the cursor stays at the nearest line, and the board says so.
-	b = replace(surfaceCard(t, 10, 11, box{"/i/0", "Tent", false}))
-	if b.Line != 1 || b.Message != "The selected box is gone; the cursor moved to the nearest one." {
-		t.Fatalf("gone: line %d, message %q", b.Line, b.Message)
+}
+
+// Any change to the list of boxes sends the cursor to the title, where x
+// does nothing, and says so.
+func TestAChangedListOfBoxesSendsTheCursorToTheTitle(t *testing.T) {
+	two := func(rev int64) Card {
+		return surfaceCard(t, 10, rev, box{"/a", "Done", false}, box{"/b", "Done", false})
+	}
+	for name, c := range map[string]Card{
+		"the selected box is removed, the other has its label": surfaceCard(t, 10, 11, box{"/a", "Done", false}),
+		"an item is inserted above":                            surfaceCard(t, 10, 11, box{"/z", "New", false}, box{"/a", "Done", false}, box{"/b", "Done", false}),
+		"a box is relabelled":                                  surfaceCard(t, 10, 11, box{"/a", "Done", false}, box{"/b", "Finished", false}),
+		"a box moves to another path":                          surfaceCard(t, 10, 11, box{"/a", "Done", false}, box{"/c", "Done", false}),
+		"the boxes are swapped":                                surfaceCard(t, 10, 11, box{"/b", "Done", false}, box{"/a", "Done", false}),
+		"all boxes are gone":                                   surfaceCard(t, 10, 11),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := onBoard(two(10))
+			s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // on /b
+			s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{c}})
+			if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
+				t.Fatalf("line %d, message %q", b.Line, b.Message)
+			}
+			if _, fx := boardKeys(s, PaneMark); len(effectsOf[SendCardOp](fx)) != 0 {
+				t.Fatalf("x sent %v", fx)
+			}
+		})
+	}
+}
+
+// A refusal or a failed load still showing keeps the notice away, and
+// the cursor still leaves the box, so x acts on nothing.
+func TestAChangedListOfBoxesMovesTheCursorWhileAFailureShows(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}, box{"/b", "Map", false}))
+	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // on Map
+	s.Board.Message, s.Board.Failure = refusedNotice, "Card 10 changed."
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{surfaceCard(t, 10, 11, box{"/a", "Tent", false})}})
+	if b := s.Board; b.Line != 0 || b.Failure == "" || b.Message == boxesChanged {
+		t.Fatalf("line %d, message %q, failure %q", b.Line, b.Message, b.Failure)
+	}
+	if _, fx := boardKeys(s, PaneMark); len(effectsOf[SendCardOp](fx)) != 0 {
+		t.Fatalf("x sent %v", fx)
 	}
 }
 
@@ -1059,6 +1100,14 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 		s := onBoard(card)
 		s, _ = boardKeys(s, PaneEnter)
 		var inFlight *CardOp
+		// set when the list of inputs changed under the cursor: no op is
+		// sent until the cursor has been moved again.
+		var mustMove bool
+		changed := func(before, after Card) {
+			if BoardLine(s.Board, before) > 0 && !slices.Equal(before.inputKeys(), after.inputKeys()) {
+				mustMove = true
+			}
+		}
 		for i := range rapid.IntRange(1, 40).Draw(t, "steps") {
 			held, _ := BoardCard(s.Board)
 			line := BoardLine(s.Board, held)
@@ -1069,12 +1118,13 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 					a = PaneDown
 				}
 				s, _ = boardKeys(s, a)
+				mustMove = false
 			case "mark":
 				busy := s.Board.Sending != 0
 				var fx []Effect
 				s, fx = boardKeys(s, PaneMark)
 				ops := effectsOf[SendCardOp](fx)
-				if busy || line == 0 {
+				if busy || line == 0 || mustMove {
 					if len(ops) != 0 {
 						t.Fatalf("sent while busy %v or on the title %v", busy, line == 0)
 					}
@@ -1104,11 +1154,13 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 				if rapid.Bool().Draw(t, "shift") {
 					next = insertAbove(next, rapid.Bool().Draw(t, "remove"), i)
 				}
+				changed(held, next)
 				s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &next})
 				inFlight = nil
 			case "notify":
 				next := insertAbove(held, rapid.Bool().Draw(t, "remove"), i)
 				next.Rev++
+				changed(held, next)
 				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: next.Rev, Cards: []Card{next}})
 			}
 		}

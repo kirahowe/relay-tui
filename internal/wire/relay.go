@@ -253,12 +253,9 @@ type rawCard struct {
 		Column int    `json:"column"`
 		State  string `json:"state"`
 	} `json:"cells"`
-	Note    *rawText `json:"note"`
-	Surface *struct {
-		Outsider *bool             `json:"outsider"`
-		A2UI     []json.RawMessage `json:"a2ui"`
-	} `json:"surface"`
-	Text string `json:"text"`
+	Note    *rawText        `json:"note"`
+	Surface json.RawMessage `json:"surface"` // read apart, so a wrong type breaks the surface and not the card
+	Text    string          `json:"text"`
 	rawLinks
 }
 
@@ -306,6 +303,24 @@ func (r rawLinks) links() (own []core.Link, leftOut int, listed bool) {
 
 // maxSurfaceMessages is the most A2UI messages one surface card may hold.
 const maxSurfaceMessages = 64
+
+// readSurface reads the surface member of a surface card. Any failure,
+// of the JSON or of the surface, leaves the card to its text form. A
+// missing outsider flag reads as true, as it does for a text.
+func readSurface(id int64, raw json.RawMessage) (core.RoleSurface, bool) {
+	var m struct {
+		Outsider *bool             `json:"outsider"`
+		A2UI     []json.RawMessage `json:"a2ui"`
+	}
+	if raw == nil || strictjson.Unmarshal(raw, &m) != nil {
+		return core.RoleSurface{}, false
+	}
+	surface, ok := roleSurface(id, m.A2UI)
+	if !ok {
+		return core.RoleSurface{}, false
+	}
+	return core.RoleSurface{Outsider: m.Outsider == nil || *m.Outsider, A2UI: surface}, true
+}
 
 // roleSurface folds the messages of a surface card from nothing. The
 // surface is good when there are between one and maxSurfaceMessages
@@ -389,17 +404,12 @@ func card(raw json.RawMessage) (core.Card, bool) {
 		n := r.Note.text()
 		c.Note = &n
 	case core.CardSurface:
-		if r.Surface == nil {
-			c.Kind = "surface?"
-			break
-		}
-		surface, ok := roleSurface(c.ID, r.Surface.A2UI)
+		role, ok := readSurface(c.ID, r.Surface)
 		if !ok {
 			c.Kind = "surface?"
 			break
 		}
-		// A missing outsider flag reads as true, as it does for a text.
-		c.Surface = &core.RoleSurface{Outsider: r.Surface.Outsider == nil || *r.Surface.Outsider, A2UI: surface}
+		c.Surface = &role
 	}
 	return c, true
 }

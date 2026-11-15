@@ -134,3 +134,27 @@ func TestRelaysSurfaceFixtureCardsAreNative(t *testing.T) {
 		})
 	}
 }
+
+// A surface member of the wrong JSON type breaks the surface, not the
+// card: the card stays, in its text form.
+func TestAWronglyTypedSurfaceMemberKeepsTheCardInItsTextForm(t *testing.T) {
+	for name, surface := range map[string]string{
+		"a2ui is an object":    `{"outsider": false, "a2ui": {}}`,
+		"surface is a number":  `5`,
+		"outsider is a string": `{"outsider": "yes", "a2ui": [` + createMessage("card_1840", goodComponents, goodData) + `]}`,
+		"a2ui holds a number":  `{"outsider": false, "a2ui": [1]}`,
+		"surface is null":      `null`,
+	} {
+		card := surfaceCardWire(surface)
+		t.Run(name, func(t *testing.T) {
+			c := oneCard(t, card)
+			if c.Kind != "surface?" || c.Surface != nil || c.Text != "Card 1840: the text form" {
+				t.Fatalf("answer: %+v", c)
+			}
+			got, ok := CardsChanged(json.RawMessage(`{"rev": 1950, "cards": [`+card+`]}`), t0)
+			if !ok || len(got.Cards) != 1 || got.Cards[0].Kind != "surface?" || got.Cards[0].Surface != nil || got.Cards[0].Text != "Card 1840: the text form" {
+				t.Fatalf("notification: %+v", got)
+			}
+		})
+	}
+}

@@ -446,3 +446,80 @@ func TestSurfaceCardsHostileKeepsOneLink(t *testing.T) {
 		}
 	}
 }
+
+// Children of a Row that cannot all keep their text stack instead of
+// being cut to an ellipsis.
+func TestSurfaceRowsStackChildrenThatWouldLoseText(t *testing.T) {
+	box := func(i int, label string) string {
+		return fmt.Sprintf(`{"id":"b%d","component":"CheckBox","label":%q,"value":false}`, i, label)
+	}
+	var comps, ids []string
+	for i, l := range strings.Split("abcdefghijklmnop", "") {
+		comps = append(comps, box(i, l))
+		ids = append(ids, fmt.Sprintf("b%d", i))
+	}
+	for _, c := range []struct {
+		name  string
+		n     int
+		width int
+	}{{"three at width seven", 3, 7}, {"sixteen at width forty six", 16, 46}} {
+		t.Run(c.name, func(t *testing.T) {
+			s := surfaceOf(t, a2ui.RelayCatalogID, `[{"id":"root","component":"Row","children":["`+strings.Join(ids[:c.n], `","`)+`"]},`+strings.Join(comps[:c.n], ",")+`]`, "")
+			rows, _, _ := surfaceRows(s, false, core.Links{}, c.width, nil)
+			plain := ansiPlain(strings.Join(rows, "\n"))
+			if strings.Contains(plain, "…") || strings.Count(plain, "○") != c.n {
+				t.Fatalf("drawing\n%s", plain)
+			}
+			for i := range c.n {
+				if !strings.Contains(plain, "○ "+string(rune('a'+i))) {
+					t.Fatalf("label %c is not after its mark:\n%s", 'a'+i, plain)
+				}
+			}
+		})
+	}
+}
+
+// The allotment gives every child at least its floor and fits the room,
+// whatever the wants and weights, when the floors fit.
+func TestAllotKeepsEveryFloorAndFitsTheRoom(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(1, 8).Draw(t, "n")
+		want, floor, weight := make([]int, n), make([]int, n), make([]float64, n)
+		for i := range n {
+			want[i] = rapid.IntRange(1, 40).Draw(t, "want")
+			floor[i] = rapid.IntRange(1, want[i]).Draw(t, "floor")
+			weight[i] = rapid.SampledFrom([]float64{0, 0, 1, 2.5}).Draw(t, "weight")
+		}
+		avail := sum(floor) + rapid.IntRange(0, 60).Draw(t, "spare")
+		got := allot(want, floor, weight, avail)
+		if len(got) != n || sum(got) > avail {
+			t.Fatalf("shares %v do not fit %d", got, avail)
+		}
+		for i := range n {
+			if got[i] < floor[i] {
+				t.Fatalf("share %d of child %d is under its floor %d (wants %v)", got[i], i, floor[i], want)
+			}
+		}
+	})
+}
+
+// For surfaces with short labels, every input's label is drawn whole, right
+// after its mark, at any width from eight, and no row is only an ellipsis.
+func TestSurfaceRowsKeepEveryLabel(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		s := a2uitest.GenResolved(t, rapid.StringMatching(`[a-z]{1,2}`))
+		width := rapid.IntRange(8, 120).Draw(t, "width")
+		rows, _, _ := surfaceRows(s, rapid.Bool().Draw(t, "outsider"), core.Links{}, width, nil)
+		plain := ansiPlain(strings.Join(rows, "\n"))
+		for _, r := range strings.Split(plain, "\n") {
+			if strings.TrimSpace(r) == "…" {
+				t.Fatalf("a row is only an ellipsis at width %d:\n%s", width, plain)
+			}
+		}
+		for _, in := range s.Inputs() {
+			if !strings.Contains(plain, "✓ "+in.Label) && !strings.Contains(plain, "○ "+in.Label) {
+				t.Fatalf("width %d: label %q is not after a mark:\n%s", width, in.Label, plain)
+			}
+		}
+	})
+}

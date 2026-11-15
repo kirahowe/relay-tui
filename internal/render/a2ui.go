@@ -60,7 +60,7 @@ func surfaceDrawing(s a2ui.Surface, outsider bool, live core.Links, width int, f
 func drawSurface(s a2ui.Surface, outsider bool, live core.Links, width int, focus *a2ui.Focus) (rows []string, selA, selB int, d *surfaceDraw) {
 	width = max(width, 1)
 	d = &surfaceDraw{s: s, outsider: outsider, live: live, focus: focus,
-		budget: a2ui.MaxNodes, wanted: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}}
+		budget: a2ui.MaxNodes, wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}}
 	if _, ok := s.Root(); !ok {
 		d.placeholders++
 		return []string{truncate(styled(faint, "waiting for the root component"), width)}, 0, 0, d
@@ -89,6 +89,7 @@ type surfaceDraw struct {
 	visits       int                 // component visits so far
 	placeholders int                 // placeholder lines drawn so far
 	wanted       map[a2ui.Child]int  // widths components asked for, by want
+	leasts       map[a2ui.Child]int  // narrowest widths, by least
 	measuring    map[a2ui.Child]bool // components want is working out
 }
 
@@ -198,6 +199,57 @@ func (d *surfaceDraw) want(ch a2ui.Child, depth int) int {
 	delete(d.measuring, ch)
 	d.wanted[ch] = w
 	return w
+}
+
+// least is the narrowest a component can be drawn without losing text. A
+// checkbox needs its mark, a space and room for one wide character, a
+// text room for one, a box its child and four, a column its widest child.
+// A row can stack its children, so it needs no more than its widest. The
+// answers are kept, and a component being worked out asks for one.
+func (d *surfaceDraw) least(ch a2ui.Child, depth int) int {
+	if w, ok := d.leasts[ch]; ok {
+		return w
+	}
+	if depth > a2ui.MaxDepth || d.measuring[ch] {
+		return 1
+	}
+	d.measuring[ch] = true
+	w := d.needs(ch, depth)
+	delete(d.measuring, ch)
+	d.leasts[ch] = w
+	return w
+}
+
+func (d *surfaceDraw) needs(ch a2ui.Child, depth int) int {
+	c, ok := d.s.Components[ch.ID]
+	if !ok {
+		return 2
+	}
+	kind := d.s.Kind(c)
+	widest := 1
+	kids := d.s.Children(c, ch.Scope)
+	for _, k := range kids {
+		widest = max(widest, d.least(k, depth+1))
+	}
+	switch kind {
+	case "Column", "List", "Row":
+		return widest
+	case "Card":
+		if depth == 0 {
+			return widest
+		}
+		return max(widest+4, minBox)
+	case "Divider":
+		return 1
+	case "Button":
+		if len(kids) == 0 {
+			return len("button") + 4
+		}
+		return widest + 4
+	case "CheckBox", "TextField", "ChoicePicker":
+		return 4
+	}
+	return 2
 }
 
 func (d *surfaceDraw) asks(ch a2ui.Child, depth int) int {
@@ -354,7 +406,16 @@ func (d *surfaceDraw) row(kids []a2ui.Child, width, depth int) (out []string, se
 		return nil, 0, 0
 	}
 	avail := width - rowGap*(n-1)
-	if avail < n {
+	wants, floors := make([]int, n), make([]int, n)
+	weight := make([]float64, n)
+	for i, k := range kids {
+		weight[i] = d.weightOf(k.ID)
+		wants[i] = d.want(k, depth+1)
+		floors[i] = min(d.least(k, depth+1), wants[i])
+	}
+	if avail < sum(floors) {
+		// A child squeezed to less than it needs would lose text, so the
+		// children go one under another.
 		for _, k := range kids {
 			lines, a, b := d.node(k, width, depth+1)
 			if b > a && selB == 0 {
@@ -364,35 +425,7 @@ func (d *surfaceDraw) row(kids []a2ui.Child, width, depth int) (out []string, se
 		}
 		return out, selA, selB
 	}
-	base := make([]int, n)
-	weight := make([]float64, n)
-	var weighted float64
-	for i, k := range kids {
-		weight[i] = d.weightOf(k.ID)
-		weighted += weight[i]
-		if weight[i] > 0 {
-			base[i] = 1
-			continue
-		}
-		base[i] = min(d.want(k, depth+1), avail)
-	}
-	alloc := shrink(base, avail)
-	if left := avail - sum(alloc); left > 0 && weighted > 0 {
-		given := 0
-		for i := range alloc {
-			if weight[i] > 0 {
-				share := int(float64(left) * weight[i] / weighted)
-				alloc[i] += share
-				given += share
-			}
-		}
-		for i := 0; given < left && i < n; i++ {
-			if weight[i] > 0 {
-				alloc[i]++
-				given++
-			}
-		}
-	}
+	alloc := allot(wants, floors, weight, avail)
 	cols := make([][]string, n)
 	height := 0
 	for i, k := range kids {
@@ -440,23 +473,62 @@ func sum(xs []int) int {
 	return t
 }
 
-// shrink returns widths no larger than want that add up to at most total,
-// cutting the widest first.
-func shrink(want []int, total int) []int {
+// allot shares avail columns among a row's children. A child with no
+// weight gets the width it wants, or less when they do not all fit, the
+// widest giving way first; no child gets less than its floor, which the
+// caller has kept within avail in all and within the child's want. What is
+// left over is shared among the weighted children by weight, who start at
+// their floors.
+func allot(want, floor []int, weight []float64, avail int) []int {
+	n := len(want)
+	base := make([]int, n)
+	var weighted float64
+	for i := range want {
+		weighted += weight[i]
+		if weight[i] > 0 {
+			base[i] = floor[i]
+			continue
+		}
+		base[i] = max(min(want[i], avail), floor[i])
+	}
+	alloc := shrink(base, floor, avail)
+	if left := avail - sum(alloc); left > 0 && weighted > 0 {
+		given := 0
+		for i := range alloc {
+			if weight[i] > 0 {
+				share := int(float64(left) * weight[i] / weighted)
+				alloc[i] += share
+				given += share
+			}
+		}
+		for i := 0; given < left && i < n; i++ {
+			if weight[i] > 0 {
+				alloc[i]++
+				given++
+			}
+		}
+	}
+	return alloc
+}
+
+// shrink returns widths no larger than want and no smaller than floor that
+// add up to at most total, cutting the widest first. The floors must add up
+// to no more than total.
+func shrink(want, floor []int, total int) []int {
 	out := append([]int(nil), want...)
 	if sum(out) <= total {
 		return out
 	}
-	level := sort.Search(total+1, func(l int) bool {
+	at := func(l int) int {
 		t := 0
-		for _, w := range want {
-			t += min(w, l)
+		for i, w := range want {
+			t += max(floor[i], min(w, l))
 		}
-		return t > total
-	}) - 1
-	level = max(level, 1)
+		return t
+	}
+	level := sort.Search(total+1, func(l int) bool { return at(l) > total }) - 1
 	for i, w := range want {
-		out[i] = min(w, level)
+		out[i] = max(floor[i], min(w, level))
 	}
 	for i := 0; sum(out) < total && i < len(out); i++ {
 		if out[i] < want[i] {

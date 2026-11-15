@@ -69,6 +69,18 @@ func TestResolvedRejects(t *testing.T) {
 		{"cycle", with(prop("card", "child", "root")), "more than once"},
 		{"child listed twice", with(prop("row", "children", []any{"a", "a"})), `"a"`},
 		{"two parents list one child", with(prop("list", "children", []any{"a"})), `"a"`},
+		{"component nothing lists", with(func(s *Surface) {
+			s.Components["orphan"] = Component{ID: "orphan", Type: "Text", Props: map[string]any{"text": "x"}}
+		}), `"orphan"`},
+		{"too many children", with(func(s *Surface) {
+			kids := make([]any, 0, MaxItems+1)
+			for i := range MaxItems + 1 {
+				id := fmt.Sprintf("m%d", i)
+				s.Components[id] = Component{ID: id, Type: "Text", Props: map[string]any{"text": "x"}}
+				kids = append(kids, id)
+			}
+			s.Components["row"].Props["children"] = kids
+		}), "more than 500 children"},
 		{"too deep", with(func(s *Surface) {
 			prev := "t"
 			for i := range MaxDepth + 2 {

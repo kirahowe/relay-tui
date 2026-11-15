@@ -1,6 +1,10 @@
 package a2ui
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // textVariants and the other enums are the values the relay catalog
 // allows for the properties that take one.
@@ -59,7 +63,15 @@ func Resolved(s Surface) error {
 		}
 		return nil
 	}
-	return visit("root", 0)
+	if err := visit("root", 0); err != nil {
+		return err
+	}
+	for _, id := range slices.Sorted(maps.Keys(s.Components)) {
+		if !reached[id] {
+			return errorf(CodeInvalid, "component %s is not reached from the root", escapeKind(id))
+		}
+	}
+	return nil
 }
 
 // resolvedComponent checks one component and returns the ids it names.
@@ -118,6 +130,9 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 		list, ok := c.Props["children"].([]any)
 		if !ok {
 			return nil, errorf(CodeInvalid, "component %s has children that are not a list of ids", id)
+		}
+		if len(list) > MaxItems {
+			return nil, errorf(CodeInvalid, "component %s has more than %d children", id, MaxItems)
 		}
 		out := make([]string, len(list))
 		for i, e := range list {

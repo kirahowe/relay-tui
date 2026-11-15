@@ -82,6 +82,15 @@ func TestResolvedRejectsEveryMutationOfASurfaceRelayCouldSend(t *testing.T) {
 		"two parents list one child": func(s a2ui.Surface) a2ui.Surface {
 			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Card", Props: map[string]any{"child": "old_root"}})
 		},
+		"component nothing lists": func(s a2ui.Surface) a2ui.Surface {
+			comps := map[string]a2ui.Component{}
+			for id, c := range s.Components {
+				comps[id] = c
+			}
+			comps["orphan"] = a2ui.Component{ID: "orphan", Type: "Text", Props: map[string]any{"text": "a"}}
+			s.Components = comps
+			return s
+		},
 		"cycle": func(s a2ui.Surface) a2ui.Surface {
 			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Card", Props: map[string]any{"child": "x"}})
 		},
@@ -91,7 +100,7 @@ func TestResolvedRejectsEveryMutationOfASurfaceRelayCouldSend(t *testing.T) {
 		for k, v := range data {
 			s.Data.(map[string]any)[k] = v
 		}
-		name := rapid.SampledFrom([]string{"unknown type", "extra property", "catalog id", "template children", "missing child", "call in text", "relative path", "path to a non-boolean", "cycle", "child listed twice", "two parents list one child"}).Draw(t, "mutation")
+		name := rapid.SampledFrom([]string{"unknown type", "extra property", "catalog id", "template children", "missing child", "call in text", "relative path", "path to a non-boolean", "cycle", "child listed twice", "two parents list one child", "component nothing lists"}).Draw(t, "mutation")
 		bad := mutations[name](s)
 		if err := a2ui.Resolved(bad); err == nil {
 			t.Fatalf("%s: accepted", name)

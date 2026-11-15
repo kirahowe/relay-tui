@@ -337,7 +337,20 @@ type boardAnchor struct {
 	card         int64
 	line, col    int
 	elem, column int
-	path, label  string // the input a surface's cursor is on
+	inputs       []inputKey // a surface card's inputs, in order
+}
+
+// inputKey is an input as the cursor knows it: no input has an id, and a
+// path into a list is a position, so path and label are all there is.
+type inputKey struct{ path, label string }
+
+// inputKeys lists a surface card's inputs as the cursor knows them.
+func (c Card) inputKeys() []inputKey {
+	var out []inputKey
+	for _, in := range c.Inputs() {
+		out = append(out, inputKey{in.Path, in.Label})
+	}
+	return out
 }
 
 // anchorOf is where the open card's cursor is, or false when no card is
@@ -349,9 +362,7 @@ func anchorOf(b Board) (boardAnchor, bool) {
 	}
 	a := boardAnchor{card: c.ID, line: BoardLine(b, c), col: BoardCol(b, c)}
 	if c.Kind == CardSurface {
-		if ins := c.Inputs(); a.line > 0 {
-			a.path, a.label = ins[a.line-1].Path, ins[a.line-1].Label
-		}
+		a.inputs = c.inputKeys()
 	} else if elems := c.lineElems(); a.line > 0 {
 		a.elem = elems[a.line-1].ID
 	}
@@ -374,7 +385,9 @@ func (c Card) lineElems() []CardElem {
 
 // reanchor puts the open card's cursor back on the element it was on
 // before relay's newer copy of the card replaced the held one, since an
-// item or row added or removed above it moves it. When that element has
+// item or row added or removed above it moves it. On a surface card the
+// cursor stays on its box only when the list of boxes is the same; any
+// change sends it to the title. When that element has
 // gone, the cursor stays at the nearest position, and a note says so
 // (over any older note, but not over a refusal and its reason), so that
 // x never acts on a line the operator did not choose without them being
@@ -386,8 +399,15 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 		return
 	}
 	gone := ""
-	if a.path != "" {
-		gone = r.reanchorInput(c, a)
+	if c.Kind == CardSurface && a.line > 0 && !slices.Equal(c.inputKeys(), a.inputs) {
+		// A box has no id, and a path into a list is a position, so a
+		// changed list of boxes cannot say which box the cursor was on.
+		// The cursor goes to the title, where no key acts on a box, and
+		// the operator chooses again.
+		b.Line = 0
+		if b.Failure == "" {
+			b.Message = "The card's boxes changed; select one again."
+		}
 	}
 	if a.elem != 0 {
 		elems := c.lineElems()
@@ -414,38 +434,6 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 	if gone != "" && b.Failure == "" {
 		b.Message = "The selected " + gone + " is gone; the cursor moved to the nearest one."
 	}
-}
-
-// reanchorInput puts the cursor back on the input of a surface card it
-// was on. An input has no id, and a path into a list is a position, so
-// it is known by its path and label together. When none has both, the one
-// input with the same label is it, moved. When there is no such one, the
-// cursor stays at the nearest line and the answer is the kind of thing
-// that has gone.
-func (r *reducer) reanchorInput(c Card, a boardAnchor) string {
-	b := &r.a.Board
-	ins := c.Inputs()
-	if j := slices.IndexFunc(ins, func(x a2ui.Input) bool { return x.Path == a.path && x.Label == a.label }); j >= 0 {
-		b.Line = j + 1
-		return ""
-	}
-	same := -1
-	for j, x := range ins {
-		if x.Label != a.label {
-			continue
-		}
-		if same >= 0 {
-			same = -2
-			break
-		}
-		same = j
-	}
-	if same >= 0 {
-		b.Line = same + 1
-		return ""
-	}
-	b.Line = min(a.line, c.Lines()-1)
-	return "box"
 }
 
 func (r *reducer) board(e Event) {
