@@ -445,3 +445,61 @@ func TestASurfaceCardsFrameNamesItsOwnerAndSaysWhenItIsFromOutside(t *testing.T)
 		t.Errorf("the owner is not in the frame:\n%s", f)
 	}
 }
+
+// The corner names the owner in every state of a surface card: while an
+// op is on its way, and on a card relay calls complete, where the other
+// kinds say only that.
+func TestASurfaceCardsCornerAlwaysNamesItsOwner(t *testing.T) {
+	c := plainSurface(t, 1896, false, "text", "box")
+	c.Owner = "steward"
+	top := func(s core.Single, width int) string {
+		for _, l := range PaneLines(s.App, s.State, t0, width, 12) {
+			if p := ansi.Strip(l); strings.HasPrefix(p, "╭") {
+				return p
+			}
+		}
+		t.Fatal("no top border")
+		return ""
+	}
+	sending := boardState(true, c)
+	sending.Board.Sending = c.ID
+	if got := top(sending, 60); !strings.Contains(got, "─ steward · sending… ─╮") {
+		t.Errorf("while sending: %s", got)
+	}
+	// With little room the owner is what stays.
+	if got := top(sending, 24); !strings.Contains(got, "steward") {
+		t.Errorf("while sending, 24 wide: %s", got)
+	}
+	done := c
+	done.Complete = true
+	if got := top(boardState(true, done), 60); !strings.Contains(got, "─ steward ─╮") {
+		t.Errorf("complete: %s", got)
+	}
+	for _, s := range []core.Single{sending, detail(sending, c.ID, 1, 0)} {
+		for width := 1; width <= 80; width++ {
+			for _, l := range PaneLines(s.App, s.State, t0, width, 12) {
+				if w := Method.StringWidth(l); w > width {
+					t.Fatalf("width %d: a line is %d wide: %q", width, w, l)
+				}
+			}
+		}
+	}
+}
+
+// An owner that draws as nothing names nobody. The corner says the kind
+// in its place, and the top border stays inside the panel.
+func TestAnOwnerOfNoWidthLeavesTheKindInTheCorner(t *testing.T) {
+	c := plainSurface(t, 1897, false, "text", "box")
+	c.Title.Text, c.Owner = "Pack for the lake", "\u0301\u0301\u0301"
+	s := boardState(true, c)
+	if f := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 12), "\n")); !strings.Contains(f, "─ surface ─╮") {
+		t.Errorf("the corner:\n%s", f)
+	}
+	for width := 1; width <= 40; width++ {
+		for _, l := range PaneLines(s.App, s.State, t0, width, 12) {
+			if w := Method.StringWidth(l); w > width {
+				t.Fatalf("width %d: a line is %d wide: %q", width, w, l)
+			}
+		}
+	}
+}

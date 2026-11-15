@@ -121,28 +121,39 @@ func cardTitle(c core.Card, live core.Links) string {
 }
 
 // cardRight is what a card's panel says at the right of its title: how
-// far along it is, or its kind.
+// far along it is, or its kind. A surface card's says whose it is.
 func cardRight(b core.Board, c core.Card) string {
 	var w string
 	switch {
+	case c.Kind == core.CardSurface && c.Surface != nil:
+		// The frame is the client's, so it names whose card this is, in
+		// place of the kind, and it does so in every state: the owner
+		// comes first and anything else after it.
+		w = surfaceOwner(c)
+		if b.Sending == c.ID {
+			w += " · sending…"
+		}
 	case b.Sending == c.ID:
 		w = "sending…"
 	case c.Complete:
 		w = "complete"
 	case c.Kind == core.CardChecklist || c.Kind == core.CardTracker:
 		w = fmt.Sprintf("%d of %d", c.Done, c.Total)
-	case c.Kind == core.CardSurface && c.Surface != nil:
-		// The frame is the client's, so it names whose card this is, in
-		// place of the kind. The owner is a string from relay with no
-		// mark of its source.
-		w = "surface"
-		if c.Owner != "" {
-			w = cardLine(c.Owner, true, core.Links{})
-		}
 	default:
 		w = cardLine(c.Kind, true, core.Links{})
 	}
 	return styled(faint, w)
+}
+
+// surfaceOwner is what a surface card's corner calls its owner. The owner
+// is a string from relay with no mark of its source, so it is drawn as
+// outside text on one line. One that draws as nothing names nobody, and
+// the kind stands in for it.
+func surfaceOwner(c core.Card) string {
+	if o := cardLine(c.Owner, true, core.Links{}); Method.StringWidth(o) > 0 {
+		return o
+	}
+	return "surface"
 }
 
 // cardFoot is what the bottom border of a card's panel says: that some
@@ -390,8 +401,13 @@ func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focu
 	right := cardRight(b, c)
 	if c.Kind == core.CardSurface && c.Surface != nil {
 		// The corner names whose card this is, so the title gives way to
-		// it, down to a few columns.
-		title = truncate(title, max(width-10-Method.StringWidth(right), 8))
+		// it, down to a few columns. With too little room for the rest
+		// of the corner as well, the name is what stays.
+		const least = 8
+		if width-10-Method.StringWidth(right) < least {
+			right = styled(faint, surfaceOwner(c))
+		}
+		title = truncate(title, max(width-10-Method.StringWidth(right), least))
 	}
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)

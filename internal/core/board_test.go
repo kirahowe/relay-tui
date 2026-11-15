@@ -1226,21 +1226,59 @@ func TestASavedViewDoesNotPutTheCursorOnABoxNobodyChose(t *testing.T) {
 }
 
 // A text op refused after the operator has gone to another card puts the
-// refused card's input back, and must not carry the other card's line.
-func TestALateRefusalDoesNotPutALineOnAnotherCardsBox(t *testing.T) {
-	a := surfaceCard(t, 10, 10, box{"/a/0", "Pay rent", false}, box{"/a/1", "Cancel insurance", false}, box{"/a/2", "Sell car", false})
-	b := surfaceCard(t, 11, 11, box{"/b/0", "Tent", false}, box{"/b/1", "Map", false}, box{"/b/2", "Stove", false})
-	s := onBoard(a, b)
-	s, _ = boardKeys(s, PaneEdit)
+// refused card's input back, and must not carry the other card's line or
+// column, whatever kind either card is: the refused card opens on its
+// title, where x does nothing.
+func TestALateRefusalDoesNotCarryALineToAnotherCard(t *testing.T) {
+	kinds := map[string]func(id int64) Card{
+		"checklist": func(id int64) Card { return checklist(id, id, false, false, false) },
+		"tracker":   func(id int64) Card { return tracker(id, id) },
+		"surface": func(id int64) Card {
+			return surfaceCard(t, id, id, box{"/b/0", "Tent", false}, box{"/b/1", "Map", false}, box{"/b/2", "Stove", false})
+		},
+	}
+	for refused, a := range kinds {
+		for other, b := range kinds {
+			t.Run(refused+" refused while on a "+other, func(t *testing.T) {
+				s := onBoard(a(10), b(11))
+				s, _ = boardKeys(s, PaneEdit)
+				s = typeText(s, "!")
+				s, fx := boardKeys(s, PaneEnter)
+				if ops := effectsOf[SendCardOp](fx); len(ops) != 1 || ops[0].Op.Op != "retitle" || ops[0].Card != 10 {
+					t.Fatalf("no retitle went out: %+v", ops)
+				}
+				// While it is on its way: the other card, its second line
+				// and, on a tracker, its second column.
+				s, _ = boardKeys(s, PaneDown, PaneEnter, PaneDown, PaneDown, PaneRight)
+				if c, _ := BoardCard(s.Board); c.ID != 11 || BoardLine(s.Board, c) != 2 {
+					t.Fatalf("not on line 2 of card 11: card %d line %d", c.ID, BoardLine(s.Board, c))
+				}
+				s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "Card 10 was changed at rev 12, after rev 10."})
+				s, _ = boardKeys(s, PaneEsc) // closes the reopened input
+				if c, _ := BoardCard(s.Board); c.ID != 10 {
+					t.Fatalf("card %d is open, want the refused card 10", c.ID)
+				}
+				if s.Board.Line != 0 || s.Board.Col != 0 || s.Board.Box != nil {
+					t.Fatalf("the board kept line %d, column %d, box %v from the other card", s.Board.Line, s.Board.Col, s.Board.Box != nil)
+				}
+				onTitle(t, s)
+			})
+		}
+	}
+}
+
+// A refusal for the card the operator is still on leaves the cursor
+// where they put it: that line was chosen on this card.
+func TestARefusalOnTheOpenCardKeepsItsLine(t *testing.T) {
+	s := onBoard(checklist(10, 10, false, false, false), checklist(11, 11, false, false, false))
+	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneEdit)
 	s = typeText(s, "!")
 	s, _ = boardKeys(s, PaneEnter)
-	s, _ = boardKeys(s, PaneDown, PaneEnter, PaneDown, PaneDown) // card 11, Map
 	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "Card 10 was changed at rev 12, after rev 10."})
-	s, _ = boardKeys(s, PaneEsc) // closes the reopened input
-	if c, _ := BoardCard(s.Board); c.ID != 10 {
-		t.Fatalf("card %d is open, want the refused card 10", c.ID)
+	s, _ = boardKeys(s, PaneEsc)
+	if c, _ := BoardCard(s.Board); c.ID != 10 || BoardLine(s.Board, c) != 2 {
+		t.Fatalf("card %d line %d, want card 10 line 2", c.ID, BoardLine(s.Board, c))
 	}
-	onTitle(t, s)
 }
 
 func TestACardThatChangesKindKeepsNoLine(t *testing.T) {

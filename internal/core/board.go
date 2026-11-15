@@ -581,6 +581,11 @@ func (r *reducer) board(e Event) {
 // confirm, or the card has left the board. An edit takes the rev of the
 // card as now held, so the operator, who has just read why relay refused,
 // can send it again on purpose; Was is cleared so Enter always sends.
+//
+// The refusal can come after the operator has gone to another card. The
+// refused card is then selected again, and the cursor goes to its title:
+// the line it was on was chosen on the other card, and names nothing the
+// operator chose on this one.
 func (r *reducer) reopen(in BoardInput) {
 	b := &r.a.Board
 	if b.Input != nil || b.Confirm != 0 {
@@ -594,6 +599,9 @@ func (r *reducer) reopen(in BoardInput) {
 		in.Op.Seen = int64p(b.Cards[i].Rev)
 	}
 	in.Op.Text, in.Was = nil, ""
+	if b.SelID != in.Card {
+		b.Line, b.Col, b.Box = 0, 0, nil
+	}
 	b.SelID = in.Card
 	b.Input = &in
 }

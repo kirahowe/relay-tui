@@ -295,9 +295,12 @@ been written outside. Text an outsider may have written is drawn exactly as
 sent, in the warning colour, with every link in its broken form, and the
 card's foot says "from outside". One of relay's live links can be
 clicked, as on any card (see The look). When relay's newer copy of an
-open surface changes anything but what is ticked, the cursor goes back
+open surface differs in anything but what is ticked, the cursor goes back
 to the title and a note says so, since a checkbox has nothing to be
-followed by. The list shows the first twelve lines of a surface.
+followed by. relay's answer to your own tick is the one exception: the
+cursor stays when the card still has the same checkboxes. A refusal
+already on screen stays there in place of the note. The list shows the
+first twelve lines of a surface.
 
 A card of a kind relay-tui does not know shows the text form relay sends
 with every card.
