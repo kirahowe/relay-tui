@@ -76,7 +76,7 @@ func run(in io.Reader, out, errs io.Writer, width int, color bool) bool {
 		if i > 0 {
 			fmt.Fprintln(out)
 		}
-		lines := append([]string{render.Faint("surface "+s.ID, width)}, render.A2UI(s, width, nil)...)
+		lines := append([]string{render.A2UIName(s, width)}, render.A2UI(s, width, nil)...)
 		for _, l := range lines {
 			if !color {
 				l = ansi.Strip(l)

@@ -141,17 +141,45 @@ func TestA2UIDrawsNoControlBytesFromTheSurface(t *testing.T) {
 			if strings.Contains(l, "\x1b[38;5;196") || strings.Contains(l, "\x1b]8;;") {
 				t.Fatalf("a sequence from the surface got through: %q", l)
 			}
-			rest := sgrRE.ReplaceAllString(l, "")
-			for _, r := range rest {
-				if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || unicode.Is(unicode.Cf, r) && r != 0x200d {
-					t.Fatalf("control or format character %U in %q", r, l)
-				}
+			if r, bad := surfaceControl(l); bad {
+				t.Fatalf("control or format character %U in %q", r, l)
 			}
 			for _, sgr := range sgrRE.FindAllString(l, -1) {
 				if !regexp.MustCompile(`^\x1b\[[0-9;]*m$`).MatchString(sgr) {
 					t.Fatalf("odd sequence %q", sgr)
 				}
 			}
+		}
+	})
+}
+
+// surfaceControl finds a control or format character in a drawn line,
+// outside the styles this package writes.
+func surfaceControl(l string) (rune, bool) {
+	for _, r := range sgrRE.ReplaceAllString(l, "") {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || unicode.Is(unicode.Cf, r) && r != 0x200d {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+// The line that names a surface draws its id as the drawing does any
+// other string: inside the width, with no control character and no live
+// link.
+func TestA2UINameIsSafe(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		id := genSurfaceText().Draw(t, "id")
+		width := rapid.IntRange(1, 120).Draw(t, "width")
+		l := A2UIName(a2ui.Surface{ID: id}, width)
+		if w := Method.StringWidth(l); w > width {
+			t.Fatalf("width %d: line is %d wide: %q", width, w, l)
+		}
+		if r, bad := surfaceControl(l); bad {
+			t.Fatalf("control or format character %U in %q", r, l)
+		}
+		if live(ansiPlain(l)) {
+			t.Fatalf("live link in %q", l)
 		}
 	})
 }

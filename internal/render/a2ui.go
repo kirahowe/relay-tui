@@ -457,3 +457,10 @@ func (d *surfaceDraw) tracker(c a2ui.Component, sc a2ui.Scope, width int) []stri
 	lines, _, _ := cardLinesFor(core.Board{}, card, width, true, false)
 	return lines
 }
+
+// A2UIName is the line that names surface s, for a view that shows more
+// than one. The id is a string from the surface, so it is escaped and
+// defanged as the rest are.
+func A2UIName(s a2ui.Surface, width int) string {
+	return truncate(styled(faint, "surface "+surfaceLine(s.ID)), max(width, 1))
+}

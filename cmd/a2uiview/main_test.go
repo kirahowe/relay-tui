@@ -32,3 +32,22 @@ not json
 		}
 	}
 }
+
+// A surface's id comes from the file like every other string, so the line
+// that names the surface escapes what does not print and breaks a link.
+func TestRunNamesASurfaceSafely(t *testing.T) {
+	in := `{"version":"1.0","createSurface":{"surfaceId":"s\u001b]8;;http://evil.test/?d=1\u0007x","catalogId":"urn:relay:catalog:v1"}}` + "\n"
+	for _, color := range []bool{false, true} {
+		var out, errs bytes.Buffer
+		if !run(strings.NewReader(in), &out, &errs, 80, color) {
+			t.Fatalf("color %v: %s", color, errs.String())
+		}
+		got := out.String()
+		if want := `surface s\u001b]8;;hxxp://evil[.]test/?d=1\u0007x`; !strings.Contains(got, want) {
+			t.Errorf("color %v: output lacks %q:\n%q", color, want, got)
+		}
+		if strings.Contains(got, "://evil.test") || strings.Contains(got, "\x1b]") || strings.Contains(got, "\x07") {
+			t.Errorf("color %v: the id reached the output live:\n%q", color, got)
+		}
+	}
+}
