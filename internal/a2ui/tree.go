@@ -111,3 +111,48 @@ func (s Surface) Focusables() []Focus {
 	})
 	return out
 }
+
+// Texts is every string the surface draws, in drawing order, as the
+// drawing resolves it: a Text's text, a CheckBox's label, a TextField's
+// label, its value unless it is obscured, and its placeholder when it has
+// no value, and a ChoicePicker's label and its options' labels. A Button
+// draws its child, which is walked as any component is. It is what a
+// reader of the drawn surface sees, so what is looked for in it agrees
+// with what is on screen, and an obscured value is never in it.
+func (s Surface) Texts() []string {
+	var out []string
+	add := func(v string) {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	s.Walk(func(n Node) {
+		c, sc := n.Component, n.Scope
+		switch s.Kind(c) {
+		case "Text":
+			add(s.String(sc, c.Props["text"]))
+		case "CheckBox":
+			add(s.String(sc, c.Props["label"]))
+		case "TextField":
+			add(s.String(sc, c.Props["label"]))
+			value := s.String(sc, c.Props["value"])
+			if variant, _ := c.Props["variant"].(string); variant != "obscured" {
+				add(value)
+			}
+			if value == "" {
+				add(s.String(sc, c.Props["placeholder"]))
+			}
+		case "ChoicePicker":
+			add(s.String(sc, c.Props["label"]))
+			opts, _ := c.Props["options"].([]any)
+			for i, o := range opts {
+				if i >= MaxItems {
+					break
+				}
+				m, _ := o.(map[string]any)
+				add(s.String(sc, m["label"]))
+			}
+		}
+	})
+	return out
+}

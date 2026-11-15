@@ -359,8 +359,9 @@ func ReadyItemLinks(it ReadyItem, live Links) []ShownLink {
 
 // CardLinks is the links of a card: the ones relay listed for it, and
 // the broken ones in its outside text. That text is each piece relay
-// marked as an outsider's, and the text form of a card whose kind the
-// client does not know, when the card holds any text from outside.
+// marked as an outsider's, the text form of a card whose kind the client
+// does not know when the card holds any text from outside, and every
+// string a surface card draws.
 func CardLinks(c Card, live Links) []ShownLink {
 	var texts []string
 	add := func(t CardText) {
@@ -379,6 +380,12 @@ func CardLinks(c Card, live Links) []ShownLink {
 	}
 	if !c.Native() && c.Labels.Contaminated {
 		texts = append(texts, c.Text)
+	}
+	// A surface card's text is what its surface draws, resolved as the
+	// drawing resolves it. Its flag is not asked, as an item's is not:
+	// relay breaks and lists the links in whatever text it sends.
+	if c.Kind == CardSurface && c.Surface != nil {
+		texts = append(texts, c.Surface.A2UI.Texts()...)
 	}
 	return LinksIn(c.Links, live, texts...)
 }

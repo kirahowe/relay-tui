@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -212,5 +213,43 @@ func TestAWronglyTypedSurfaceMemberKeepsTheCardInItsTextForm(t *testing.T) {
 				t.Fatalf("notification: %+v", got)
 			}
 		})
+	}
+}
+
+// `L` on relay's hostile surface card lists what the card draws: the link
+// relay listed, live while it is in the set, and the broken addresses in
+// the surface's resolved text, each once. Nothing is made of the
+// surface's components that the drawing does not show.
+func TestTheLinksOfASurfaceCardAreWhatItDraws(t *testing.T) {
+	const kept = "https://kept.example/fund"
+	c := oneCard(t, readSurfaceFixture(t, "hostile"))
+	var drawn []string
+	for _, s := range c.Surface.A2UI.Texts() {
+		drawn = append(drawn, s)
+	}
+	joined := strings.Join(drawn, "\n")
+	links := core.CardLinks(c, core.LinksOf(kept))
+	var live, broken []string
+	for _, l := range links {
+		if !strings.Contains(joined, l.Text) {
+			t.Errorf("%q is listed but the surface does not draw it", l.Text)
+		}
+		if l.Live {
+			live = append(live, l.Address)
+		} else {
+			broken = append(broken, l.Text)
+		}
+	}
+	if len(live) != 1 || live[0] != kept {
+		t.Errorf("live %q, want the one relay listed", live)
+	}
+	if len(broken) == 0 || !slices.Contains(broken, "hxxps://kept[.]example/fund/x") {
+		t.Errorf("broken %q, want the surface's other addresses", broken)
+	}
+	// With the address out of the set, it is a broken row like the rest.
+	for _, l := range core.CardLinks(c, core.Links{}) {
+		if l.Live {
+			t.Errorf("%+v listed live with no set", l)
+		}
 	}
 }

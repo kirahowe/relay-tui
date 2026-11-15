@@ -3,6 +3,7 @@ package render
 import (
 	"encoding/json/v2"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"unicode"
@@ -300,4 +301,68 @@ func surfaceOf(t testing.TB, catalog, components, data string) a2ui.Surface {
 		}
 	}
 	return ss[0]
+}
+
+// The list on L for a surface card holds the broken links the card draws,
+// and only those. The judge is the drawing itself, read as plain text,
+// not the code that gathers the strings: every link listed is on screen,
+// and the broken address the generator plants, wherever the drawing shows
+// it, is listed.
+func TestASurfaceCardListsTheLinksItDraws(t *testing.T) {
+	const planted = "hxxps://evil[.]test/apply?who=kira"
+	rapid.Check(t, func(t *rapid.T) {
+		s := genSurface(t)
+		c := core.Card{ID: 1, Kind: core.CardSurface, Status: core.CardActive, Surface: &core.RoleSurface{Outsider: true, A2UI: s}}
+		solid := strings.Join(strings.Fields(ansiPlain(osc8RE.ReplaceAllString(strings.Join(A2UI(s, 400, nil), "\n"), ""))), "")
+		links := core.CardLinks(c, core.Links{})
+		listed := false
+		for _, l := range links {
+			if l.Live {
+				t.Fatalf("%+v listed live with nothing listed by relay", l)
+			}
+			if !strings.Contains(solid, strings.Join(strings.Fields(l.Text), "")) {
+				t.Fatalf("%q is listed and not drawn:\n%s", l.Text, solid)
+			}
+			listed = listed || strings.HasPrefix(l.Text, planted)
+		}
+		if strings.Contains(solid, planted) && !listed {
+			t.Fatalf("%q is drawn and not listed: %+v", planted, links)
+		}
+	})
+}
+
+// An obscured field's value is never listed, a placeholder is listed only
+// where it is drawn, a Button's own label is not drawn and not listed,
+// and a picker's options are. Each address is checked against what the
+// drawing shows, read as plain text.
+func TestASurfaceListsWhatItShowsAndNoSecret(t *testing.T) {
+	addr := func(s string) string { return "hxxps://" + s + "[.]example/x" }
+	comp := func(id, typ string, props map[string]any) a2ui.Component {
+		return a2ui.Component{ID: id, Type: typ, Props: props}
+	}
+	s := a2ui.Surface{ID: "s", CatalogID: a2ui.BasicCatalogID, Components: map[string]a2ui.Component{
+		"root":   comp("root", "Column", map[string]any{"children": []any{"secret", "filled", "empty", "button", "picker"}}),
+		"secret": comp("secret", "TextField", map[string]any{"label": "Pass", "value": addr("secret"), "variant": "obscured"}),
+		"filled": comp("filled", "TextField", map[string]any{"label": "Site", "value": addr("value"), "placeholder": addr("hint")}),
+		"empty":  comp("empty", "TextField", map[string]any{"label": "Other", "placeholder": addr("blank")}),
+		"button": comp("button", "Button", map[string]any{"label": addr("label"), "child": "inner"}),
+		"inner":  comp("inner", "Text", map[string]any{"text": "Go to " + addr("child")}),
+		"picker": comp("picker", "ChoicePicker", map[string]any{"label": "Pick", "options": []any{map[string]any{"label": addr("option"), "value": "a"}}}),
+	}}
+	c := core.Card{ID: 1, Kind: core.CardSurface, Status: core.CardActive, Surface: &core.RoleSurface{Outsider: true, A2UI: s}}
+	solid := strings.Join(strings.Fields(ansiPlain(strings.Join(A2UI(s, 200, nil), "\n"))), "")
+	var listed []string
+	for _, l := range core.CardLinks(c, core.Links{}) {
+		listed = append(listed, l.Text)
+	}
+	for _, name := range []string{"value", "blank", "child", "option"} {
+		if !slices.Contains(listed, addr(name)) || !strings.Contains(solid, addr(name)) {
+			t.Errorf("%s: listed %v, drawn %v", name, slices.Contains(listed, addr(name)), strings.Contains(solid, addr(name)))
+		}
+	}
+	for _, name := range []string{"secret", "hint", "label"} {
+		if slices.Contains(listed, addr(name)) || strings.Contains(solid, addr(name)) {
+			t.Errorf("%s is listed or drawn: %v\n%s", name, listed, solid)
+		}
+	}
 }
