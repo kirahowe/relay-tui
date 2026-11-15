@@ -3,6 +3,7 @@ package render
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -26,14 +27,20 @@ var urlRE = regexp.MustCompile("(?i)(?:[a-z][a-z0-9+.\\-]*://|www\\.)(?:\\[\\.\\
 // schemeName is a scheme by itself, as it stands before "://".
 var schemeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.\-]*$`)
 
-// Defang defangs every URL in s. Every dot in it becomes [.], http and
-// https become hxxp and hxxps, and any other scheme's :// becomes [:]//,
-// so no "://" is left. s should be sanitized first.
+// Defang defangs every URL in s. A dot in it becomes [.], http and https
+// become hxxp and hxxps, and any other scheme's :// becomes [:]//, so no
+// "://" is left. s should be sanitized first.
+//
+// It changes nothing in text it or relay broke already. A dot is broken
+// as relay breaks one (relay.text/break-every-dot): only with a
+// character either side of it in its word, and never one that stands in
+// [.] already. So the full stop that ends a sentence after a link stays
+// a full stop, as relay sent it.
 func Defang(s string) string {
-	dots := func(t string) string {
-		return strings.ReplaceAll(strings.ReplaceAll(t, "[.]", "."), ".", "[.]")
-	}
-	out := urlRE.ReplaceAllStringFunc(s, func(u string) string {
+	var b strings.Builder
+	at := 0
+	for _, m := range urlRE.FindAllStringIndex(s, -1) {
+		u := s[m[0]:m[1]]
 		scheme, rest := "", u
 		// What stands before the first "://" is the scheme only when it
 		// is one. In www.evil.test/?u=http://x it is a host and a path,
@@ -50,25 +57,51 @@ func Defang(s string) string {
 			default:
 				// A scheme may hold dots (www.x.io://y), and so read as
 				// a www. host by itself.
-				scheme = dots(scheme) + "[:]//"
+				scheme = breakDots(scheme, true) + "[:]//"
 			}
 		}
 		// Every dot loses its power, in the path and query too, so a
 		// second host riding in the URL (?next=www.evil.test/?d=1) is
-		// broken as well as the first, as relay's own defang does.
-		return scheme + dots(rest)
-	})
+		// broken as well as the first, as relay's own defang does. The
+		// URL's last dot counts as inside the word when more of the word
+		// follows it.
+		more := m[1] < len(s) && !unicode.IsSpace(rune(s[m[1]])) && s[m[1]] != ']'
+		b.WriteString(s[at:m[0]] + scheme + breakDots(rest, more))
+		at = m[1]
+	}
+	b.WriteString(s[at:])
 	// A "://" can be left that the match did not own: it came from the
 	// middle of another URL's host, or after a www. host's path, or it
 	// has something before it that is no scheme's letter (a hidden
 	// character, a letter of another script) and a terminal's finder may
 	// read as one. None survives but a broken scheme's.
-	return schemeSepRE.ReplaceAllStringFunc(out, func(m string) string {
+	return schemeSepRE.ReplaceAllStringFunc(b.String(), func(m string) string {
 		if len(m) > 3 {
 			return m
 		}
 		return "[:]//"
 	})
+}
+
+// breakDots breaks the dots in t, part of a word, that have a character
+// either side: every dot but the first character, one in [.] or beside a
+// bracket that would make it look so, and the last character unless more
+// says the word goes on after t.
+func breakDots(t string, more bool) string {
+	if !strings.Contains(t, ".") {
+		return t
+	}
+	var b strings.Builder
+	for i := 0; i < len(t); i++ {
+		c := t[i]
+		last := i == len(t)-1
+		if c != '.' || i == 0 || t[i-1] == '[' || (last && !more) || (!last && t[i+1] == ']') {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteString("[.]")
+	}
+	return b.String()
 }
 
 // schemeSepRE finds "://" with a broken scheme before it, which stays, or

@@ -51,8 +51,10 @@ var osc8RE = regexp.MustCompile("\x1b\\]8;;([^\x07\x1b]*)\x07")
 func hasLinks(s string) bool { return strings.Contains(s, "\x1b]8;") }
 
 // span is a live link as fang writes it: a hyperlink to the address,
-// over the address in its broken form.
-func span(link string) string { return linkOpen(link) + Defang(link) + linkEnd }
+// over the address in its broken form. A dot that ends the address is
+// broken with the rest: it is part of the address, where the last dot of
+// a word of prose is a full stop.
+func span(link string) string { return linkOpen(link) + breakDots(Defang(link), true) + linkEnd }
 
 // autolink is a live link between Markdown's angle brackets, where the
 // parser reads it as a link. Only Markdown source holds one, never a row.
@@ -78,7 +80,7 @@ func fang(t string, live core.Links) string {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(Defang(before)) + span(link) + after
+		return breakDots(Defang(before), true) + span(link) + after
 	})
 }
 
@@ -93,7 +95,7 @@ func fangSource(t string, live core.Links) string {
 			return Defang(w)
 		}
 		before, after = unbracket(before, after)
-		return breakDots(Defang(before)) + autolink(link) + after
+		return breakDots(Defang(before), true) + autolink(link) + after
 	})
 }
 
@@ -104,11 +106,6 @@ func unbracket(before, after string) (string, string) {
 		return before[:len(before)-1], after[1:]
 	}
 	return before, after
-}
-
-// breakDots breaks every dot in s.
-func breakDots(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "[.]", "."), ".", "[.]")
 }
 
 // piece is a run of a row: its text, with whatever styles it has, and
@@ -141,8 +138,15 @@ func linkable(plain string) bool {
 			return true
 		}
 	}
-	return strings.Contains(strings.ToLower(plain), "www.")
+	return wwwHostRE.MatchString(plain)
 }
+
+// wwwHostRE finds www. with more of a word after it. A www. that ends its
+// word, or has only a closing mark after it, names no host: Defang leaves
+// that dot as relay does, the full stop after a word that happens to be
+// www. Anything else after it may be read as a host, or as a user name
+// before one (www.@evil.test).
+var wwwHostRE = regexp.MustCompile(`(?i)www\.[^\s)>".,;!\]':?*~]`)
 
 // cutTailRE is what a row can begin with when a wrap or a cut fell
 // inside the scheme of a broken link, or straight after it: the end of

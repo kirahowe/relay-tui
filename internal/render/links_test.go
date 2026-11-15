@@ -29,6 +29,8 @@ func TestFang(t *testing.T) {
 		"**<" + linkA + ">**":     "**" + span(linkA) + "**",
 		// What stands before a live link in its word has its dots broken.
 		"x.y/" + linkA: "x[.]y/" + span(linkA),
+		// And is broken as any word is, whatever it is made of.
+		"é://evil.test/x=" + linkA: "é[:]//evil[.]test/x=" + span(linkA),
 		// Text run on after a live link makes another address.
 		linkA + "/more":         "hxxps://artsfund[.]example/grants/2027/more",
 		"https://evil.test/x":   "hxxps://evil[.]test/x",
@@ -253,6 +255,113 @@ func TestARowThatStartsInsideABrokenSchemeStaysAsSent(t *testing.T) {
 	}
 }
 
+// relaySends says relay could have sent text as outside text
+// (relay.text/defang's result): in every word that holds a link's mark, a
+// "://", a "[:]" or www., each "://" has a broken scheme before it and
+// nothing else, and no dot is left with a character either side of it but
+// the dot of a [.].
+func relaySends(text string) bool {
+	for _, w := range strings.Fields(text) {
+		lower := strings.ToLower(w)
+		if !strings.Contains(w, "://") && !strings.Contains(w, "[:]") && !strings.Contains(lower, "www.") {
+			continue
+		}
+		for rest := lower; ; {
+			i := strings.Index(rest, "://")
+			if i < 0 {
+				break
+			}
+			// The scheme is the run of a scheme's characters before the
+			// "://", from its first letter.
+			j := i
+			for j > 0 && strings.ContainsRune("abcdefghijklmnopqrstuvwxyz0123456789+.-", rune(rest[j-1])) {
+				j--
+			}
+			scheme := strings.TrimLeft(rest[j:i], "0123456789+.-")
+			if scheme != "hxxp" && scheme != "hxxps" && scheme != "fxp" {
+				return false
+			}
+			rest = rest[i+3:]
+		}
+		for i := 1; i < len(w)-1; i++ {
+			if w[i] == '.' && w[i-1] != '[' && w[i+1] != ']' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// The check on rows as drawn takes www. for a host when more of its word
+// follows than closing marks: a name, or a user name before one. The full
+// stop after a word that is www is none.
+func TestTheRowCheckTellsAHostFromAFullStop(t *testing.T) {
+	for _, row := range []string{"see www.", "(see www.)", "is it www.?", "the end of [www.]", `"www."`, "www.**", "hxxps://x[.]example/www."} {
+		if linkable(row) {
+			t.Errorf("%q is taken for a host", row)
+		}
+	}
+	for _, row := range []string{"www.evil.test", "WWW.Evil.test", "www._x.evil.test", "www.-x", "www.@evil.test/?d=1", "www.%65vil.test", "www.[evil", "www.é"} {
+		if !linkable(row) {
+			t.Errorf("%q is not taken for a host", row)
+		}
+	}
+	// Markdown can put one together from a link's text and what follows
+	// it. The row is then drawn plain, and broken.
+	said := `Look: [www.](www. "t")@evil.test/?d=1 now`
+	st := core.State{Phase: core.Idle, Ready: true, Labels: core.Labels{Contaminated: true},
+		Entries: []core.Entry{{Kind: core.Agent, Text: said, Final: true, Defang: true}}}
+	if plain := ansi.Strip(TranscriptView(st, core.Links{}, t0, 100, 30).Content); strings.Contains(plain, "www.@") || !strings.Contains(plain, "www[.]@evil") {
+		t.Errorf("a reply draws:\n%s", plain)
+	}
+}
+
+// Text relay broke is drawn as it came, down to the full stop after a
+// link: relay breaks a dot only with a character either side of it, and
+// so does Defang.
+func TestTextRelayBrokeIsDrawnAsItCame(t *testing.T) {
+	for _, sent := range []string{
+		"Apply at hxxps://grants[.]example[.]org/fund. Next",
+		"see hxxps://evil[.]test/x.",
+		"(hxxps://evil[.]test/x).",
+		"hxxps://evil[.]test/x[.][.].",
+		"hxxps://evil[.]test/a[.])",
+		"see www[.]evil[.]test.",
+		"fxp://files[.]example/a.",
+		"s3[:]//bucket/key[.]txt.",
+		".hidden hxxp://x[.]example. .end",
+		"see [hxxps://evil[.]test/a.] now",
+	} {
+		if !relaySends(sent) {
+			t.Fatalf("%q is not text relay sends", sent)
+		}
+		if got := fang(sent, core.Links{}); got != sent {
+			t.Errorf("fang(%q) = %q", sent, got)
+		}
+		if got := strings.Join(plainRows(cardLines(sent, true, core.Links{}, 120)), "\n"); got != sent {
+			t.Errorf("a card draws %q as %q", sent, got)
+		}
+	}
+	// The same links as an outsider wrote them come out as relay would
+	// have sent them.
+	for in, want := range map[string]string{
+		"Apply at https://grants.example.org/fund. Next": "Apply at hxxps://grants[.]example[.]org/fund. Next",
+		"https://evil.test/x...":                         "hxxps://evil[.]test/x[.][.].",
+		"https://evil.test/a.)":                          "hxxps://evil[.]test/a[.])",
+		"see www.evil.test.":                             "see www[.]evil[.]test.",
+	} {
+		if got := fang(in, core.Links{}); got != want {
+			t.Errorf("fang(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// What stands before a live link in its word keeps a first dot, as
+	// relay's text does.
+	live := core.LinksOf(linkA)
+	if got := fang(".x.y/"+linkA, live); got != ".x[.]y/"+span(linkA) {
+		t.Errorf("before a live link: %q", got)
+	}
+}
+
 // Outside text is drawn exactly as relay sent it: no character is taken
 // away and none is changed, apart from the line breaks wrapping adds. So
 // what relay checked is what the screen shows. The marks a note of the
@@ -266,9 +375,12 @@ func TestOutsideTextIsDrawnAsItWasSent(t *testing.T) {
 	solid := func(s string) string { return strings.Join(strings.Fields(s), "") }
 	rapid.Check(t, func(t *rapid.T) {
 		text := strings.Join(rapid.SliceOfN(piece, 1, 12).Draw(t, "pieces"), rapid.SampledFrom([]string{" ", "", "\n"}).Draw(t, "sep"))
-		// Only text relay could send: nothing in it that a link breaker
-		// would still change.
-		if e := core.EscapeNonPrinting(text); linkable(e) || Defang(e) != e {
+		// Only text relay could send. relaySends is a model of that,
+		// written without the code under test. Asking Defang whether it
+		// would change the text, as this did for a day, skipped every
+		// text Defang changed that it should not have: a full stop after
+		// a broken link went by.
+		if !relaySends(core.EscapeNonPrinting(text)) {
 			t.Skip("holds a link relay would have broken")
 		}
 		width := rapid.IntRange(8, 80).Draw(t, "width")
@@ -342,8 +454,15 @@ func TestALiveLinkIsNeverShownAsItIs(t *testing.T) {
 						t.Errorf("%q at %d: row %q can be followed as text", text, width, row)
 					}
 				}
-				if joined := strings.ReplaceAll(plain, "\n", ""); !strings.Contains(joined, Defang(link)) {
-					t.Errorf("%q at %d is drawn as %q", text, width, plain)
+				// The broken form, worked out here and not by the code
+				// under test: hxxp for http, and every dot in brackets.
+				want := "hxxp" + strings.ReplaceAll(link[len("http"):], ".", "[.]")
+				if i := strings.Index(want, "://"); i >= 0 {
+					// A second scheme inside the address loses its "://".
+					want = want[:i+3] + strings.ReplaceAll(want[i+3:], "://", "[:]//")
+				}
+				if joined := strings.ReplaceAll(plain, "\n", ""); !strings.Contains(joined, want) {
+					t.Errorf("%q at %d is drawn as %q, want %q in it", text, width, plain, want)
 				}
 			}
 		}
@@ -518,11 +637,13 @@ func genOutside(t *rapid.T, label string) string {
 var brokenTails = map[string]bool{"xxp": true, "xxps": true, "xp": true, "xps": true, "p": true, "ps": true, "s": true, "": true}
 
 // followable says a row's text holds something a terminal's own link
-// finder would take: a www. host, or a "://" after anything but a broken
-// scheme (hxxp, hxxps, fxp, with or without text run on before it) or the
-// tail a cut left of one. What stands before the "://" is read back to
-// the last space, whatever it is made of: a finder's idea of a scheme's
-// letters is wider than ASCII's, and a hidden character can sit there.
+// finder would take. One is a www. host: www. and then more of the word,
+// not the full stop after a word that is www. The other is a "://"
+// after anything but a broken scheme (hxxp, hxxps, fxp, with or without
+// text run on before it) or the tail a cut left of one. What stands
+// before the "://" is read back to the last space, whatever it is made
+// of: a finder's idea of a scheme's letters is wider than ASCII's, and a
+// hidden character can sit there.
 func followable(plain string) bool {
 	rest := plain
 	for {
@@ -542,7 +663,20 @@ func followable(plain string) bool {
 		}
 		rest = rest[i+3:]
 	}
-	return strings.Contains(strings.ToLower(plain), "www.")
+	// A www. with more of its word after it than closing marks.
+	lower := strings.ToLower(plain)
+	for i := strings.Index(lower, "www."); i >= 0; {
+		after, n := utf8.DecodeRuneInString(lower[i+4:])
+		if n > 0 && !unicode.IsSpace(after) && !strings.ContainsRune(`)>".,;!]':?*~`, after) {
+			return true
+		}
+		j := strings.Index(lower[i+4:], "www.")
+		if j < 0 {
+			break
+		}
+		i += 4 + j
+	}
+	return false
 }
 
 // checkFollowed fails when a drawn frame gives a terminal anything to
