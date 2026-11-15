@@ -17,67 +17,13 @@ import (
 	"pgregory.net/rapid"
 
 	"github.com/kirahowe/relay-tui/internal/a2ui"
+	"github.com/kirahowe/relay-tui/internal/a2ui/a2uitest"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
-// genResolved is a surface relay could send: a random tree of its seven
-// components, the strings drawn from the hostile pool, and CheckBoxes that
-// are literal or bound to a boolean in the data model.
-func genResolved(t *rapid.T) a2ui.Surface {
-	comps := map[string]a2ui.Component{}
-	data := map[string]any{}
-	n := 0
-	var build func(id string, depth int)
-	build = func(id string, depth int) {
-		kinds := []string{"Text", "Divider", "CheckBox", "CheckBox"}
-		if depth < 6 && n < 40 {
-			kinds = append(kinds, "Row", "Column", "List", "Card")
-		}
-		kind := rapid.SampledFrom(kinds).Draw(t, "kind")
-		props := map[string]any{}
-		child := func() string {
-			n++
-			k := "c" + strconv.Itoa(n)
-			build(k, depth+1)
-			return k
-		}
-		switch kind {
-		case "Text":
-			props["text"] = genSurfaceText().Draw(t, "text")
-			if rapid.Bool().Draw(t, "caption") {
-				props["variant"] = rapid.SampledFrom([]string{"body", "caption"}).Draw(t, "variant")
-			}
-		case "Divider":
-			if rapid.Bool().Draw(t, "hasAxis") {
-				props["axis"] = rapid.SampledFrom([]string{"horizontal", "vertical"}).Draw(t, "axis")
-			}
-		case "CheckBox":
-			props["label"] = genSurfaceText().Draw(t, "label")
-			if rapid.Bool().Draw(t, "bound") {
-				key := "k" + strconv.Itoa(n)
-				n++
-				data[key] = rapid.Bool().Draw(t, "on")
-				props["value"] = map[string]any{"@path": "/" + key}
-			} else {
-				props["value"] = rapid.Bool().Draw(t, "literal")
-			}
-		case "Card":
-			props["child"] = child()
-		default:
-			if kind == "List" && rapid.Bool().Draw(t, "hasDirection") {
-				props["direction"] = rapid.SampledFrom([]string{"vertical", "horizontal"}).Draw(t, "direction")
-			}
-			kids := []any{}
-			for range rapid.IntRange(0, 4).Draw(t, "kids") {
-				kids = append(kids, child())
-			}
-			props["children"] = kids
-		}
-		comps[id] = a2ui.Component{ID: id, Type: kind, Props: props}
-	}
-	build("root", 0)
-	return a2ui.Surface{ID: "s", CatalogID: a2ui.RelayCatalogID, Components: comps, Data: data}
-}
+// genResolved is a surface relay could send, its strings from the hostile
+// pool.
+func genResolved(t *rapid.T) a2ui.Surface { return a2uitest.GenResolved(t, genSurfaceText()) }
 
 // A surface that passes a2ui.Resolved draws whole: no placeholder, at any
 // width. With the focus on one of its inputs, the rows the drawing reports

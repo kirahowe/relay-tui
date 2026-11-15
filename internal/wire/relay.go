@@ -3,11 +3,13 @@ package wire
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui"
 	"github.com/kirahowe/relay-tui/internal/core"
 	"github.com/kirahowe/relay-tui/internal/strictjson"
 )
@@ -203,6 +205,12 @@ func CardOpParams(card int64, op core.CardOp) map[string]any {
 	if op.Text != nil {
 		m["text"] = *op.Text
 	}
+	if op.Path != nil {
+		m["path"] = *op.Path
+	}
+	if op.Value != nil {
+		m["value"] = *op.Value
+	}
 	if op.Seen != nil {
 		m["seen"] = *op.Seen
 	}
@@ -245,8 +253,12 @@ type rawCard struct {
 		Column int    `json:"column"`
 		State  string `json:"state"`
 	} `json:"cells"`
-	Note *rawText `json:"note"`
-	Text string   `json:"text"`
+	Note    *rawText `json:"note"`
+	Surface *struct {
+		Outsider *bool             `json:"outsider"`
+		A2UI     []json.RawMessage `json:"a2ui"`
+	} `json:"surface"`
+	Text string `json:"text"`
 	rawLinks
 }
 
@@ -290,6 +302,33 @@ func (r rawLinks) links() (own []core.Link, leftOut int, listed bool) {
 		leftOut = 0
 	}
 	return own, leftOut, true
+}
+
+// maxSurfaceMessages is the most A2UI messages one surface card may hold.
+const maxSurfaceMessages = 64
+
+// roleSurface folds the messages of a surface card from nothing. The
+// surface is good when there are between one and maxSurfaceMessages
+// messages, each decodes and applies, exactly one surface results, its id
+// is "card_" and the card's id, and it is a surface as relay sends one.
+func roleSurface(id int64, msgs []json.RawMessage) (a2ui.Surface, bool) {
+	if len(msgs) < 1 || len(msgs) > maxSurfaceMessages {
+		return a2ui.Surface{}, false
+	}
+	var ss a2ui.Surfaces
+	for _, raw := range msgs {
+		m, err := a2ui.Decode(raw)
+		if err != nil {
+			return a2ui.Surface{}, false
+		}
+		if ss, err = a2ui.Apply(ss, m); err != nil {
+			return a2ui.Surface{}, false
+		}
+	}
+	if len(ss) != 1 || ss[0].ID != "card_"+strconv.FormatInt(id, 10) || a2ui.Resolved(ss[0]) != nil {
+		return a2ui.Surface{}, false
+	}
+	return ss[0], true
 }
 
 func elems(raw []rawText) ([]core.CardElem, bool) {
@@ -349,6 +388,18 @@ func card(raw json.RawMessage) (core.Card, bool) {
 		}
 		n := r.Note.text()
 		c.Note = &n
+	case core.CardSurface:
+		if r.Surface == nil {
+			c.Kind = "surface?"
+			break
+		}
+		surface, ok := roleSurface(c.ID, r.Surface.A2UI)
+		if !ok {
+			c.Kind = "surface?"
+			break
+		}
+		// A missing outsider flag reads as true, as it does for a text.
+		c.Surface = &core.RoleSurface{Outsider: r.Surface.Outsider == nil || *r.Surface.Outsider, A2UI: surface}
 	}
 	return c, true
 }

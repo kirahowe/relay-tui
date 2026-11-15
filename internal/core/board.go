@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/kirahowe/relay-tui/internal/a2ui"
 )
 
 // The board is the workspace pane's second view: the cards relay keeps,
@@ -21,6 +23,7 @@ const (
 	CardChecklist = "checklist"
 	CardTracker   = "tracker"
 	CardNote      = "note"
+	CardSurface   = "surface"
 )
 
 // Card statuses and tracker cell states, as relay names them.
@@ -53,6 +56,14 @@ type Cell struct {
 	State       string
 }
 
+// RoleSurface is what a card of kind surface carries: the A2UI surface a
+// role built, as relay resolved and sent it, and whether an outsider may
+// have written any of its strings.
+type RoleSurface struct {
+	Outsider bool
+	A2UI     a2ui.Surface
+}
+
 // Card is relay's wire form of a card.
 type Card struct {
 	ID       int64
@@ -66,12 +77,13 @@ type Card struct {
 	Done     int
 	Total    int
 	Labels   Labels
-	Items    []CardElem // checklist
-	Rows     []CardElem // tracker
-	Columns  []CardElem // tracker
-	Cells    []Cell     // tracker
-	Note     *CardText  // note
-	Text     string     // the text form, for a kind the client does not know
+	Items    []CardElem   // checklist
+	Rows     []CardElem   // tracker
+	Columns  []CardElem   // tracker
+	Cells    []Cell       // tracker
+	Note     *CardText    // note
+	Surface  *RoleSurface // surface
+	Text     string       // the text form, for a kind the client does not know
 	// Links are the live links the card's outside text shows, as relay
 	// listed them, and LinksLeftOut how many more it did not list. Listed
 	// says relay sent a list at all; a relay from before it does not.
@@ -85,8 +97,19 @@ func (c Card) Native() bool {
 	switch c.Kind {
 	case CardChecklist, CardTracker, CardNote:
 		return true
+	case CardSurface:
+		return c.Surface != nil
 	}
 	return false
+}
+
+// Inputs are the CheckBoxes of a surface card that the operator can
+// change, in drawing order. Any other card has none.
+func (c Card) Inputs() []a2ui.Input {
+	if c.Kind != CardSurface || c.Surface == nil {
+		return nil
+	}
+	return c.Surface.A2UI.Inputs()
 }
 
 // CellState is the state of the tracker cell at row and column.
@@ -100,14 +123,16 @@ func (c Card) CellState(row, column int) string {
 }
 
 // Lines is how many selectable lines the card's detail has: the title,
-// then each item or row. A note and a card of another kind have only the
-// title.
+// then each item, row or input. A note and a card of another kind have
+// only the title.
 func (c Card) Lines() int {
 	switch c.Kind {
 	case CardChecklist:
 		return 1 + len(c.Items)
 	case CardTracker:
 		return 1 + len(c.Rows)
+	case CardSurface:
+		return 1 + len(c.Inputs())
 	}
 	return 1
 }
@@ -121,6 +146,8 @@ type CardOp struct {
 	Column *int
 	State  *string
 	Text   *string
+	Path   *string // an input's path in the surface's data model
+	Value  *bool   // the value to set there
 	Seen   *int64
 }
 
@@ -310,6 +337,7 @@ type boardAnchor struct {
 	card         int64
 	line, col    int
 	elem, column int
+	path, label  string // the input a surface's cursor is on
 }
 
 // anchorOf is where the open card's cursor is, or false when no card is
@@ -320,7 +348,11 @@ func anchorOf(b Board) (boardAnchor, bool) {
 		return boardAnchor{}, false
 	}
 	a := boardAnchor{card: c.ID, line: BoardLine(b, c), col: BoardCol(b, c)}
-	if elems := c.lineElems(); a.line > 0 {
+	if c.Kind == CardSurface {
+		if ins := c.Inputs(); a.line > 0 {
+			a.path, a.label = ins[a.line-1].Path, ins[a.line-1].Label
+		}
+	} else if elems := c.lineElems(); a.line > 0 {
 		a.elem = elems[a.line-1].ID
 	}
 	if a.col >= 0 {
@@ -354,6 +386,9 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 		return
 	}
 	gone := ""
+	if a.path != "" {
+		gone = r.reanchorInput(c, a)
+	}
 	if a.elem != 0 {
 		elems := c.lineElems()
 		if j := slices.IndexFunc(elems, func(x CardElem) bool { return x.ID == a.elem }); j >= 0 {
@@ -379,6 +414,38 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 	if gone != "" && b.Failure == "" {
 		b.Message = "The selected " + gone + " is gone; the cursor moved to the nearest one."
 	}
+}
+
+// reanchorInput puts the cursor back on the input of a surface card it
+// was on. An input has no id, and a path into a list is a position, so
+// it is known by its path and label together. When none has both, the one
+// input with the same label is it, moved. When there is no such one, the
+// cursor stays at the nearest line and the answer is the kind of thing
+// that has gone.
+func (r *reducer) reanchorInput(c Card, a boardAnchor) string {
+	b := &r.a.Board
+	ins := c.Inputs()
+	if j := slices.IndexFunc(ins, func(x a2ui.Input) bool { return x.Path == a.path && x.Label == a.label }); j >= 0 {
+		b.Line = j + 1
+		return ""
+	}
+	same := -1
+	for j, x := range ins {
+		if x.Label != a.label {
+			continue
+		}
+		if same >= 0 {
+			same = -2
+			break
+		}
+		same = j
+	}
+	if same >= 0 {
+		b.Line = same + 1
+		return ""
+	}
+	b.Line = min(a.line, c.Lines()-1)
+	return "box"
 }
 
 func (r *reducer) board(e Event) {
@@ -671,6 +738,14 @@ func (r *reducer) mark(c Card) {
 		}
 		op.Item = intp(it.ID)
 		r.sendOp(c.ID, op)
+	case c.Kind == CardSurface && line > 0:
+		// The board never writes the value itself: it asks relay for the
+		// opposite of what it holds and shows what relay answers.
+		in := c.Inputs()[line-1]
+		on := !in.On
+		op := opOn("input")
+		op.Path, op.Value, op.Seen = &in.Path, &on, int64p(c.Rev)
+		r.sendOp(c.ID, op)
 	case c.Kind == CardTracker && line > 0 && len(c.Columns) > 0:
 		row, col := c.Rows[line-1], c.Columns[BoardCol(*b, c)]
 		op := opOn("set")
@@ -692,6 +767,11 @@ func (r *reducer) startAdd(c Card, column bool) {
 		op, prompt = "add_column", "new column"
 	case column:
 		b.Message = "Only a tracker has columns."
+		return
+	case c.Kind == CardSurface:
+		// A role lays a surface out; the operator ticks its boxes and
+		// adds nothing.
+		b.Message = "Nothing to add to this card."
 		return
 	default:
 		b.Message = "Nothing to add to this card."
@@ -737,6 +817,8 @@ func (r *reducer) startEdit(c Card, column bool) {
 		op, prompt, t = opOn("rename_row"), "row "+strconv.Itoa(row.ID), row.CardText
 		op.Row = intp(row.ID)
 	default:
+		// A surface's inputs are ticked, not renamed, and a note has no
+		// line but its title.
 		return
 	}
 	if r.busy() {

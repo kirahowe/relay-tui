@@ -1,11 +1,16 @@
 package core
 
 import (
+	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 
 	"pgregory.net/rapid"
+
+	"github.com/kirahowe/relay-tui/internal/a2ui"
+	"github.com/kirahowe/relay-tui/internal/a2ui/a2uitest"
 )
 
 func txt(s string, rev int64) CardText { return CardText{Text: s, Rev: rev} }
@@ -846,4 +851,266 @@ func TestTheBoardStaysOutOfTheWay(t *testing.T) {
 			t.Errorf("%s: the board came into view", name)
 		}
 	}
+}
+
+// box is a CheckBox of a test surface. A box with no path is literal: its
+// value is fixed, and the operator cannot change it.
+type box struct {
+	Path, Label string
+	On          bool
+}
+
+// surfaceCard is a card of kind surface whose surface is a Column of
+// boxes, as relay would send it. Any title line comes from the card.
+func surfaceCard(t testing.TB, id, rev int64, boxes ...box) Card {
+	t.Helper()
+	comps := map[string]a2ui.Component{}
+	var kids []any
+	var data any = map[string]any{}
+	for i, b := range boxes {
+		cid := "box" + strconv.Itoa(i)
+		kids = append(kids, cid)
+		var value any = b.On
+		if b.Path != "" {
+			value = map[string]any{"@path": b.Path}
+			var err error
+			if data, err = a2ui.Set(data, b.Path, b.On); err != nil {
+				t.Fatal(err)
+			}
+		}
+		comps[cid] = a2ui.Component{ID: cid, Type: "CheckBox", Props: map[string]any{"label": b.Label, "value": value}}
+	}
+	if kids == nil {
+		kids = []any{}
+	}
+	comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": kids}}
+	s := a2ui.Surface{ID: "card_" + strconv.FormatInt(id, 10), CatalogID: a2ui.RelayCatalogID, Components: comps, Data: data}
+	if err := a2ui.Resolved(s); err != nil {
+		t.Fatal(err)
+	}
+	return Card{ID: id, Kind: CardSurface, Status: CardActive, Rev: rev, Owner: "steward", Title: txt("Pack", id),
+		Surface: &RoleSurface{A2UI: s}, Text: "Card text"}
+}
+
+func TestASurfaceCardHasALinePerInput(t *testing.T) {
+	c := surfaceCard(t, 10, 10, box{"/a", "Tent", true}, box{"", "Fixed", true}, box{"/b", "Map", false})
+	if !c.Native() || c.Lines() != 3 || len(c.Inputs()) != 2 {
+		t.Fatalf("native %v, lines %d, inputs %v", c.Native(), c.Lines(), c.Inputs())
+	}
+	if ins := c.Inputs(); ins[0].Path != "/a" || ins[1].Label != "Map" || !ins[0].On || ins[1].On {
+		t.Fatalf("inputs %+v", ins)
+	}
+	if (Card{Kind: CardSurface}).Native() || checklist(1, 1).Inputs() != nil {
+		t.Fatal("a surface card with no surface is native, or a checklist has inputs")
+	}
+}
+
+func TestTickingAnInputSendsTheInputOpAndWaits(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 12, box{"/a", "Tent", true}, box{"/b", "Map", false}))
+	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneMark)
+	ops := effectsOf[SendCardOp](fx)
+	if len(ops) != 1 || ops[0].Card != 10 {
+		t.Fatalf("ops %+v", ops)
+	}
+	op := ops[0].Op
+	if op.Op != "input" || op.Path == nil || *op.Path != "/b" || op.Value == nil || !*op.Value || op.Seen == nil || *op.Seen != 12 ||
+		op.Item != nil || op.Text != nil {
+		t.Fatalf("op %+v", op)
+	}
+	if s.Board.Sending != 10 || s.Board.Cards[0].Inputs()[1].On {
+		t.Fatal("the board changed the value itself, or is not waiting")
+	}
+	// A key while the op is on its way is not sent, and says so.
+	s, fx = boardKeys(s, PaneUp, PaneMark)
+	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Message != busyNotice {
+		t.Fatalf("sent while sending: %v, message %q", fx, s.Board.Message)
+	}
+	after := surfaceCard(t, 10, 13, box{"/a", "Tent", true}, box{"/b", "Map", true})
+	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &after})
+	if s.Board.Sending != 0 || !s.Board.Cards[0].Inputs()[1].On {
+		t.Fatal("relay's answer did not replace the card")
+	}
+	// The next tick is the opposite of what relay now holds.
+	_, fx = boardKeys(s, PaneDown, PaneMark)
+	if ops := effectsOf[SendCardOp](fx); len(ops) != 1 || *ops[0].Op.Path != "/b" || *ops[0].Op.Value || *ops[0].Op.Seen != 13 {
+		t.Fatalf("ops %+v", ops)
+	}
+}
+
+func TestARefusedInputShowsRelaysText(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}))
+	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneMark)
+	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "The card changed since you looked."})
+	if b := s.Board; b.Message != refusedNotice || b.Failure != "The card changed since you looked." || b.Sending != 0 {
+		t.Fatalf("%+v", b)
+	}
+}
+
+func TestALiteralCheckBoxIsNotALine(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 10, box{"", "Fixed", true}))
+	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneMark)
+	if s.Board.Line != 0 || len(effectsOf[SendCardOp](fx)) != 0 {
+		t.Fatalf("line %d, effects %v", s.Board.Line, fx)
+	}
+}
+
+func TestAddAndEditSendNothingOnAnInput(t *testing.T) {
+	for _, a := range []PaneAction{PaneAdd, PaneAddColumn, PaneEdit, PaneEditColumn} {
+		s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}))
+		s, fx := boardKeys(s, PaneEnter, PaneDown, a)
+		if s.Board.Input != nil || len(effectsOf[SendCardOp](fx)) != 0 {
+			t.Errorf("action %v: input %+v, effects %v", a, s.Board.Input, fx)
+		}
+	}
+}
+
+func TestERetitlesASurfaceCardFromItsTitleLine(t *testing.T) {
+	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}))
+	s, _ = boardKeys(s, PaneEnter, PaneEdit)
+	if in := s.Board.Input; in == nil || in.Op.Op != "retitle" || in.Text != "Pack" {
+		t.Fatalf("input %+v", in)
+	}
+	s, _ = boardKeys(onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false})), PaneEnter, PaneArchive)
+	if s.Board.Confirm != 10 {
+		t.Fatal("archive did not ask")
+	}
+}
+
+func TestTheCursorFollowsAnInputAcrossAReplacement(t *testing.T) {
+	old := surfaceCard(t, 10, 10, box{"/i/0", "Tent", false}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false})
+	onMap := func() Single {
+		s := onBoard(old)
+		s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown)
+		return s
+	}
+	replace := func(c Card) Board {
+		s, _ := ReduceSingle(onMap(), CardsChanged{At: t0, Rev: 101, Cards: []Card{c}})
+		return s.Board
+	}
+	// Same path and label: the cursor stays.
+	b := replace(surfaceCard(t, 10, 11, box{"/i/0", "Tent", true}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false}))
+	if b.Line != 2 || b.Message != "" {
+		t.Fatalf("same place: line %d, message %q", b.Line, b.Message)
+	}
+	// An item inserted above moves the path; the label finds it.
+	b = replace(surfaceCard(t, 10, 11, box{"/i/0", "New", false}, box{"/i/1", "Tent", false}, box{"/i/2", "Map", false}, box{"/i/3", "Stove", false}))
+	if b.Line != 3 || b.Message != "" {
+		t.Fatalf("moved: line %d, message %q", b.Line, b.Message)
+	}
+	// Two inputs with the label and neither on the path: not told apart.
+	b = replace(surfaceCard(t, 10, 11, box{"/j/0", "Map", false}, box{"/j/1", "Map", false}))
+	if b.Line != 2 || b.Message != "The selected box is gone; the cursor moved to the nearest one." {
+		t.Fatalf("ambiguous: line %d, message %q", b.Line, b.Message)
+	}
+	// Gone: the cursor stays at the nearest line, and the board says so.
+	b = replace(surfaceCard(t, 10, 11, box{"/i/0", "Tent", false}))
+	if b.Line != 1 || b.Message != "The selected box is gone; the cursor moved to the nearest one." {
+		t.Fatalf("gone: line %d, message %q", b.Line, b.Message)
+	}
+}
+
+// insertAbove is c with a new box drawn before every other, or with its
+// first input taken out of the list that holds it. It is how relay's
+// newer copy of a surface differs when a role adds or removes an item.
+func insertAbove(c Card, remove bool, n int) Card {
+	s := c.Surface.A2UI
+	comps := maps.Clone(s.Components)
+	removed := false
+	if remove && len(s.Inputs()) > 0 {
+		in := s.Inputs()[0].ID
+		for id, k := range comps {
+			kids, ok := k.Props["children"].([]any)
+			if !ok || !slices.Contains(kids, any(in)) {
+				continue
+			}
+			props := maps.Clone(k.Props)
+			props["children"] = slices.DeleteFunc(slices.Clone(kids), func(x any) bool { return x == any(in) })
+			comps[id] = a2ui.Component{ID: id, Type: k.Type, Props: props}
+			removed = true
+			break
+		}
+	}
+	if !removed {
+		key := "ins" + strconv.Itoa(n)
+		oldRoot := "old_root" + strconv.Itoa(n)
+		comps[key] = a2ui.Component{ID: key, Type: "CheckBox", Props: map[string]any{"label": "inserted", "value": map[string]any{"@path": "/" + key}}}
+		old := comps["root"]
+		old.ID = oldRoot
+		comps[oldRoot] = old
+		comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": []any{key, oldRoot}}}
+		s.Data, _ = a2ui.Set(s.Data, "/"+key, false)
+	}
+	s.Components = comps
+	c.Surface = &RoleSurface{Outsider: c.Surface.Outsider, A2UI: s}
+	return c
+}
+
+// Over any surface and any run of keys and answers, every op sent for the
+// card is an input op for the input the cursor was on in the card as held
+// at that moment, with the opposite value and the held rev.
+func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		sc := a2uitest.GenResolved(t, rapid.String())
+		sc.ID = "card_10"
+		if len(sc.Inputs()) == 0 {
+			t.Skip()
+		}
+		card := Card{ID: 10, Kind: CardSurface, Status: CardActive, Rev: 10, Title: txt("T", 10), Surface: &RoleSurface{A2UI: sc}}
+		s := onBoard(card)
+		s, _ = boardKeys(s, PaneEnter)
+		var inFlight *CardOp
+		for i := range rapid.IntRange(1, 40).Draw(t, "steps") {
+			held, _ := BoardCard(s.Board)
+			line := BoardLine(s.Board, held)
+			switch step := rapid.SampledFrom([]string{"up", "down", "mark", "answer", "notify"}).Draw(t, "step"); step {
+			case "up", "down":
+				a := PaneUp
+				if step == "down" {
+					a = PaneDown
+				}
+				s, _ = boardKeys(s, a)
+			case "mark":
+				busy := s.Board.Sending != 0
+				var fx []Effect
+				s, fx = boardKeys(s, PaneMark)
+				ops := effectsOf[SendCardOp](fx)
+				if busy || line == 0 {
+					if len(ops) != 0 {
+						t.Fatalf("sent while busy %v or on the title %v", busy, line == 0)
+					}
+					break
+				}
+				if len(ops) != 1 {
+					t.Fatalf("%d ops sent on input line %d", len(ops), line)
+				}
+				in, op := held.Inputs()[line-1], ops[0].Op
+				if ops[0].Card != 10 || op.Op != "input" || op.Path == nil || *op.Path != in.Path ||
+					op.Value == nil || *op.Value != !in.On || op.Seen == nil || *op.Seen != held.Rev {
+					t.Fatalf("op %+v for input %+v of rev %d", op, in, held.Rev)
+				}
+				inFlight = &op
+			case "answer":
+				if inFlight == nil || s.Board.Sending == 0 {
+					break
+				}
+				next := held
+				next.Rev++
+				data, err := a2ui.Set(held.Surface.A2UI.Data, *inFlight.Path, *inFlight.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				next.Surface = &RoleSurface{A2UI: held.Surface.A2UI}
+				next.Surface.A2UI.Data = data
+				if rapid.Bool().Draw(t, "shift") {
+					next = insertAbove(next, rapid.Bool().Draw(t, "remove"), i)
+				}
+				s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Card: &next})
+				inFlight = nil
+			case "notify":
+				next := insertAbove(held, rapid.Bool().Draw(t, "remove"), i)
+				next.Rev++
+				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: next.Rev, Cards: []Card{next}})
+			}
+		}
+	})
 }

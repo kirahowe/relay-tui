@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 
 	acp "github.com/caelis-labs/acp-go-sdk"
 	"pgregory.net/rapid"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui/a2uitest"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -168,6 +170,8 @@ func encodeCard(c core.Card) map[string]any {
 		m["cells"] = cells
 	case core.CardNote:
 		m["note"] = text(*c.Note)
+	case core.CardSurface:
+		m["surface"] = map[string]any{"outsider": c.Surface.Outsider, "a2ui": []any{json.RawMessage(a2uitest.Create(c.Surface.A2UI))}}
 	}
 	return m
 }
@@ -193,7 +197,7 @@ func genElems(t *rapid.T, label string, done bool) []core.CardElem {
 func TestWireFormRoundTrip(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		c := core.Card{ID: rapid.Int64Range(1, 1<<40).Draw(t, "id"),
-			Kind:     rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, "kanban"}).Draw(t, "kind"),
+			Kind:     rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, core.CardSurface, "kanban"}).Draw(t, "kind"),
 			Status:   rapid.SampledFrom([]string{core.CardActive, core.CardArchived}).Draw(t, "status"),
 			Complete: rapid.Bool().Draw(t, "complete"), Rev: rapid.Int64Range(1, 1<<40).Draw(t, "rev"),
 			Owner: rapid.String().Draw(t, "owner"), AddedAt: rapid.String().Draw(t, "at"), Title: genCardText(t, "title"),
@@ -215,6 +219,10 @@ func TestWireFormRoundTrip(t *testing.T) {
 		case core.CardNote:
 			n := genCardText(t, "note")
 			c.Note = &n
+		case core.CardSurface:
+			sc := a2uitest.GenResolved(t, rapid.String())
+			sc.ID = "card_" + strconv.FormatInt(c.ID, 10)
+			c.Surface = &core.RoleSurface{Outsider: rapid.Bool().Draw(t, "outsider"), A2UI: sc}
 		}
 		raw, err := json.Marshal(map[string]any{"rev": c.Rev, "cards": []any{encodeCard(c)}})
 		if err != nil {
