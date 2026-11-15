@@ -1036,8 +1036,8 @@ func genOutsideCard(t *rapid.T, id int64) core.Card {
 		return core.CardText{Text: genOutside(t, label), Outsider: true, Rev: 1}
 	}
 	c := core.Card{ID: id, Status: core.CardActive, Rev: 2, Title: text("title"), Text: genOutside(t, "text"),
-		Kind:   rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, "kanban"}).Draw(t, "kind"),
-		Labels: core.Labels{Contaminated: true}, Links: genOwn(t, "card"), Listed: rapid.Bool().Draw(t, "cardListed")}
+		Kind:   rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, core.CardSurface, "kanban"}).Draw(t, "kind"),
+		Labels: core.Labels{Contaminated: true}, Owner: genOutside(t, "owner"), Links: genOwn(t, "card"), Listed: rapid.Bool().Draw(t, "cardListed")}
 	elems := func(label string) []core.CardElem {
 		var out []core.CardElem
 		for i := range rapid.IntRange(1, 3).Draw(t, label) {
@@ -1053,6 +1053,8 @@ func genOutsideCard(t *rapid.T, id int64) core.Card {
 	case core.CardNote:
 		n := text("note")
 		c.Note = &n
+	case core.CardSurface:
+		c.Surface = plainSurface(t, id, true, genOutside(t, "surfaceText"), genOutside(t, "surfaceLabel")).Surface
 	}
 	return c
 }

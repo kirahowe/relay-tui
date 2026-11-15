@@ -131,6 +131,14 @@ func cardRight(b core.Board, c core.Card) string {
 		w = "complete"
 	case c.Kind == core.CardChecklist || c.Kind == core.CardTracker:
 		w = fmt.Sprintf("%d of %d", c.Done, c.Total)
+	case c.Kind == core.CardSurface && c.Surface != nil:
+		// The frame is the client's, so it names whose card this is, in
+		// place of the kind. The owner is a string from relay with no
+		// mark of its source.
+		w = "surface"
+		if c.Owner != "" {
+			w = cardLine(c.Owner, true, core.Links{})
+		}
 	default:
 		w = cardLine(c.Kind, true, core.Links{})
 	}
@@ -138,10 +146,14 @@ func cardRight(b core.Board, c core.Card) string {
 }
 
 // cardFoot is what the bottom border of a card's panel says: that some
-// of its text came from outside.
+// of its text came from outside. A surface card says it too when its
+// surface or its title may have been written there, whatever its labels.
 func cardFoot(c core.Card) string {
 	if p := core.Provenance(c.Labels, nil); p != "" {
 		return styled(warnColour, p)
+	}
+	if c.Kind == core.CardSurface && c.Surface != nil && (c.Surface.Outsider || c.Title.Outsider) {
+		return styled(warnColour, core.Provenance(core.Labels{Contaminated: true}, nil))
 	}
 	return ""
 }
@@ -375,10 +387,16 @@ func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focu
 	live = live.Of(c.Links, c.Listed)
 	body, a, z := cardLinesFor(b, c, live, framed(width), full, focus)
 	title := cardTitle(c, live)
+	right := cardRight(b, c)
+	if c.Kind == core.CardSurface && c.Surface != nil {
+		// The corner names whose card this is, so the title gives way to
+		// it, down to a few columns.
+		title = truncate(title, max(width-10-Method.StringWidth(right), 8))
+	}
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
-	out = panel(title, cardRight(b, c), cardFoot(c), body, width, len(body)+2, focus)
+	out = panel(title, right, cardFoot(c), body, width, len(body)+2, focus)
 	if full && focus {
 		if core.BoardLine(b, c) == 0 {
 			return out, 0, 1

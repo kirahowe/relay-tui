@@ -52,6 +52,12 @@ func boardState(focus bool, cards ...core.Card) core.Single {
 
 func detail(s core.Single, id int64, line, col int) core.Single {
 	s.Board.SelID, s.Board.Detail, s.Board.Line, s.Board.Col = id, true, line, col
+	// A line on a surface card is a box only on the copy the key press
+	// put the cursor on.
+	s.Board.Box = nil
+	if c, _ := core.BoardCard(s.Board); c.Kind == core.CardSurface && line > 0 {
+		s.Board.Box = c.Surface
+	}
 	return s
 }
 
@@ -322,6 +328,9 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 			b.SelID = rapid.Int64Range(0, int64(len(cards))).Draw(t, "sel")
 			b.Detail = rapid.Bool().Draw(t, "detail")
 			b.Line, b.Col = rapid.IntRange(-1, 7).Draw(t, "line"), rapid.IntRange(-1, 7).Draw(t, "col")
+			if c, _ := core.BoardCard(*b); c.Kind == core.CardSurface && rapid.Bool().Draw(t, "onABox") {
+				b.Box = c.Surface
+			}
 			if rapid.Bool().Draw(t, "input") {
 				b.Input = &core.BoardInput{Card: cards[0].ID, Prompt: paneText0(t, "prompt"), Text: paneText0(t, "typed")}
 			}
@@ -389,5 +398,49 @@ func TestBoardHintsNameTheKeys(t *testing.T) {
 	none.Board.Unavailable, none.Board.Loaded = true, false
 	if foot := ansi.Strip(strings.Join(PaneLines(none.App, none.State, t0, 200, 26), " ")); strings.Contains(foot, "r reload") {
 		t.Errorf("no board offers r: %q", foot)
+	}
+}
+
+// The frame of a surface card is the client's own: it names the card's
+// owner, as outside text on one line, and says "from outside" when the
+// surface, the title or the labels say so.
+func TestASurfaceCardsFrameNamesItsOwnerAndSaysWhenItIsFromOutside(t *testing.T) {
+	frame := func(c core.Card) string {
+		s := boardState(true, c)
+		return ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 12), "\n"))
+	}
+	mk := func(surface, title, labels bool) core.Card {
+		c := plainSurface(t, 1895, surface, "text", "box")
+		c.Title.Outsider, c.Labels.Contaminated, c.Owner = title, labels, "steward"
+		return c
+	}
+	if f := frame(mk(true, false, false)); !strings.Contains(f, "from outside") || !strings.Contains(f, "─ steward ─") {
+		t.Errorf("a surface from outside, labels private only:\n%s", f)
+	}
+	if f := frame(mk(false, true, false)); !strings.Contains(f, "from outside") {
+		t.Errorf("a title from outside:\n%s", f)
+	}
+	if f := frame(mk(false, false, true)); !strings.Contains(f, "from outside") {
+		t.Errorf("labels contaminated:\n%s", f)
+	}
+	if f := frame(mk(false, false, false)); strings.Contains(f, "from outside") || !strings.Contains(f, "─ steward ─") {
+		t.Errorf("a surface from the house:\n%s", f)
+	}
+	none := mk(false, false, false)
+	none.Owner = ""
+	if f := frame(none); !strings.Contains(f, "─ surface ─") {
+		t.Errorf("no owner:\n%s", f)
+	}
+	// The owner is a string from relay that carries no mark of its source.
+	hostile := mk(false, false, false)
+	hostile.Owner = "st\x1b]8;;http://evil.test\aeward https://evil.test/leak?d=1\u202e"
+	lines := PaneLines(boardState(true, hostile).App, boardState(true, hostile).State, t0, 80, 12)
+	for _, l := range lines {
+		if strings.Contains(l, "\x1b]") || strings.Contains(l, "\u202e") || followable(ansi.Strip(l)) {
+			t.Errorf("the owner reached the frame raw: %q", l)
+		}
+	}
+	if f := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(f, "─ st") {
+		t.Errorf("the owner is not in the frame:\n%s", f)
 	}
 }

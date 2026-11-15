@@ -1,6 +1,7 @@
 package render
 
 import (
+	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -410,14 +411,22 @@ func (d *surfaceDraw) divider(c a2ui.Component, width int) []string {
 	return []string{styled(faint, strings.Repeat("─", width))}
 }
 
-// weightOf is a component's layout weight, or zero.
+// maxWeight caps a layout weight, so the sums that share a row's room
+// stay finite whatever number a surface holds.
+const maxWeight = 1e6
+
+// weightOf is a component's layout weight: zero when it has none or when
+// the number is not finite or not positive, and at most maxWeight.
 func (d *surfaceDraw) weightOf(id string) float64 {
 	c, ok := d.s.Components[id]
 	if !ok {
 		return 0
 	}
 	w, _ := c.Props["weight"].(float64)
-	return max(w, 0)
+	if math.IsNaN(w) || math.IsInf(w, 0) || w <= 0 {
+		return 0
+	}
+	return min(w, maxWeight)
 }
 
 // isVertical says the child is a divider that runs down.

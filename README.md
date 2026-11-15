@@ -288,7 +288,10 @@ checkbox, and nothing else on it. A checkbox with a fixed value is not a
 line you can select. In an open surface card, up and down move over the
 title and then each checkbox, and x or space sends relay the opposite of
 the value shown. A surface relay-tui cannot draw in full shows the card's
-text form instead. Text an outsider may have written is drawn exactly as
+text form instead. The frame around a surface is relay-tui's own: the
+top corner names the card's owner, the role that laid it out, and "from
+outside" is on the bottom border when the surface or its title may have
+been written outside. Text an outsider may have written is drawn exactly as
 sent, in the warning colour, with every link in its broken form, and the
 card's foot says "from outside". One of relay's live links can be
 clicked, as on any card (see The look). When relay's newer copy of an

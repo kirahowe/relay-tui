@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
 	"slices"
@@ -1200,6 +1201,56 @@ func insertAbove(c Card, remove bool, n int) Card {
 	return c
 }
 
+func onTitle(t *testing.T, s Single) {
+	t.Helper()
+	c, _ := BoardCard(s.Board)
+	if got := BoardLine(s.Board, c); got != 0 {
+		t.Fatalf("the cursor is on line %d, not the title", got)
+	}
+	noOp(t, s)
+}
+
+// The saved view holds a line number, and a box has no id: a role's edit
+// while the client was closed moves which box has that line.
+func TestASavedViewDoesNotPutTheCursorOnABoxNobodyChose(t *testing.T) {
+	old := surfaceCard(t, 10, 10, box{"/i/0", "Tent", false}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false})
+	s := onBoard(old)
+	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // Map
+	v := SaveSingle(s)
+	next := surfaceCard(t, 10, 11, box{"/i/0", "Passport", false}, box{"/i/1", "Tent", false}, box{"/i/2", "Map", false}, box{"/i/3", "Stove", false})
+	x, _ := feedS(RestoreSingle(Single{}, v), Connected{At: t0}, CardsLoaded{At: t0, Rev: 101, Cards: []Card{next}})
+	if !x.Board.Detail {
+		t.Fatal("the card did not reopen")
+	}
+	onTitle(t, x)
+}
+
+// A text op refused after the operator has gone to another card puts the
+// refused card's input back, and must not carry the other card's line.
+func TestALateRefusalDoesNotPutALineOnAnotherCardsBox(t *testing.T) {
+	a := surfaceCard(t, 10, 10, box{"/a/0", "Pay rent", false}, box{"/a/1", "Cancel insurance", false}, box{"/a/2", "Sell car", false})
+	b := surfaceCard(t, 11, 11, box{"/b/0", "Tent", false}, box{"/b/1", "Map", false}, box{"/b/2", "Stove", false})
+	s := onBoard(a, b)
+	s, _ = boardKeys(s, PaneEdit)
+	s = typeText(s, "!")
+	s, _ = boardKeys(s, PaneEnter)
+	s, _ = boardKeys(s, PaneDown, PaneEnter, PaneDown, PaneDown) // card 11, Map
+	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "Card 10 was changed at rev 12, after rev 10."})
+	s, _ = boardKeys(s, PaneEsc) // closes the reopened input
+	if c, _ := BoardCard(s.Board); c.ID != 10 {
+		t.Fatalf("card %d is open, want the refused card 10", c.ID)
+	}
+	onTitle(t, s)
+}
+
+func TestACardThatChangesKindKeepsNoLine(t *testing.T) {
+	s := onBoard(checklist(10, 10, false, false, false))
+	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown)
+	next := surfaceCard(t, 10, 11, box{"/a", "Pay rent", false}, box{"/b", "Cancel insurance", false}, box{"/c", "Sell car", false})
+	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{next}})
+	onTitle(t, s)
+}
+
 // editText is c with the text of one Text of its surface changed, or with
 // a Text added above everything when it has none. No input changes.
 func editText(c Card, n int) Card {
@@ -1345,6 +1396,256 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 				}
 				replaced(held, false, next)
 				s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: rev, Cards: []Card{next}})
+			}
+		}
+	})
+}
+
+// srvDoc is the server's copy of a card of the model below.
+type srvDoc struct {
+	id, rev   int64
+	caption   string
+	names     []string
+	done      []bool
+	checklist bool // relay sent the card as a checklist
+	broken    bool // relay sent it as a copy that is not a surface
+}
+
+func (d srvDoc) card(t testing.TB) Card {
+	switch {
+	case d.checklist:
+		return checklist(d.id, d.rev, d.done...)
+	case d.broken:
+		return Card{ID: d.id, Kind: "surface?", Status: CardActive, Rev: d.rev, Title: txt("T", d.id), Text: "Card"}
+	}
+	var rows []textBox
+	for i, n := range d.names {
+		rows = append(rows, textBox{n, box{fmt.Sprintf("/items/%d/done", i), "Done", d.done[i]}})
+	}
+	return captionedCard(t, d.id, d.rev, d.caption, rows...)
+}
+
+// Whatever happens to the card under the cursor, an input op is only sent
+// for a box the operator moved onto by a key press on the components now
+// held, or that the cursor kept when relay's answer to their own input
+// left the list of boxes as it was or a copy kept the components. The
+// events are keys, role edits, other clients' ticks, relay's answers, a
+// refused retitle that arrives after the operator opened another card, a
+// card that changes kind, malformed copies, and a restart from the saved
+// view after a role's edit.
+func TestSurfaceCursorAcrossEveryPath(t *testing.T) {
+	outer := t
+	rapid.Check(t, func(t *rapid.T) {
+		rev := int64(100)
+		srv := map[int64]*srvDoc{}
+		for _, id := range []int64{10, 11} {
+			d := &srvDoc{id: id, rev: id, caption: "cap"}
+			for i := range rapid.IntRange(1, 4).Draw(t, "rows") {
+				d.names = append(d.names, fmt.Sprintf("n%d_%d", id, i))
+				d.done = append(d.done, false)
+			}
+			srv[id] = d
+		}
+		cards := func() []Card { return []Card{srv[10].card(outer), srv[11].card(outer)} }
+		s := onBoard(cards()...)
+
+		// chosen is what the operator moved onto, by a key press.
+		type choice struct {
+			valid bool
+			card  int64
+			comps map[string]a2ui.Component
+		}
+		var chosen choice
+		var flight *CardOp
+		var flightCard int64
+
+		held := func(id int64) (Card, bool) {
+			i := slices.IndexFunc(s.Board.Cards, func(c Card) bool { return c.ID == id })
+			if i < 0 {
+				return Card{}, false
+			}
+			return s.Board.Cards[i], true
+		}
+		// apply feeds an event and moves chosen along with what relay
+		// did to the card it names.
+		apply := func(e Event, own bool) {
+			before, had := held(chosen.card)
+			s, _ = ReduceSingle(s, e)
+			if !chosen.valid {
+				return
+			}
+			after, has := held(chosen.card)
+			switch {
+			case !had || !has || before.Surface == nil || after.Surface == nil:
+				chosen.valid = false
+			case reflect.DeepEqual(before.Surface.A2UI.Components, after.Surface.A2UI.Components):
+			case own && slices.Equal(before.inputKeys(), after.inputKeys()):
+				chosen.comps = after.Surface.A2UI.Components
+			default:
+				chosen.valid = false
+			}
+		}
+		bump := func(d *srvDoc) { rev++; d.rev = rev }
+		pick := func(label string) *srvDoc {
+			return srv[rapid.SampledFrom([]int64{10, 11}).Draw(t, label)]
+		}
+		steps := []string{"up", "down", "down", "enter", "esc", "mark", "mark", "mark", "role", "role", "tick", "answer", "retitle", "refuse", "kind", "malformed", "restart"}
+		for range rapid.IntRange(10, 80).Draw(t, "events") {
+			switch step := rapid.SampledFrom(steps).Draw(t, "step"); step {
+			case "up", "down":
+				if s.Board.Input != nil || s.Board.Confirm != 0 {
+					break
+				}
+				a := PaneUp
+				if step == "down" {
+					a = PaneDown
+				}
+				s, _ = boardKeys(s, a)
+				c, i := BoardCard(s.Board)
+				chosen = choice{}
+				if s.Board.Detail && i >= 0 && c.Surface != nil && BoardLine(s.Board, c) > 0 {
+					chosen = choice{true, c.ID, c.Surface.A2UI.Components}
+				}
+			case "enter", "esc":
+				if s.Board.Input != nil || s.Board.Confirm != 0 || (step == "esc" && !s.Board.Detail) {
+					break
+				}
+				a := PaneEnter
+				if step == "esc" {
+					a = PaneEsc
+				}
+				wasDetail := s.Board.Detail
+				s, _ = boardKeys(s, a)
+				if !(step == "enter" && wasDetail) {
+					chosen = choice{}
+				}
+			case "mark":
+				if s.Board.Input != nil || s.Board.Confirm != 0 {
+					break
+				}
+				c, i := BoardCard(s.Board)
+				line := 0
+				if i >= 0 {
+					line = BoardLine(s.Board, c)
+				}
+				var fx []Effect
+				s, fx = boardKeys(s, PaneMark)
+				ops := effectsOf[SendCardOp](fx)
+				if len(ops) == 0 {
+					break
+				}
+				op := ops[0]
+				if op.Op.Op != "input" {
+					break
+				}
+				if line == 0 || c.Surface == nil {
+					t.Fatalf("an input op %+v from the title or a card with no boxes", op)
+				}
+				in := c.Inputs()[line-1]
+				if op.Card != c.ID || *op.Op.Path != in.Path || *op.Op.Value != !in.On || *op.Op.Seen != c.Rev {
+					t.Fatalf("op %+v for box %+v of card %d rev %d", op, in, c.ID, c.Rev)
+				}
+				if !chosen.valid || chosen.card != c.ID || !reflect.DeepEqual(chosen.comps, c.Surface.A2UI.Components) {
+					t.Fatalf("an op for box %+v that the operator did not move onto on these components", in)
+				}
+				flight, flightCard = &op.Op, op.Card
+			case "role": // a role edits the text, or the boxes
+				d := pick("roleCard")
+				if d.checklist || d.broken {
+					break
+				}
+				switch rapid.IntRange(0, 2).Draw(t, "edit") {
+				case 0:
+					d.caption += "!"
+				case 1:
+					d.names = slices.Clone(d.names)
+					slices.Reverse(d.names)
+				default:
+					d.names = append([]string{"first"}, d.names...)
+					d.done = append([]bool{false}, d.done...)
+				}
+				bump(d)
+				c := d.card(outer)
+				apply(CardsChanged{At: t0, Rev: rev, Cards: []Card{c}}, false)
+			case "tick": // another client ticks a box
+				d := pick("tickCard")
+				if d.checklist || d.broken || len(d.done) == 0 {
+					break
+				}
+				d.done = slices.Clone(d.done)
+				d.done[rapid.IntRange(0, len(d.done)-1).Draw(t, "box")] = rapid.Bool().Draw(t, "value")
+				bump(d)
+				if rapid.Bool().Draw(t, "caption") {
+					d.caption += "+"
+				}
+				c := d.card(outer)
+				apply(CardsChanged{At: t0, Rev: rev, Cards: []Card{c}}, false)
+			case "answer": // relay answers the operator's own input
+				if flight == nil || s.Board.Sending != flightCard {
+					break
+				}
+				d := srv[flightCard]
+				if !d.checklist && !d.broken && flight.Op == "input" {
+					for i := range d.done {
+						if *flight.Path == fmt.Sprintf("/items/%d/done", i) {
+							d.done = slices.Clone(d.done)
+							d.done[i] = *flight.Value
+						}
+					}
+					bump(d)
+					if rapid.Bool().Draw(t, "caption") {
+						d.caption += "?"
+					}
+				}
+				c := d.card(outer)
+				apply(CardOpDone{At: t0, CardID: flightCard, Card: &c}, flight.Op == "input")
+				flight = nil
+			case "retitle": // from the list or the title line of an open card
+				if s.Board.Input != nil || s.Board.Confirm != 0 || s.Board.Sending != 0 || len(s.Board.Cards) == 0 {
+					break
+				}
+				c, _ := BoardCard(s.Board)
+				if s.Board.Detail && BoardLine(s.Board, c) != 0 {
+					break
+				}
+				s, _ = boardKeys(s, PaneEdit)
+				if s.Board.Input == nil {
+					break
+				}
+				s = typeText(s, "x")
+				var fx []Effect
+				s, fx = boardKeys(s, PaneEnter)
+				if ops := effectsOf[SendCardOp](fx); len(ops) == 1 {
+					flight, flightCard = &ops[0].Op, ops[0].Card
+				}
+			case "refuse": // relay refuses the retitle, late
+				if flight == nil || s.Board.Sending != flightCard {
+					break
+				}
+				apply(CardOpDone{At: t0, CardID: flightCard, Err: "refused"}, false)
+				flight = nil
+			case "kind": // relay sends card 10 as another kind
+				d := srv[10]
+				d.checklist, d.broken = !d.checklist, false
+				bump(d)
+				c := d.card(outer)
+				apply(CardsChanged{At: t0, Rev: rev, Cards: []Card{c}}, false)
+			case "malformed", "recover":
+				d := pick("badCard")
+				d.broken = !d.broken
+				bump(d)
+				c := d.card(outer)
+				apply(CardsChanged{At: t0, Rev: rev, Cards: []Card{c}}, false)
+			case "restart": // the client closes and starts again, after a role's edit
+				v := SaveSingle(s)
+				d := pick("editedCard")
+				if !d.checklist && !d.broken {
+					d.names = append([]string{"first"}, d.names...)
+					d.done = append([]bool{false}, d.done...)
+					bump(d)
+				}
+				s, _ = feedS(RestoreSingle(Single{}, v), Connected{At: t0}, CardsLoaded{At: t0, Rev: rev, Cards: cards()})
+				chosen, flight = choice{}, nil
 			}
 		}
 	})

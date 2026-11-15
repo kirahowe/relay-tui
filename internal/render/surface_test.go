@@ -4,6 +4,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -596,4 +597,44 @@ func TestSurfaceRowsLoseNothingAtOrAboveTheirLeast(t *testing.T) {
 			t.Fatalf("width %d (least %d): drew %q, wide drawing holds %q", width, from, g, want)
 		}
 	})
+}
+
+// A layout weight is a JSON number from the surface. A huge one must not
+// overflow the sums that share a row's room: it is capped, and a number
+// that is not finite or not positive counts as none. The check is on the
+// weight itself and on the allotment, so it does not depend on how the
+// architecture converts a float that is not a number to an integer.
+func TestAWeightIsCappedAndAnUnusableOneCountsAsNone(t *testing.T) {
+	s := surfaceOf(t, a2ui.BasicCatalogID, `[{"id":"root","component":"Row","children":["a","b","c","d"]},
+ {"id":"a","component":"Text","text":"left","weight":1e308},
+ {"id":"b","component":"Text","text":"right","weight":1e308},
+ {"id":"c","component":"Text","text":"neg","weight":-3},
+ {"id":"d","component":"Text","text":"none"}]`, "")
+	d := &surfaceDraw{s: s}
+	if a, c, none := d.weightOf("a"), d.weightOf("c"), d.weightOf("d"); a <= 0 || a > maxWeight || c != 0 || none != 0 {
+		t.Fatalf("weights %v %v %v", a, c, none)
+	}
+	for _, w := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1, 0} {
+		s.Components["a"].Props["weight"] = w
+		if got := d.weightOf("a"); got != 0 {
+			t.Errorf("weight %v counts as %v", w, got)
+		}
+	}
+	got := allot([]int{4, 5}, []int{4, 5}, []float64{maxWeight, maxWeight}, 40)
+	if got[0] < 4 || got[1] < 5 || sum(got) > 40 {
+		t.Fatalf("shares %v", got)
+	}
+}
+
+func TestARowOfHugeWeightsDrawsWithinItsWidth(t *testing.T) {
+	s := surfaceOf(t, a2ui.BasicCatalogID, `[{"id":"root","component":"Row","children":["a","b"]},
+ {"id":"a","component":"Text","text":"left","weight":1e308},
+ {"id":"b","component":"Text","text":"right","weight":1e308}]`, "")
+	for width := 1; width <= 60; width++ {
+		for _, l := range A2UI(s, width, nil) {
+			if Method.StringWidth(l) > width {
+				t.Fatalf("width %d: %q", width, l)
+			}
+		}
+	}
 }

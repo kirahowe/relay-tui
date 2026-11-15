@@ -186,7 +186,13 @@ type Board struct {
 	Detail bool
 	Line   int
 	Col    int
-	Input  *BoardInput
+	// Box is the copy of a surface card on which a key press put the
+	// cursor on a box. A box has no id and a line number is only a
+	// position in a copy, so a line means a box only on that copy (see
+	// BoardLine); any path that carries Line to another copy or another
+	// card leaves the cursor on the title instead.
+	Box   *RoleSurface
+	Input *BoardInput
 	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
 	// rev the operator was shown. A newer copy of it cancels the question.
 	Confirm, ConfirmRev int64
@@ -262,8 +268,15 @@ func BoardCard(b Board) (Card, int) {
 	return b.Cards[0], 0
 }
 
-// BoardLine is the selected line of card c, kept in range.
-func BoardLine(b Board, c Card) int { return min(max(b.Line, 0), c.Lines()-1) }
+// BoardLine is the selected line of card c, kept in range. On a surface
+// card it is 0, the title, unless Box is the surface held: a line is a
+// box only on the copy the cursor was put on.
+func BoardLine(b Board, c Card) int {
+	if c.Kind == CardSurface && (c.Surface == nil || b.Box != c.Surface) {
+		return 0
+	}
+	return min(max(b.Line, 0), c.Lines()-1)
+}
 
 // BoardCol is the selected tracker column of card c by index, kept in
 // range, or -1 when it has none.
@@ -323,7 +336,7 @@ func (r *reducer) keepBoardSelection() {
 	if (b.Detail || b.Input != nil || b.Confirm != 0) && (b.Message == "" || b.Message == refusedNotice) {
 		b.Message, b.Failure = "That card has left the board.", ""
 	}
-	b.Detail, b.Input, b.Confirm, b.Line, b.Col = false, nil, 0, 0, 0
+	b.Detail, b.Input, b.Confirm, b.Line, b.Col, b.Box = false, nil, 0, 0, 0, nil
 	if len(b.Cards) > 0 {
 		b.SelID = b.Cards[0].ID
 	} else {
@@ -414,12 +427,14 @@ func (r *reducer) reanchor(a boardAnchor, was bool) {
 		return
 	}
 	gone := ""
-	if a.surface != nil && !r.cursorStays(a, c) {
+	if a.surface != nil && r.cursorStays(a, c) {
+		b.Box = c.Surface
+	} else if a.surface != nil {
 		// A box has no id, and a path into a list is a position, so a
 		// copy that is not the same layout cannot say which box the
 		// cursor was on. It goes to the title, where no key acts on a
 		// box, and the operator chooses again.
-		b.Line = 0
+		b.Line, b.Box = 0, nil
 		if b.Failure == "" {
 			b.Message = "The card's boxes changed; select one again."
 		}
@@ -661,6 +676,10 @@ func (r *reducer) boardKey(e PaneKey) {
 		case i < 0:
 		case b.Detail:
 			b.Line = min(max(BoardLine(*b, c)+d, 0), c.Lines()-1)
+			b.Box = nil
+			if c.Kind == CardSurface && b.Line > 0 {
+				b.Box = c.Surface
+			}
 		default:
 			j := min(max(i+d, 0), len(b.Cards)-1)
 			b.SelID = b.Cards[j].ID
@@ -675,11 +694,11 @@ func (r *reducer) boardKey(e PaneKey) {
 		}
 	case PaneEnter:
 		if i >= 0 && !b.Detail {
-			b.SelID, b.Detail, b.Line, b.Col = c.ID, true, 0, 0
+			b.SelID, b.Detail, b.Line, b.Col, b.Box = c.ID, true, 0, 0, nil
 		}
 	case PaneEsc:
 		if b.Detail {
-			b.Detail = false
+			b.Detail, b.Box = false, nil
 		} else {
 			r.a.PaneFocus = false
 		}
