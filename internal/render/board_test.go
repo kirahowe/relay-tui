@@ -1,13 +1,19 @@
 package render
 
 import (
+	"encoding/json/v2"
+	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui"
+	"github.com/kirahowe/relay-tui/internal/a2ui/a2uitest"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -49,14 +55,61 @@ func detail(s core.Single, id int64, line, col int) core.Single {
 	return s
 }
 
+// surfaceCard is relay's fixture card of that name as a card on the board,
+// with the id given: its surface folded from the card's messages, and the
+// live links its role's file lists.
+func surfaceCard(t testing.TB, name string, id int64) (core.Card, core.Links) {
+	t.Helper()
+	s, outsider, live := readCard(t, name)
+	s.ID = "card_" + strconv.FormatInt(id, 10)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "surfaces", name+".card.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Rev    int64    `json:"rev"`
+		Owner  string   `json:"owner"`
+		Labels []string `json:"labels"`
+		Title  struct {
+			Text string `json:"text"`
+		} `json:"title"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	c := core.Card{ID: id, Kind: core.CardSurface, Status: core.CardActive, Rev: wire.Rev, Owner: wire.Owner,
+		Title: core.CardText{Text: wire.Title.Text, Outsider: outsider, Rev: wire.Rev}, Text: wire.Text,
+		Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}}
+	for _, l := range wire.Labels {
+		c.Labels.Private = c.Labels.Private || l == "private"
+		c.Labels.Contaminated = c.Labels.Contaminated || l == "contaminated"
+	}
+	return c, live
+}
+
 func TestBoardGolden(t *testing.T) {
 	all := boardState(true, cardTracker, cardChecklist, cardNote, cardUnknown)
+	surface, _ := surfaceCard(t, "checklist", 1880)
+	withSurface := boardState(true, cardTracker, cardChecklist, cardNote, cardUnknown, surface)
+	withSurface.Board.SelID = surface.ID
+	hostile, live := surfaceCard(t, "hostile", 1881)
+	hostile.Labels.Contaminated = true
+	outside := detail(boardState(true, hostile), hostile.ID, 0, 0)
+	outside.App.Links = live
+	text := core.Card{ID: 1882, Kind: "surface?", Status: core.CardActive, Rev: 1882, Owner: "steward",
+		Title: ct("Pack for the lake weekend"), Labels: core.Labels{Private: true},
+		Text: "Card 1882: Pack for the lake weekend (surface) [[card:1882]]\nTent and stakes: done\nSleeping bags: open"}
 	cases := map[string]core.Single{
-		"list":      all,
-		"tracker":   detail(all, 1840, 1, 2),
-		"checklist": detail(all, 1851, 2, 0),
-		"note":      detail(all, 1860, 0, 0),
-		"unknown":   detail(all, 1870, 0, 0),
+		"surface":         withSurface,
+		"surface_detail":  detail(withSurface, surface.ID, 3, 0),
+		"surface_outside": outside,
+		"surface_text":    detail(boardState(true, text), text.ID, 0, 0),
+		"list":            all,
+		"tracker":         detail(all, 1840, 1, 2),
+		"checklist":       detail(all, 1851, 2, 0),
+		"note":            detail(all, 1860, 0, 0),
+		"unknown":         detail(all, 1870, 0, 0),
 	}
 	sending := detail(all, 1851, 1, 0)
 	sending.Board.Sending = 1851
@@ -144,7 +197,7 @@ func genBoardText(t *rapid.T, label string) core.CardText {
 }
 
 func genBoardCard(t *rapid.T, id int64) core.Card {
-	c := core.Card{ID: id, Kind: rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, paneText0(t, "kind")}).Draw(t, "kind"),
+	c := core.Card{ID: id, Kind: rapid.SampledFrom([]string{core.CardChecklist, core.CardTracker, core.CardNote, core.CardSurface, paneText0(t, "kind")}).Draw(t, "kind"),
 		Status: core.CardActive, Owner: paneText0(t, "owner"), Title: genBoardText(t, "title"), Text: paneText0(t, "text"),
 		Done: rapid.IntRange(0, 9).Draw(t, "done"), Total: rapid.IntRange(0, 9).Draw(t, "total"),
 		Complete: rapid.Bool().Draw(t, "complete"), Labels: core.Labels{Contaminated: rapid.Bool().Draw(t, "c")}}
@@ -170,8 +223,88 @@ func genBoardCard(t *rapid.T, id int64) core.Card {
 	case core.CardNote:
 		n := genBoardText(t, "note")
 		c.Note = &n
+	case core.CardSurface:
+		sc := a2uitest.GenResolved(t, genSurfaceText())
+		sc.ID = "card_" + strconv.FormatInt(id, 10)
+		c.Surface = &core.RoleSurface{Outsider: rapid.Bool().Draw(t, "outsider"), A2UI: sc}
 	}
 	return c
+}
+
+// plainSurface is a card whose surface is a Column of a body text and the
+// given boxes, each bound to a path of its own, as relay would send it.
+func plainSurface(t interface {
+	Helper()
+	Fatal(args ...any)
+}, id int64, outsider bool, text string, labels ...string) core.Card {
+	t.Helper()
+	comps := map[string]a2ui.Component{"t": {ID: "t", Type: "Text", Props: map[string]any{"text": text}}}
+	kids := []any{"t"}
+	data := map[string]any{}
+	for i, l := range labels {
+		cid, key := "b"+strconv.Itoa(i), "k"+strconv.Itoa(i)
+		kids = append(kids, cid)
+		data[key] = i%2 == 0
+		comps[cid] = a2ui.Component{ID: cid, Type: "CheckBox", Props: map[string]any{"label": l, "value": map[string]any{"@path": "/" + key}}}
+	}
+	comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": kids}}
+	s := a2ui.Surface{ID: "card_" + strconv.FormatInt(id, 10), CatalogID: a2ui.RelayCatalogID, Components: comps, Data: data}
+	if err := a2ui.Resolved(s); err != nil {
+		t.Fatal(err)
+	}
+	return core.Card{ID: id, Kind: core.CardSurface, Status: core.CardActive, Rev: id, Title: core.CardText{Text: "Surface", Outsider: outsider},
+		Labels: core.Labels{Contaminated: outsider}, Surface: &core.RoleSurface{Outsider: outsider, A2UI: s}}
+}
+
+// A surface from outside says so, draws every row in the warning colour,
+// and leaves nothing a terminal could follow, in the list and in the card.
+func TestAnOutsidersSurfaceIsMarked(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		url := rapid.SampledFrom([]string{"https://evil.test/x?d=1", "www.evil.test", "hxxps://evil[.]test/x"}).Draw(t, "url")
+		text := "see " + url + " now"
+		c := plainSurface(t, 1890, true, text, text)
+		c.Surface.A2UI.Components["cap"] = a2ui.Component{ID: "cap", Type: "Text", Props: map[string]any{"text": text, "variant": "caption"}}
+		kids := c.Surface.A2UI.Components["root"].Props["children"].([]any)
+		c.Surface.A2UI.Components["root"].Props["children"] = append(kids, "cap")
+		w := rapid.IntRange(30, 70).Draw(t, "width")
+		for _, s := range []core.Single{boardState(true, c), detail(boardState(true, c), c.ID, 1, 0)} {
+			lines := PaneLines(s.App, s.State, t0, w, 30)
+			plain := ansi.Strip(strings.Join(lines, "\n"))
+			if !strings.Contains(plain, "from outside") {
+				t.Fatalf("the footer does not say so:\n%s", plain)
+			}
+			for _, l := range lines {
+				if strings.Contains(ansi.Strip(l), "see") && !strings.Contains(l, ";33m") {
+					t.Fatalf("outside text not in the warning colour: %q", l)
+				}
+				if followable(ansi.Strip(l)) {
+					t.Fatalf("unsafe row %q", l)
+				}
+			}
+		}
+	})
+}
+
+// With the cursor on an input of an open surface card, the rows the panel
+// reports as selected are the rows that hold that input's label.
+func TestTheSelectedRowsOfASurfaceHoldTheInputsLabel(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		var labels []string
+		for i := range rapid.IntRange(1, 6).Draw(t, "boxes") {
+			labels = append(labels, "box"+strconv.Itoa(i)+rapid.StringMatching(`[a-z]{0,4}`).Draw(t, "label"))
+		}
+		c := plainSurface(t, 1891, rapid.Bool().Draw(t, "outsider"), rapid.StringMatching(`[a-z ]{0,40}`).Draw(t, "text"), labels...)
+		k := rapid.IntRange(0, len(labels)-1).Draw(t, "k")
+		s := detail(boardState(true, c), c.ID, k+1, 0)
+		w := rapid.IntRange(24, 70).Draw(t, "width")
+		out, a, z := cardPanel(s.Board, c, core.Links{}, w, true, true)
+		if a < 1 || z <= a || z > len(out) {
+			t.Fatalf("selected rows %d to %d of %d", a, z, len(out))
+		}
+		if got := ansi.Strip(strings.Join(out[a:z], " ")); !strings.Contains(got, labels[k]) {
+			t.Fatalf("selected rows %q lack %q", got, labels[k])
+		}
+	})
 }
 
 // Whatever relay sends, the board draws exactly the room it was given, no
@@ -224,8 +357,12 @@ func TestBoardNeverEmitsRawControls(t *testing.T) {
 // Every board view's hint names the keys that work there: r and b in the
 // list and in each card, and no r where it would do nothing.
 func TestBoardHintsNameTheKeys(t *testing.T) {
-	all := boardState(true, cardTracker, cardChecklist, cardNote)
+	boxed := plainSurface(t, 1892, false, "t", "one", "two")
+	noInputs := plainSurface(t, 1893, false, "t")
+	all := boardState(true, cardTracker, cardChecklist, cardNote, boxed, noInputs)
 	views := map[string]core.Single{
+		"surface":   detail(all, 1892, 1, 0),
+		"no inputs": detail(all, 1893, 0, 0),
 		"list":      all,
 		"tracker":   detail(all, 1840, 1, 0),
 		"checklist": detail(all, 1851, 1, 0),
@@ -237,6 +374,12 @@ func TestBoardHintsNameTheKeys(t *testing.T) {
 			if !strings.Contains(ansi.Strip(foot), want) {
 				t.Errorf("%s: no %q in %q", name, want, ansi.Strip(foot))
 			}
+		}
+	}
+	for id, wantTick := range map[int64]bool{1892: true, 1893: false} {
+		s := detail(all, id, 0, 0)
+		if foot := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 200, 26), " ")); strings.Contains(foot, "x tick") != wantTick {
+			t.Errorf("surface %d: x tick in %q is not %v", id, foot, wantTick)
 		}
 	}
 	if foot := ansi.Strip(strings.Join(PaneLines(all.App, all.State, t0, 200, 26), " ")); !strings.Contains(foot, "e retitle") {

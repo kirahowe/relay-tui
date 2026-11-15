@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -340,6 +341,22 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 			lines = append(lines[:listNoteLines-1], styled(faint, fmt.Sprintf("+%d more lines", len(lines)-listNoteLines+1)))
 		}
 		out = append(out, lines...)
+	case core.CardSurface:
+		if c.Surface == nil {
+			break
+		}
+		var f *a2ui.Focus
+		if full && focus && line > 0 {
+			f = &a2ui.Focus{ID: c.Inputs()[line-1].ID}
+		}
+		lines, a, z := surfaceRows(c.Surface.A2UI, c.Surface.Outsider, live, width, f)
+		if f != nil {
+			selA, selB = len(out)+a, len(out)+z
+		}
+		if !full && len(lines) > listNoteLines {
+			lines = append(lines[:listNoteLines-1], styled(faint, fmt.Sprintf("+%d more lines", len(lines)-listNoteLines+1)))
+		}
+		out = append(out, lines...)
 	default:
 		// A kind this client does not know shows relay's text form.
 		lines := cardLines(c.Text, c.Labels.Contaminated, live, width)
@@ -449,6 +466,12 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 			pr.keys = "↑↓ select · x tick · a add · e edit · X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
 			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · X archive · r reload · b workspace · esc back"
+		case core.CardSurface:
+			if len(c.Inputs()) > 0 {
+				pr.keys = "↑↓ select · x tick · e retitle · X archive · r reload · b workspace · esc back"
+			} else {
+				pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
+			}
 		default:
 			pr.keys = "e retitle · X archive · r reload · b workspace · esc back"
 		}

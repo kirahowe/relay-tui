@@ -1,0 +1,26 @@
+␛[0;1;36mBoard␛[m␛[0;2m 5␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;2m↑ 10 above␛[m
+␛[0;2m│␛[m   spreadsheet                           ␛[m ␛[0;2m│␛[m
+␛[0;2m╰─␛[m ␛[0;33mfrom outside␛[m ␛[0;2m───────────────────────────␛[m␛[0;2m╯␛[m
+
+␛[0;2m╭─␛[m ␛[0;1;34mWhere the statements are␛[m ␛[0;2m────────␛[m ␛[0;2mnote␛[m ␛[0;2m─╮␛[m
+␛[0;2m│␛[m BMO: online banking, Documents.         ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m RBC: mailed.                            ␛[m ␛[0;2m│␛[m
+␛[0;2m╰␛[m␛[0;2m──────────────────────────────────────────␛[m␛[0;2m╯␛[m
+
+␛[0;2m╭─␛[m ␛[0;1mMoves␛[m ␛[0;2m─────────────────────────␛[m ␛[0;2mkanban␛[m ␛[0;2m─╮␛[m
+␛[0;2m│␛[m Card 1870: Moves (kanban) [[card:1870]] ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m Todo: pack                              ␛[m ␛[0;2m│␛[m
+␛[0;2m│␛[m Done: book van                          ␛[m ␛[0;2m│␛[m
+␛[0;2m╰␛[m␛[0;2m──────────────────────────────────────────␛[m␛[0;2m╯␛[m
+
+␛[0;36m╭─␛[m ␛[0;1mPack for the lake weekend␛[m ␛[0;36m────␛[m ␛[0;2msurface␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m ␛[0;2mFor Saturday. Tick what is in the car.␛[m  ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m────────────────────────────────────────␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mTent and stakes␛[m                       ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mSleeping bags␛[m                         ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m○␛[m Camp stove and one full gas canister  ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m○␛[m Paper map of the lake trails          ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m──────────────────────────────────────────␛[m␛[0;36m╯␛[m
+␛[0;36m↑↓␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36menter␛[m␛[0;2m open␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m retitle␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m␛[m
+␛[0;2marchive␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m reload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m workspace␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m

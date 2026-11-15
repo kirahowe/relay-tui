@@ -4,8 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/kirahowe/relay-tui/internal/a2ui"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
@@ -68,17 +66,6 @@ func drawSurface(s a2ui.Surface, outsider bool, live core.Links, width int, focu
 		return []string{truncate(styled(faint, "waiting for the root component"), width)}, 0, 0, d
 	}
 	rows, selA, selB = d.node(a2ui.Child{ID: "root"}, width, 0)
-	if outsider {
-		// drawn shows a row it must break as plain text. The spaces the
-		// selection bar pads a row with are not text, so they go first:
-		// they would make the broken row longer, and the focus would
-		// change what fit cuts.
-		for i, r := range rows {
-			if unsafeRow(r) {
-				rows[i] = strings.TrimRight(ansi.Strip(r), " ")
-			}
-		}
-	}
 	return fit(drawn(rows, outsider), width), selA, selB, d
 }
 
@@ -261,13 +248,10 @@ func (d *surfaceDraw) asks(ch a2ui.Child, depth int) int {
 	return w
 }
 
-// textLines draws Text. A caption is faint plain text. A body is dressed
-// as a note card's text, with **bold**, # headings and - list lines, but
-// only when the surface is not from outside: dressing takes characters
-// away after relay checked the string, and what is left could be an
-// address relay never saw. A body from outside is drawn as any outside
-// card text is, escaped, its links broken, wrapped. Every variant keeps
-// every line break, and none is Markdown.
+// textLines draws Text. A caption is faint plain text. A body is drawn as
+// a note card's text is: dressed with **bold**, # headings and - list
+// lines when the surface is not from outside, and as sent when it is.
+// Every variant keeps every line break, and none is Markdown.
 func (d *surfaceDraw) textLines(c a2ui.Component, sc a2ui.Scope, width int) []string {
 	raw := d.s.String(sc, c.Props["text"])
 	if raw == "" {
@@ -282,10 +266,8 @@ func (d *surfaceDraw) textLines(c a2ui.Component, sc a2ui.Scope, width int) []st
 			}
 			out = append(out, wrap(styled(faint, l), width)...)
 		}
-	} else if d.outsider {
-		out = cardLines(raw, true, d.live, width)
 	} else {
-		out = noteLines(raw, false, d.live, width)
+		out = noteLines(raw, d.outsider, d.live, width)
 	}
 	if d.outsider {
 		for i, l := range out {

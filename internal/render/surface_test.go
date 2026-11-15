@@ -366,7 +366,7 @@ type card struct {
 	} `json:"surface"`
 }
 
-func readCard(t *testing.T, name string) (a2ui.Surface, bool, core.Links) {
+func readCard(t testing.TB, name string) (a2ui.Surface, bool, core.Links) {
 	t.Helper()
 	read := func(file string, into any) {
 		raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "surfaces", file))

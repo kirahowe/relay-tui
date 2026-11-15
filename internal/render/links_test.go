@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -604,13 +605,24 @@ func TestOutsideTextIsDrawnAsItWasSent(t *testing.T) {
 		}
 		width := rapid.IntRange(8, 80).Draw(t, "width")
 		want := solid(core.EscapeNonPrinting(strings.ReplaceAll(text, "\t", "    ")))
+		// A surface of an outsider with the text as a body, a caption and a
+		// label, each drawn alone.
+		one := func(kind string, props map[string]any) []string {
+			s := a2ui.Surface{ID: "s", CatalogID: a2ui.RelayCatalogID,
+				Components: map[string]a2ui.Component{"root": {ID: "root", Type: kind, Props: props}}}
+			rows, _, _ := surfaceRows(s, true, core.Links{}, width+2, nil)
+			return rows
+		}
 		for name, rows := range map[string][]string{
-			"a note":       noteLines(text, true, core.Links{}, width),
-			"card text":    cardLines(text, true, core.Links{}, width),
-			"a check item": checkLines(core.CardElem{CardText: core.CardText{Text: strings.ReplaceAll(text, "\n", " "), Outsider: true}}, core.Links{}, width+2),
+			"a note":            noteLines(text, true, core.Links{}, width),
+			"card text":         cardLines(text, true, core.Links{}, width),
+			"a check item":      checkLines(core.CardElem{CardText: core.CardText{Text: strings.ReplaceAll(text, "\n", " "), Outsider: true}}, core.Links{}, width+2),
+			"a surface text":    one("Text", map[string]any{"text": text}),
+			"a surface caption": one("Text", map[string]any{"text": text, "variant": "caption"}),
+			"a surface check":   one("CheckBox", map[string]any{"label": strings.ReplaceAll(text, "\n", " "), "value": false}),
 		} {
 			got := solid(strings.Join(plainRows(rows), "\n"))
-			if name == "a check item" {
+			if strings.HasSuffix(name, "check item") || name == "a surface check" {
 				// Its ring and its text on one line.
 				got = strings.TrimPrefix(got, "○")
 				if got != solid(core.EscapeNonPrinting(strings.ReplaceAll(strings.ReplaceAll(text, "\n", " "), "\t", "    "))) {

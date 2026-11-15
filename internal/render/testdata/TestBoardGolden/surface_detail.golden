@@ -1,0 +1,26 @@
+␛[0;1;36mBoard␛[m␛[0;2m 5␛[m                      ␛[0;36m b ␛[m␛[0;2m workspace 0␛[m
+␛[0;36m╭─␛[m ␛[0;1mPack for the lake weekend␛[m ␛[0;36m────␛[m ␛[0;2msurface␛[m ␛[0;36m─╮␛[m
+␛[0;36m│␛[m ␛[0;2mFor Saturday. Tick what is in the car.␛[m  ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m────────────────────────────────────────␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mTent and stakes␛[m                       ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mSleeping bags␛[m                         ␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;7m␛[0;2;7m○␛[0;7m Camp stove and one full gas canister  ␛[m␛[m ␛[0;36m│␛[m
+␛[0;36m│␛[m ␛[0;2m○␛[m Paper map of the lake trails          ␛[m ␛[0;36m│␛[m
+␛[0;36m╰␛[m␛[0;36m──────────────────────────────────────────␛[m␛[0;36m╯␛[m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+␛[0;36m↑↓␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36mx␛[m␛[0;2m tick␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m retitle␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m archive␛[m␛[0;2m •␛[m
+␛[0;2m␛[m␛[0;36mr␛[m␛[0;2m reload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m workspace␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
