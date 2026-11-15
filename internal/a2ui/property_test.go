@@ -3,6 +3,7 @@ package a2ui
 import (
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -57,31 +58,103 @@ func TestSetReadsBack(t *testing.T) {
 		root := genJSON(3).Draw(t, "root")
 		ptr := genPointer().Draw(t, "ptr")
 		v := genJSON(2).Draw(t, "value")
-		before, _ := json.Marshal(root, json.Deterministic(true))
-		out, err := Set(root, ptr, v)
-		after, _ := json.Marshal(root, json.Deterministic(true))
-		if string(before) != string(after) {
-			t.Fatalf("Set changed its input")
-		}
-		if err != nil {
-			return
-		}
-		got, ok := Get(out, ptr)
-		if v == nil {
-			if ptr != "" && ptr != "/" && ok {
-				t.Fatalf("null write left %v at %q", got, ptr)
-			}
-			return
-		}
-		if !ok || !reflect.DeepEqual(got, v) {
-			t.Fatalf("wrote %v at %q, read %v (found %v)", v, ptr, got, ok)
-		}
-		// Writing the same value again changes nothing.
-		again, err := Set(out, ptr, v)
-		if err != nil || !reflect.DeepEqual(again, out) {
-			t.Fatalf("second write differs: %v %v", again, err)
-		}
+		checkSet(t, root, ptr, v)
 	})
+}
+
+// The case rapid found with seed 15639078114469465116: a null write to
+// the first of two arrays, where the second moves down into its place.
+func TestSetNullClosesAnArray(t *testing.T) {
+	checkSet(t, []any{[]any{}, []any{}}, "/0", nil)
+	out, err := Set([]any{"a", []any{"b"}, "c"}, "/0", nil)
+	if err != nil || !same(out, []any{[]any{"b"}, "c"}) {
+		t.Fatalf("got %v, %v", out, err)
+	}
+}
+
+// checkSet is the property of one Set(root, ptr, v).
+func checkSet(t interface{ Fatalf(string, ...any) }, root any, ptr string, v any) {
+	before, _ := json.Marshal(root, json.Deterministic(true))
+	out, err := Set(root, ptr, v)
+	after, _ := json.Marshal(root, json.Deterministic(true))
+	if string(before) != string(after) {
+		t.Fatalf("Set changed its input")
+	}
+	if err != nil {
+		return
+	}
+	got, ok := Get(out, ptr)
+	if v == nil {
+		checkRemoved(t, root, out, ptr)
+		return
+	}
+	if !ok || !reflect.DeepEqual(got, v) {
+		t.Fatalf("wrote %v at %q, read %v (found %v)", v, ptr, got, ok)
+	}
+	// Writing the same value again changes nothing.
+	again, err := Set(out, ptr, v)
+	if err != nil || !reflect.DeepEqual(again, out) {
+		t.Fatalf("second write differs: %v %v", again, err)
+	}
+}
+
+// checkRemoved is what a null write at ptr must have made of root. With
+// nothing at ptr the model is as it was. A key is gone. An array closes
+// up over the element, so ptr may still hold something, and then it is
+// the element that came after.
+func checkRemoved(t interface{ Fatalf(string, ...any) }, root, out any, ptr string) {
+	if ptr == "" || ptr == "/" {
+		if !same(out, map[string]any{}) {
+			t.Fatalf("null at the root left %v", out)
+		}
+		return
+	}
+	if _, had := Get(root, ptr); !had {
+		if !same(out, root) {
+			t.Fatalf("null write to nothing at %q gave %v", ptr, out)
+		}
+		return
+	}
+	got, ok := Get(out, ptr)
+	if !ok {
+		return
+	}
+	cut := strings.LastIndex(ptr, "/")
+	i, isIndex := index(ptr[cut+1:])
+	after, hadAfter := Get(root, ptr[:cut+1]+strconv.Itoa(i+1))
+	if !isIndex || !hadAfter || !same(got, after) {
+		t.Fatalf("null write left %v at %q", got, ptr)
+	}
+}
+
+// same compares decoded JSON, taking an empty array and a nil one as
+// equal.
+func same(a, b any) bool {
+	switch x := a.(type) {
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !same(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for k, v := range x {
+			if w, has := y[k]; !has || !same(v, w) {
+				return false
+			}
+		}
+		return true
+	}
+	return reflect.DeepEqual(a, b)
 }
 
 // The same through messages: updateDataModel, then a read.

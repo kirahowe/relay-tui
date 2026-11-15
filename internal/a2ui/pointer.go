@@ -90,11 +90,13 @@ func Get(root any, ptr string) (any, bool) {
 }
 
 // Set returns root with the value at ptr replaced by v, creating objects
-// for missing steps. A nil v removes the key (or array element) instead,
-// and does nothing when it is not there. Setting the whole model to nil
-// leaves an empty object. It fails on a bad pointer, on a step through a
-// value that is neither object nor array, and on an array index past the
-// end ("-" or the length appends).
+// for missing steps. A nil v removes the key instead, and does nothing
+// when it is not there. From an array it takes the element out and the
+// rest move down, as JSON Patch's remove does, since A2UI says only that
+// null removes a key. Setting the whole model to nil leaves an empty
+// object. It fails on a bad pointer, on a step through a value that is
+// neither object nor array, and on an array index past the end ("-" or
+// the length appends).
 func Set(root any, ptr string, v any) (any, error) {
 	parts, ok := parsePointer(ptr)
 	if !ok {
