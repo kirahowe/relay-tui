@@ -324,47 +324,34 @@ func TestActivateButton(t *testing.T) {
 }
 
 func TestCatalogs(t *testing.T) {
-	if !catalogs[RelayCatalogID]["Tracker"] || catalogs[BasicCatalogID]["Tracker"] {
-		t.Fatal("Tracker belongs to the relay catalog only")
+	relay := map[string]bool{}
+	for _, name := range []string{"Text", "Row", "Column", "List", "Card", "Divider", "CheckBox"} {
+		relay[name] = true
 	}
-	// The relay catalog leaves out what a client would fetch from a URL the
-	// moment it drew it.
-	media := map[string]bool{"Image": true, "Video": true, "AudioPlayer": true}
+	if !reflect.DeepEqual(catalogs[RelayCatalogID], relay) {
+		t.Fatalf("relay catalog is %v, want %v", catalogs[RelayCatalogID], relay)
+	}
 	for _, name := range basicTypes {
 		if !catalogs[BasicCatalogID][name] {
 			t.Errorf("%s missing from the basic catalog", name)
 		}
-		if catalogs[RelayCatalogID][name] == media[name] {
-			t.Errorf("%s: in the relay catalog is %v, want %v", name, catalogs[RelayCatalogID][name], !media[name])
+	}
+	for _, name := range []string{"Image", "Video", "AudioPlayer", "Button", "TextField", "ChoicePicker", "Tracker"} {
+		if catalogs[RelayCatalogID][name] {
+			t.Errorf("%s is in the relay catalog", name)
 		}
 	}
-	relayImage := Surface{CatalogID: RelayCatalogID}
-	if relayImage.Kind(Component{Type: "Image"}) != "" {
-		t.Fatal("the relay catalog must not define Image")
+	if catalogs[BasicCatalogID]["Tracker"] {
+		t.Fatal("Tracker is in the basic catalog")
 	}
 	s := Surface{CatalogID: BasicCatalogID}
-	own := Component{Type: "Tracker", Props: map[string]any{"@catalogId": RelayCatalogID}}
-	if s.Kind(own) != "Tracker" || s.Kind(Component{Type: "Tracker"}) != "" || (Surface{}).Kind(Component{Type: "Text"}) != "" {
+	own := Component{Type: "Divider", Props: map[string]any{"@catalogId": RelayCatalogID}}
+	button := Component{Type: "Button", Props: map[string]any{"@catalogId": RelayCatalogID}}
+	if s.Kind(own) != "Divider" || s.Kind(button) != "" || s.Kind(Component{Type: "Tracker"}) != "" || (Surface{}).Kind(Component{Type: "Text"}) != "" {
 		t.Fatal("catalog resolution is wrong")
 	}
 	raw, err := os.ReadFile("relay_catalog.json")
 	if err != nil || !strings.Contains(string(raw), `"$id": "`+RelayCatalogID+`"`) {
 		t.Fatalf("catalog file: %v", err)
-	}
-}
-
-func TestTracker(t *testing.T) {
-	ss := mustApply(t, nil, `{"version":"1.0","createSurface":{"surfaceId":"s","catalogId":"`+RelayCatalogID+`","dataModel":{"cols":[{"id":"a","label":"A"}],"st":"done"},"components":[
- {"id":"root","component":"Tracker","rows":[{"id":"r1","label":{"@path":"/cols/0/label"}},{"id":"r1","label":"dup"},{"id":"r2","label":"two"}],"columns":{"@path":"/cols"},"cells":[{"row":"r1","column":"a","state":{"@path":"/st"}}]}]}}`)
-	s, _ := ss.Get("s")
-	root, _ := s.Root()
-	got := s.Tracker(root, Scope{})
-	want := TrackerData{
-		Rows:    []TrackerLine{{"r1", "A"}, {"r2", "two"}},
-		Columns: []TrackerLine{{"a", "A"}},
-		Cells:   []TrackerCell{{"r1", "a", "done"}},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }

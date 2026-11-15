@@ -200,7 +200,7 @@ func mustApplyQuiet(t *rapid.T, ss Surfaces, line string) Surfaces {
 // fixtureLines are real messages, which mutations start from.
 func fixtureLines(t testing.TB) [][]byte {
 	var out [][]byte
-	for _, f := range []string{"checklist", "tracker", "note"} {
+	for _, f := range []string{"checklist", "note"} {
 		raw, err := os.ReadFile("testdata/" + f + ".jsonl")
 		if err != nil {
 			t.Fatal(err)
@@ -258,7 +258,7 @@ func TestNoInputPanicsTheFold(t *testing.T) {
 	})
 }
 
-var componentTypes = []string{"Text", "Column", "Row", "List", "Card", "Divider", "CheckBox", "Button", "TextField", "ChoicePicker", "Tracker", "Image", "Video", "AudioPlayer", "Icon", "Mystery"}
+var componentTypes = []string{"Text", "Column", "Row", "List", "Card", "Divider", "CheckBox", "Button", "TextField", "ChoicePicker", "Image", "Video", "AudioPlayer", "Icon", "Mystery"}
 var bindPaths = []string{"/a", "/items", "/items/0/x", "x", "", "/", "/nope", "items/0"}
 
 // genProp is a property value: a literal, a binding or a function call.

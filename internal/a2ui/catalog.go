@@ -21,17 +21,32 @@ var relayCatalogJSON []byte
 // component no catalog has.
 var basicTypes = []string{"Text", "Image", "Video", "AudioPlayer", "Row", "Column", "List", "Card", "Divider", "Button", "TextField", "CheckBox", "ChoicePicker"}
 
-// catalogs maps a catalog id to the component types it defines.
-var catalogs = func() map[string]map[string]bool {
+// relayProps is, for each component type of the relay catalog, the
+// properties the catalog lists for it, "component" among them.
+var relayProps = func() map[string]map[string]bool {
 	var rc struct {
-		CatalogID  string                    `json:"catalogId"`
-		Components map[string]map[string]any `json:"components"`
+		CatalogID  string `json:"catalogId"`
+		Components map[string]struct {
+			Properties map[string]any `json:"properties"`
+		} `json:"components"`
 	}
 	if err := json.Unmarshal(relayCatalogJSON, &rc); err != nil || rc.CatalogID != RelayCatalogID {
 		panic("a2ui: relay_catalog.json is not the relay catalog")
 	}
+	out := map[string]map[string]bool{}
+	for name, c := range rc.Components {
+		out[name] = map[string]bool{}
+		for prop := range c.Properties {
+			out[name][prop] = true
+		}
+	}
+	return out
+}()
+
+// catalogs maps a catalog id to the component types it defines.
+var catalogs = func() map[string]map[string]bool {
 	relay := map[string]bool{}
-	for name := range rc.Components {
+	for name := range relayProps {
 		relay[name] = true
 	}
 	basic := map[string]bool{}

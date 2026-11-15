@@ -1,73 +1,172 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:relay:catalog:v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "catalogId": "urn:relay:catalog:v1",
-  "protocolVersion": "1.0",
-  "title": "relay catalog",
-  "description": "The basic catalog's layout, text and input components that relay-tui draws, plus Tracker, relay's grid of rows by columns with a state in each cell.",
-  "instructions": "Use Tracker for work that is a grid, such as accounts by month. Give each row and column an id, then list the cells that are not open by row id and column id. A cell with no entry is open.",
   "components": {
-    "Text": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Text"},
-    "Row": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Row"},
-    "Column": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Column"},
-    "List": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/List"},
-    "Card": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Card"},
-    "Divider": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Divider"},
-    "Button": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/Button"},
-    "TextField": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/TextField"},
-    "CheckBox": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/CheckBox"},
-    "ChoicePicker": {"$ref": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json#/components/ChoicePicker"},
-    "Tracker": {
-      "type": "object",
-      "description": "A grid of rows by columns. Each cell is open, done or skip. rows, columns and cells are written out, or bound with {\"@path\": ...} to arrays in the data model that have the same shape.",
+    "Card": {
+      "description": "one child in a box",
       "properties": {
-        "component": {"const": "Tracker"},
-        "rows": {"$ref": "#/$defs/TrackerLines"},
-        "columns": {"$ref": "#/$defs/TrackerLines"},
-        "cells": {
-          "description": "The cells that are not open. A pair of row and column with no entry is open.",
-          "oneOf": [
-            {"type": "array", "items": {"$ref": "#/$defs/TrackerCell"}},
-            {"$ref": "common_types.json#/$defs/DataBinding"}
-          ]
+        "child": {
+          "$ref": "common_types.json#/$defs/Child"
         },
-        "weight": {"type": "number"}
-      },
-      "required": ["component", "rows", "columns"]
-    }
-  },
-  "functions": {},
-  "$defs": {
-    "TrackerLines": {
-      "description": "Row or column definitions, in the order they are drawn.",
-      "oneOf": [
-        {"type": "array", "items": {"$ref": "#/$defs/TrackerLine"}},
-        {"$ref": "common_types.json#/$defs/DataBinding"}
-      ]
-    },
-    "TrackerLine": {
-      "type": "object",
-      "properties": {
-        "id": {"type": "string", "description": "Names the row or column in cells. Unique among rows, or among columns."},
-        "label": {"$ref": "common_types.json#/$defs/DynamicString"}
-      },
-      "required": ["id", "label"],
-      "additionalProperties": false
-    },
-    "TrackerCell": {
-      "type": "object",
-      "properties": {
-        "row": {"type": "string", "description": "The id of a row."},
-        "column": {"type": "string", "description": "The id of a column."},
-        "state": {
-          "oneOf": [
-            {"enum": ["open", "done", "skip"]},
-            {"$ref": "common_types.json#/$defs/DataBinding"}
-          ]
+        "component": {
+          "const": "Card"
         }
       },
-      "required": ["row", "column", "state"],
-      "additionalProperties": false
+      "required": [
+        "component",
+        "child"
+      ],
+      "type": "object"
+    },
+    "CheckBox": {
+      "description": "a box with a one-line label, which the operator ticks when its value is a path",
+      "properties": {
+        "component": {
+          "const": "CheckBox"
+        },
+        "label": {
+          "$ref": "common_types.json#/$defs/DynamicString"
+        },
+        "value": {
+          "$ref": "common_types.json#/$defs/DynamicBoolean"
+        }
+      },
+      "required": [
+        "component",
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Column": {
+      "description": "its children one under another",
+      "properties": {
+        "children": {
+          "$ref": "common_types.json#/$defs/ChildList"
+        },
+        "component": {
+          "const": "Column"
+        }
+      },
+      "required": [
+        "component",
+        "children"
+      ],
+      "type": "object"
+    },
+    "Divider": {
+      "description": "a rule",
+      "properties": {
+        "axis": {
+          "enum": [
+            "horizontal",
+            "vertical"
+          ],
+          "type": "string"
+        },
+        "component": {
+          "const": "Divider"
+        }
+      },
+      "required": [
+        "component"
+      ],
+      "type": "object"
+    },
+    "List": {
+      "description": "its children as a list",
+      "properties": {
+        "children": {
+          "$ref": "common_types.json#/$defs/ChildList"
+        },
+        "component": {
+          "const": "List"
+        },
+        "direction": {
+          "enum": [
+            "vertical",
+            "horizontal"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "children"
+      ],
+      "type": "object"
+    },
+    "Row": {
+      "description": "its children side by side",
+      "properties": {
+        "children": {
+          "$ref": "common_types.json#/$defs/ChildList"
+        },
+        "component": {
+          "const": "Row"
+        }
+      },
+      "required": [
+        "component",
+        "children"
+      ],
+      "type": "object"
+    },
+    "Text": {
+      "description": "plain text, not Markdown; a client shows **bold**, a # heading line and - list lines, and nothing else",
+      "properties": {
+        "component": {
+          "const": "Text"
+        },
+        "text": {
+          "$ref": "common_types.json#/$defs/DynamicString"
+        },
+        "variant": {
+          "enum": [
+            "body",
+            "caption"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "text"
+      ],
+      "type": "object"
     }
-  }
+  },
+  "description": "The components relay takes from a role and sends to a client: layout, text and a checkbox.",
+  "functions": {
+    "formatString": {
+      "description": "Fills each ${...} spot in the value with what the data model holds at that path. A spot holds one path and nothing else. \\${ is a literal ${.",
+      "properties": {
+        "@call": {
+          "const": "formatString"
+        },
+        "args": {
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "type": "object",
+          "unevaluatedProperties": false
+        }
+      },
+      "required": [
+        "@call",
+        "args"
+      ],
+      "returnType": "string",
+      "type": "object"
+    }
+  },
+  "instructions": "A surface is a card you lay out yourself. Add one with card_add: kind surface, a title, `components` and `data`.\n\n`components` is a flat list. Each has an `id`, a `component` and that component's properties, and names its\nchildren by id. One has the id root and holds the others. The card already has a frame with its title on\nit, so start from a Column and do not repeat the title. The components and what each takes:\n\n  Text: plain text, not Markdown; a client shows **bold**, a # heading line and - list lines, and nothing else. text (text, a path or a call); variant (body or caption, optional).\n  Row: its children side by side. children (a list of ids, or a template).\n  Column: its children one under another. children (a list of ids, or a template).\n  List: its children as a list. children (a list of ids, or a template); direction (vertical or horizontal, optional).\n  Card: one child in a box. child (the id of one component).\n  Divider: a rule. axis (horizontal or vertical, optional).\n  CheckBox: a box with a one-line label, which the operator ticks when its value is a path. label (text, a path or a call); value (true, false or a path).\n\nMarkdown links, tables and code fences are shown as written, so leave them out of a text.\n\n`data` is the JSON the components read. Where a property takes a path, write {\"@path\": \"/items/0/text\"}.\nA path to text, a number, true or false reads as that; a path to a list or an object reads as nothing.\nA text may also fill spots from the data: {\"@call\": \"formatString\", \"args\": {\"value\": \"${/done} of ${/total} done\"}}.\n\nTo draw one child for each item of a list in the data, give a Row, Column or List\n`children` of {\"componentId\": \"item\", \"path\": \"/items\"}. In that component a path with no leading /\nreads from the item ({\"@path\": \"text\"}), and {\"@call\": \"@index\", \"args\": {\"offset\": 1}} is the item's number.\n\nThe operator can tick and untick a CheckBox whose value is a path. Nothing else on a surface can be\nchanged by them. Reading the card shows you what they ticked. Bind a box where the data holds true, false\nor nothing yet, and never bind one box inside another's path.\n\nChange a surface with card_op. `data` writes `value` at `path`: a null value removes what is there, and a\npath ending in /- adds to a list. `components` replaces every component. Both need `seen`, the card's rev,\nwhich the card's header and every answer to a change give.\n\nLimits: 200 components, 1000 once lists are drawn, 12 deep; 200 items in a list; 8000 characters in a text and 16000 in all. Numbers are whole numbers. Keys of the data are letters, digits, underscores and hyphens. A component's id is letters and digits with single underscores between them.",
+  "protocolVersion": "1.0",
+  "title": "relay catalog"
 }

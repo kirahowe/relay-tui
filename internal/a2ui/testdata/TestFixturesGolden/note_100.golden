@@ -1,12 +1,10 @@
-␛[0;2m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮␛[m
-␛[0;2m│␛[m ␛[0;1mMonth-end routine␛[m␛[0;2m                                                                               ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m Statements land in the shared folder by the ␛[0;1mthird␛[m of the month.␛[0;2m                                 ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m                                                                                                ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m • Export the bank CSVs first␛[0;2m                                                                    ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m • Then reconcile the card, oldest charge first␛[0;2m                                                  ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m • Leave the line of credit for the end␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m                                                                                                ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m If a statement is late, say so on the card and move on. Do not chase it before the fifth.␛[0;2m       ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m[image not shown]␛[m␛[0;2m                                                                               ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2mnote, last edited by the house steward␛[m␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
-␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[0;33m**Month-end routine**␛[m
+␛[0;33mStatements land in the shared folder by the **third** of the month.␛[m
+
+␛[0;33m- Export the bank CSVs first␛[m
+␛[0;33m- Then reconcile the card, oldest charge first␛[m
+␛[0;33m- Leave the line of credit for the end␛[m
+
+␛[0;33mIf a statement is late, say so on the card and move on. Do not chase it before the fifth.␛[m
+␛[0;2m[image not shown]␛[m
+␛[0;33m␛[0;2;33mnote, last edited by the house steward␛[0;33m␛[m

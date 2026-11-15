@@ -7,9 +7,11 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"pgregory.net/rapid"
 
 	"github.com/kirahowe/relay-tui/internal/a2ui"
+	"github.com/kirahowe/relay-tui/internal/core"
 )
 
 // hostileText is text a surface might carry to reach the terminal.
@@ -18,14 +20,20 @@ var hostileText = []string{
 	"bell\x07", "a\rb", "tab\there", "‮gnp.exe", "a​b", "\x9b31m", "\x00nul", "\x7f",
 	"https://evil.test/?d=secret", "www.evil.test/x", "世界宽字符", "\U0001F600 emoji", "é́́",
 	"line one\nline two", "# heading", "**bold** and `code`", "[a link](https://evil.test/x)",
+	"see <https://kept.example/fund> now", "https://kept.example/fund", "hxxps://evil[.]test/apply?who=kira",
 }
+
+// keptLink is the one live link the generated text may hold.
+const keptLink = "https://kept.example/fund"
+
+var liveSets = []core.Links{{}, core.LinksOf(keptLink)}
 
 func genSurfaceText() *rapid.Generator[string] {
 	return rapid.Map(rapid.SliceOfN(rapid.OneOf(rapid.SampledFrom(hostileText), rapid.StringMatching(`[a-z ]{0,10}`), rapid.String()), 0, 4),
 		func(p []string) string { return strings.Join(p, " ") })
 }
 
-var surfaceTypes = []string{"Text", "Column", "Row", "List", "Card", "Divider", "CheckBox", "Button", "TextField", "ChoicePicker", "Tracker", "Image", "Video", "AudioPlayer", "Mystery\x1b[31m"}
+var surfaceTypes = []string{"Text", "Column", "Row", "List", "Card", "Divider", "CheckBox", "Button", "TextField", "ChoicePicker", "Image", "Video", "AudioPlayer", "Mystery\x1b[31m"}
 
 func genSurfaceValue(ids []string, depth int) *rapid.Generator[any] {
 	str := rapid.Map(genSurfaceText(), func(s string) any { return s })
@@ -113,40 +121,66 @@ func genSurface(t *rapid.T) a2ui.Surface {
 	return s
 }
 
+// draws is every way a view draws a surface: outside it, and on the board
+// with a live set. Each returns its rows as they leave render.
+func draws(t *rapid.T, s a2ui.Surface, outsider bool, width int, focus *a2ui.Focus) map[string][]string {
+	live := rapid.SampledFrom(liveSets).Draw(t, "live")
+	rows, _, _ := surfaceRows(s, outsider, live, width, focus)
+	return map[string][]string{
+		"A2UI":        A2UI(s, width, focus),
+		"surfaceRows": strings.Split(gate(strings.Join(rows, "\n"), live), "\n"),
+	}
+}
+
+func drawFocus(t *rapid.T, s a2ui.Surface) *a2ui.Focus {
+	if fs := s.Focusables(); len(fs) > 0 && rapid.Bool().Draw(t, "focused") {
+		return &fs[rapid.IntRange(0, len(fs)-1).Draw(t, "which")]
+	}
+	return nil
+}
+
 // No drawn line is wider than the width asked for, at any width, with or
 // without a focus.
 func TestA2UINeverDrawsPastTheWidth(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genSurface(t)
 		width := rapid.IntRange(1, 120).Draw(t, "width")
-		var focus *a2ui.Focus
-		if fs := s.Focusables(); len(fs) > 0 && rapid.Bool().Draw(t, "focused") {
-			focus = &fs[rapid.IntRange(0, len(fs)-1).Draw(t, "which")]
-		}
-		for _, l := range A2UI(s, width, focus) {
-			if w := Method.StringWidth(l); w > width {
-				t.Fatalf("width %d: line is %d wide: %q", width, w, l)
+		for name, rows := range draws(t, s, rapid.Bool().Draw(t, "outsider"), width, drawFocus(t, s)) {
+			for _, l := range rows {
+				if w := Method.StringWidth(l); w > width {
+					t.Fatalf("%s, width %d: line is %d wide: %q", name, width, w, l)
+				}
 			}
 		}
 	})
 }
 
 // Whatever a surface holds in its strings, the drawing has no control
-// character and no escape sequence but the styles this package writes.
+// character and no escape sequence but the styles this package writes and
+// the hyperlinks of live links.
 func TestA2UIDrawsNoControlBytesFromTheSurface(t *testing.T) {
+	odd := regexp.MustCompile(`^\x1b\[[0-9;]*m$`)
 	rapid.Check(t, func(t *rapid.T) {
 		s := genSurface(t)
 		width := rapid.IntRange(1, 120).Draw(t, "width")
-		for _, l := range A2UI(s, width, nil) {
-			if strings.Contains(l, "\x1b[38;5;196") || strings.Contains(l, "\x1b]8;;") {
-				t.Fatalf("a sequence from the surface got through: %q", l)
-			}
-			if r, bad := surfaceControl(l); bad {
-				t.Fatalf("control or format character %U in %q", r, l)
-			}
-			for _, sgr := range sgrRE.FindAllString(l, -1) {
-				if !regexp.MustCompile(`^\x1b\[[0-9;]*m$`).MatchString(sgr) {
-					t.Fatalf("odd sequence %q", sgr)
+		for name, rows := range draws(t, s, rapid.Bool().Draw(t, "outsider"), width, nil) {
+			for _, l := range rows {
+				if strings.Contains(l, "\x1b[38;5;196") {
+					t.Fatalf("%s: a sequence from the surface got through: %q", name, l)
+				}
+				for _, m := range osc8RE.FindAllStringSubmatch(l, -1) {
+					if m[1] != "" && m[1] != keptLink {
+						t.Fatalf("%s: hyperlink to %q in %q", name, m[1], l)
+					}
+				}
+				l = osc8RE.ReplaceAllString(l, "")
+				if r, bad := surfaceControl(l); bad {
+					t.Fatalf("%s: control or format character %U in %q", name, r, l)
+				}
+				for _, sgr := range sgrRE.FindAllString(l, -1) {
+					if !odd.MatchString(sgr) {
+						t.Fatalf("%s: odd sequence %q", name, sgr)
+					}
 				}
 			}
 		}
@@ -184,13 +218,23 @@ func TestA2UINameIsSafe(t *testing.T) {
 	})
 }
 
-// A link in a surface's text never shows live.
+// A link in a surface's text never shows live, but for a whole live link
+// in its span, however the rows were wrapped, cut or laid side by side.
 func TestA2UIDefangsLinks(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := genSurface(t)
-		for _, l := range A2UI(s, 80, nil) {
-			if followable(ansiPlain(l)) {
-				t.Fatalf("live link in %q", l)
+		width := rapid.IntRange(1, 120).Draw(t, "width")
+		for name, rows := range draws(t, s, true, width, nil) {
+			for _, l := range rows {
+				if followable(ansi.Strip(l)) {
+					t.Fatalf("%s, width %d: live link in %q", name, width, l)
+				}
+			}
+		}
+		rows, _, _ := surfaceRows(s, true, core.Links{}, width, nil)
+		for _, l := range rows {
+			if followable(ansi.Strip(l)) {
+				t.Fatalf("width %d: live link before the gate in %q", width, l)
 			}
 		}
 	})
@@ -233,4 +277,27 @@ func TestA2UIWaitsForRoot(t *testing.T) {
 	if len(out) != 1 || !strings.Contains(out[0], "waiting") {
 		t.Fatalf("got %q", out)
 	}
+}
+
+// surfaceOf folds a create message for catalog with the given components
+// (a JSON array) and data model (a JSON object, or empty).
+func surfaceOf(t testing.TB, catalog, components, data string) a2ui.Surface {
+	t.Helper()
+	if data == "" {
+		data = "{}"
+	}
+	var ss a2ui.Surfaces
+	for _, l := range []string{
+		`{"version":"1.0","createSurface":{"surfaceId":"s","catalogId":"` + catalog + `","dataModel":` + data + `}}`,
+		`{"version":"1.0","updateComponents":{"surfaceId":"s","components":` + components + `}}`,
+	} {
+		m, err := a2ui.Decode([]byte(l))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ss, err = a2ui.Apply(ss, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ss[0]
 }

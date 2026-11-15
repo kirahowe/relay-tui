@@ -35,7 +35,7 @@ func fold(t *testing.T, name string) a2ui.Surfaces {
 // Each fixture is one of relay's card kinds as a surface. The goldens show
 // ESC as ␛ so they can be read.
 func TestFixturesGolden(t *testing.T) {
-	for _, name := range []string{"checklist", "tracker", "note"} {
+	for _, name := range []string{"checklist", "note"} {
 		for _, w := range []int{60, 100} {
 			t.Run(name+"_"+strconv.Itoa(w), func(t *testing.T) {
 				ss := fold(t, name)
@@ -51,7 +51,7 @@ func TestFixturesGolden(t *testing.T) {
 
 // A narrow terminal still gets a drawing that fits.
 func TestFixturesFitNarrow(t *testing.T) {
-	for _, name := range []string{"checklist", "tracker", "note"} {
+	for _, name := range []string{"checklist", "note"} {
 		for _, w := range []int{1, 5, 12, 30} {
 			for _, l := range render.A2UI(fold(t, name)[0], w, nil) {
 				if render.Width(l) > w {

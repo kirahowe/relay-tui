@@ -1,12 +1,10 @@
-␛[0;2m╭──────────────────────────────────────────────────────────────────────────────────────────────────╮␛[m
-␛[0;2m│␛[m ␛[0;1mPack for the lake weekend␛[m␛[0;2m                                                                       ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2mchecklist, 2 of 6 done␛[m␛[0;2m                                                                          ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m────────────────────────────────────────────────────────────────────────────────────────────────␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mTent and stakes␛[m␛[0;2m                                                                               ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;32m✓␛[m ␛[0;2;9mSleeping bags␛[m␛[0;2m                                                                                 ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m○␛[m Camp stove and one full gas canister␛[0;2m                                                          ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m○␛[m Water filter␛[0;2m                                                                                  ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m○␛[m First aid kit, plus the sunscreen that is not expired yet␛[0;2m                                     ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m○␛[m Paper map of the lake trails␛[0;2m                                                                  ␛[m ␛[0;2m│␛[m
-␛[0;2m│␛[m ␛[0;2m[ ␛[mArchive␛[0;2m ]␛[m  ␛[0;2mpress a to add an item␛[m␛[0;2m                                                             ␛[m ␛[0;2m│␛[m
-␛[0;2m╰──────────────────────────────────────────────────────────────────────────────────────────────────╯␛[m
+␛[0;33m**Pack for the lake weekend**␛[m
+␛[0;33m␛[0;2;33mchecklist, 2 of 6 done␛[0;33m␛[m
+␛[0;2m────────────────────────────────────────────────────────────────────────────────────────────────────␛[m
+␛[0;32m✓␛[m ␛[0;33m␛[0;2;9;33mTent and stakes␛[0;33m␛[m
+␛[0;32m✓␛[m ␛[0;33m␛[0;2;9;33mSleeping bags␛[0;33m␛[m
+␛[0;2m○␛[m ␛[0;33mCamp stove and one full gas canister␛[m
+␛[0;2m○␛[m ␛[0;33mWater filter␛[m
+␛[0;2m○␛[m ␛[0;33mFirst aid kit, plus the sunscreen that is not expired yet␛[m
+␛[0;2m○␛[m ␛[0;33mPaper map of the lake trails␛[m
+␛[0;2m[ ␛[m␛[0;33mArchive␛[m␛[0;2m ]␛[m  ␛[0;33m␛[0;2;33mpress a to add an item␛[0;33m␛[m
