@@ -237,7 +237,13 @@ func trackerGrid(c core.Card, live core.Links, width int, line, col int, focus b
 	}
 	head := strings.Repeat(" ", nameW)
 	for i, k := range c.Columns {
-		name := truncate(cardLine(strings.ToUpper(k.Text), k.Outsider, live), cols[i])
+		// A column of the operator's own is named in capitals. An
+		// outsider's is drawn as it was sent, like all outside text.
+		text := k.Text
+		if !k.Outsider {
+			text = strings.ToUpper(text)
+		}
+		name := truncate(cardLine(text, k.Outsider, live), cols[i])
 		name += strings.Repeat(" ", cols[i]-Method.StringWidth(name))
 		st := faint
 		if focus && i == col {

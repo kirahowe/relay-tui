@@ -282,6 +282,61 @@ func TestAnOutsidersNoteKeepsItsMarks(t *testing.T) {
 	}
 }
 
+// Link finders disagree on where an address ends once it holds anything
+// but letters, digits and the commonest marks: Ghostty's stops at an
+// apostrophe, so "<https://example.org/o'brien>" would be followed as
+// https://example.org/o where OSC 8 does not get through. A live link
+// like that never shows as it is. It shows broken, and stays a hyperlink
+// to the whole address.
+func TestALinkAFinderMightCutShowsBroken(t *testing.T) {
+	for _, link := range []string{
+		"https://example.org/o'brien", "https://x.example/a*b", "https://x.example/a,b", "https://x.example/a;b",
+		"https://x.example/a!b", "https://x.example/a$b", "https://x.example/[1]", "https://x.example/a=",
+		"https://x.example/a.", "https://x.example/a:", "https://x.example/a?", "https://x.example/a-", "https://x.example/a_",
+	} {
+		live := core.LinksOf(link)
+		if !live.Has(link) {
+			t.Fatalf("%q is not a link a set can hold", link)
+		}
+		for _, text := range []string{"See <" + link + "> now", "See " + link + " now"} {
+			out := gate(strings.Join(wrap(fang(text, live), 80), "\n"), live)
+			if s := spansOn(t, out); len(s) != 1 || s[0] != link {
+				t.Errorf("%q: the hyperlink goes to %q", text, s)
+			}
+			if plain := ansi.Strip(out); strings.Contains(plain, "https://") || !strings.Contains(plain, "<hxxps://") {
+				t.Errorf("%q is drawn as %q", text, plain)
+			}
+		}
+		// Whatever writes such a link as it is, gate breaks its text.
+		out := gate("See "+linkOpen(link)+whole(link)+linkEnd, live)
+		if plain := ansi.Strip(out); linkable(plain) {
+			t.Errorf("gate left %q", plain)
+		}
+	}
+	// The usual kind is whole: a path, a query, a fragment, a port.
+	for _, link := range []string{linkA, linkB, "http://y.example", "https://x.example:8443/a_b/c-d.html?q=1&r=%20+x#top", "https://x.example/~me/"} {
+		live := core.LinksOf(link)
+		if got := ansi.Strip(gate(fang("See "+link+" now", live), live)); got != "See <"+link+"> now" {
+			t.Errorf("%q is drawn as %q", link, got)
+		}
+	}
+}
+
+// An outsider's column name is drawn as it was sent. The operator's own
+// is in capitals.
+func TestAnOutsidersColumnNameKeepsItsCase(t *testing.T) {
+	c := cardTracker
+	c.Columns = []core.CardElem{{ID: 1, CardText: core.CardText{Text: "aB12", Outsider: true}}, {ID: 2, CardText: ct("Jul")}}
+	s := detail(boardState(true, c), c.ID, 1, 0)
+	plain := ansi.Strip(strings.Join(PaneLines(s.App, s.State, t0, 60, 20), "\n"))
+	if !strings.Contains(plain, "aB12") || strings.Contains(plain, "AB12") {
+		t.Fatalf("the outsider's column name changed case:\n%s", plain)
+	}
+	if !strings.Contains(plain, "JUL") {
+		t.Fatalf("the operator's own column is not in capitals:\n%s", plain)
+	}
+}
+
 // --- the property: whatever outside text relay or an agent sends, and
 // whatever relay's live links are, nothing drawn can be followed but a
 // live link.
@@ -289,6 +344,7 @@ func TestAnOutsidersNoteKeepsItsMarks(t *testing.T) {
 var (
 	// Addresses in a live link's shape, any of which may be live.
 	goodLinks = []string{linkA, linkB, "https://x.example/a-b-c", "http://y.example", "https://x.example/a.",
+		"https://example.org/o'brien", "https://x.example/a,b;c!d$e", "https://x.example/q?a=",
 		"https://z.example/p?q=1&r=*a*&s=_b_&t=**c**", "https://x.example/" + strings.Repeat("long-", 30)}
 	// Addresses that are never live: out of shape, or not in the set.
 	badLinks = []string{"https://evil.test/x?d=1", "HTTPS://evil.test/x", "https://evil.test/a(b)", "ftp://evil.test/f",
@@ -357,6 +413,11 @@ func followable(plain string) bool {
 	return strings.Contains(strings.ToLower(plain), "www.")
 }
 
+// everyFinderReads is an address a terminal's own link finder reads to
+// its end, whichever terminal it is: nothing in it but letters, digits
+// and the marks no finder stops at, and a letter, digit or slash last.
+var everyFinderReads = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~/?#&=%:+@]*[A-Za-z0-9/]$`)
+
 // checkFollowed fails when a drawn frame gives a terminal anything to
 // follow that is not a live link: a hyperlink to any other target, or
 // text outside a whole live link's span that a terminal's own link
@@ -383,6 +444,10 @@ func checkFollowed(t *rapid.T, what, content string, live core.Links) {
 		for _, p := range pieces(row) {
 			plain := ansi.Strip(p.text)
 			if p.target != "" && plain == whole(p.target) {
+				// Shown as it is only when no link finder would cut it.
+				if !everyFinderReads.MatchString(p.target) {
+					t.Fatalf("%s: %q is shown as it is, and a link finder might follow less of it, on row %q", what, p.target, row)
+				}
 				continue
 			}
 			if followable(plain) {

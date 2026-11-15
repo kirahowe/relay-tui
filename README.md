@@ -178,11 +178,14 @@ A live link that fits its row shows whole. One longer than its row
 shows in the broken form, and every piece of it still opens the whole
 address: the hyperlink carries the address, so the text does not have
 to. No row ever shows the start of an address, which would be another
-address, one nobody judged. For a click to work your terminal has to
-pass OSC 8 on (cmd+click in Ghostty and iTerm2). tmux does from 3.4,
-with `hyperlinks` in `terminal-features` for the terminal it runs in.
-Where it does not get through there is nothing to click, and a link
-that fits its row can still be opened as text.
+address, one nobody judged. A link that holds a character some
+terminals stop reading an address at (an apostrophe, a comma, a star, a
+bracket) or ends in anything but a letter, a digit or a slash shows in
+the broken form too, for the same reason. For a click to work your
+terminal has to pass OSC 8 on (cmd+click in Ghostty and iTerm2). tmux
+does from 3.4, with `hyperlinks` in `terminal-features` for the terminal
+it runs in. Where it does not get through there is nothing to click on
+a link shown broken, and one shown whole can still be opened as text.
 
 Where a thing came from is said in plain words, where it is shown: "from
 the web" for an item with a web source, "from outside" for any other text

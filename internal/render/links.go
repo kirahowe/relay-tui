@@ -29,7 +29,8 @@ import (
 //     and a terminal that does not know OSC 8 would follow it.
 //   - gate, on every frame that leaves render, lets a hyperlink through
 //     only when its target is in the set, and only over text that is the
-//     whole address or no address at all. Whatever happened to a span
+//     whole address, where any link finder would read it whole, or no
+//     address at all. Whatever happened to a span
 //     between fang and the screen (a case change, a cut, a rewrite), a
 //     target that is not a live link never reaches the terminal.
 //
@@ -50,13 +51,37 @@ var osc8RE = regexp.MustCompile("\x1b\\]8;;([^\x07\x1b]*)\x07")
 // hasLinks says s may hold a link span.
 func hasLinks(s string) bool { return strings.Contains(s, "\x1b]8;") }
 
-// span is a live link as fang writes it: the address between angle
-// brackets, the marks RFC 3986 gives for an address in running text,
-// inside a hyperlink to it.
-func span(link string) string { return linkOpen(link) + whole(link) + linkEnd }
+// span is a live link as fang writes it: a hyperlink to the address,
+// over the address as it may be shown (shown).
+func span(link string) string { return linkOpen(link) + shown(link) + linkEnd }
 
-// whole is how a live link reads on a row that has room for it.
+// whole is a live link between angle brackets, the marks RFC 3986 gives
+// for an address in running text.
 func whole(link string) string { return "<" + link + ">" }
+
+// plainLinkRE is an address every common link finder reads to its end:
+// letters, digits and the marks none of them stops at, ending in a
+// letter, a digit or a slash. Finders differ on the rest. Ghostty's stops
+// at an apostrophe, several drop a last comma or colon, and brackets are
+// read each in its own way.
+var plainLinkRE = regexp.MustCompile(`^https?://[A-Za-z0-9\-._~/?#&=%:+@]*[A-Za-z0-9/]$`)
+
+// readsWhole says a terminal's own link finder, given the link between
+// angle brackets, follows all of it and nothing short of it. Where OSC 8
+// does not get through, that finder is what a click goes by.
+func readsWhole(link string) bool { return plainLinkRE.MatchString(link) }
+
+// shown is how a live link reads where a row has room for it: as it is,
+// between angle brackets, when any finder would read it whole
+// (readsWhole), and otherwise in its broken form. The start of an address
+// is another address, so text a finder might cut is never left for one
+// to cut.
+func shown(link string) string {
+	if readsWhole(link) {
+		return whole(link)
+	}
+	return brokenForm(link)
+}
 
 // brokenForm is how a live link reads where a row has no room for it:
 // broken as any other link is, so no part of it can be followed as text.
@@ -246,7 +271,7 @@ func linkableRow(plain string) bool {
 func unsafeRow(row string) bool {
 	for _, p := range pieces(row) {
 		plain := ansi.Strip(p.text)
-		if p.target != "" && plain == whole(p.target) {
+		if p.target != "" && plain == whole(p.target) && readsWhole(p.target) {
 			continue
 		}
 		if linkableRow(plain) {
@@ -313,7 +338,7 @@ func gateRow(row string, live core.Links) string {
 			through(truncate(Defang(p.text), Method.StringWidth(p.text)), false)
 		default:
 			text := p.text
-			if plain := ansi.Strip(text); plain != whole(p.target) && linkableRow(plain) {
+			if plain := ansi.Strip(text); !(plain == whole(p.target) && readsWhole(p.target)) && linkableRow(plain) {
 				text = truncate(Defang(text), Method.StringWidth(text))
 			}
 			b.WriteString(linkOpen(p.target) + sgr(linkStyle(cur)))
