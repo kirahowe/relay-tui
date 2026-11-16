@@ -178,12 +178,7 @@ func (m *Model) archiveKey(k tea.KeyPressMsg, now time.Time) core.Event {
 			kind = core.SingleSurface(m.one).Kind
 		}
 		hidden := kind == core.SurfaceLinkAsk && !m.paneAskShown(now)
-		e := core.PaneKey{At: now, Action: core.PaneYes, Hidden: hidden}
-		if m.app().Board.Detail {
-			c := m.paneCard(now) // a card too small to draw hides the question too
-			e.Card = &c
-		}
-		return e
+		return core.PaneKey{At: now, Action: core.PaneYes, Hidden: hidden}
 	case "ctrl+c":
 		return m.paneCtrlC(now)
 	}
@@ -278,12 +273,7 @@ func (m *Model) editorKey(k tea.KeyPressMsg, now time.Time) core.Event {
 		return m.paneCtrlC(now)
 	}
 	a, text := ClassifyBoardInput(k)
-	e := core.PaneKey{At: now, Action: a, Text: text}
-	if m.app().Board.Detail {
-		c := m.paneCard(now) // a card too small to draw hides the editor too
-		e.Card = &c
-	}
-	return e
+	return core.PaneKey{At: now, Action: a, Text: text}
 }
 
 // paneCtrlC is Ctrl-C while the pane's editor or question is open: it

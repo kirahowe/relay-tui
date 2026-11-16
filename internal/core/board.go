@@ -270,12 +270,7 @@ func (SendCardOp) effect()   {}
 // CardScroll is an open card as the pane drew it: its id, the first row
 // of its body in the window, the furthest the window can start, how far a
 // page moves it, and whether the focused line is on the screen.
-//
-// Small says the pane is too small to draw the card at all: below the
-// least it needs, it says so in place of the card, and x, y and enter do
-// nothing.
 type CardScroll struct {
-	Small          bool
 	Card           int64
 	Top, Max, Page int
 	Shown          bool
@@ -728,17 +723,8 @@ func nextCell(st string) string {
 // boardKey handles a key while the pane shows the board.
 func (r *reducer) boardKey(e PaneKey) {
 	b := &r.a.Board
-	// While the open card is too small to draw, what the pane asks is not
-	// on the screen either, so nothing answers it: enter does not send
-	// the input and y does not archive. Both stay open.
-	small := e.Card != nil && e.Card.Small
 	if in := b.Input; in != nil {
-		if !(small && e.Action == PaneEnter) {
-			r.inputKey(e, in)
-		}
-		return
-	}
-	if small && b.Confirm != 0 && e.Action == PaneYes {
+		r.inputKey(e, in)
 		return
 	}
 	if b.Confirm != 0 {

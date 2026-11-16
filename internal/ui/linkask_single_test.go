@@ -25,13 +25,14 @@ func TestASingleAgentsHiddenLinkQuestionTakesNoYes(t *testing.T) {
 	if core.SingleSurface(m.one).Kind != core.SurfaceLinkAsk {
 		t.Fatalf("no question about the link:\n%s", screen(m))
 	}
+	// The answer as the shell builds it, with the question off the
+	// screen: a terminal that small takes no key at all now, so the
+	// check is asked for the yes directly.
 	m = update(m, tea.WindowSizeMsg{Width: 140, Height: 2})
 	if m.paneAskShown(now) {
 		t.Fatalf("the test needs the question off the screen:\n%s", screen(m))
 	}
-	now = now.Add(core.ArmDelay + time.Second)
-	m = update(m, letter('y'))
-	if a := m.one.App.Board.Links; a == nil || a.Ask == nil {
-		t.Fatalf("a yes to a hidden question was taken: %+v", m.one.App.Board.Links)
+	if e, ok := m.archiveKey(letter('y'), now).(core.PaneKey); !ok || !e.Hidden {
+		t.Fatalf("a yes to a hidden question is not marked hidden: %+v", e)
 	}
 }

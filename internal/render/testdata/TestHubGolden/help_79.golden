@@ -1,0 +1,24 @@
+␛[0;36m ◆ ␛[m␛[0;1mrelay␛[m   ␛[0;2mDev␛[m                                              ␛[0;2mThu Oct 15 · 09:01 ␛[m
+␛[0;2m╭─␛[m ␛[0;1mRoles␛[m ␛[0;2m────────␛[m ␛[0;2m4␛[m ␛[0;2m─╮␛[m␛[m␛[0;36m╭─␛[m ␛[0;1mDev␛[m ␛[0;36m───────────────────────────────────────␛[m ␛[0;2m3 turns␛[m ␛[0;36m─╮␛[m
+␛[0;2m│␛[m ␛[0;7m␛[0;1;7mDev␛[0;7m              ␛[0;1;7m●␛[0;7m␛[m␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m shift+enter ctrl+j  ␛[0;2mnew line␛[m␛[0;2m                     ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m Mail             …␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m esc                 ␛[0;2mstop typing; what you typed␛[m␛[0;2m  ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m ␛[0;2mGarden planner␛[m   ~␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m                     ␛[0;2mstays␛[m␛[0;2m                        ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m News             ▶␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m alt+1               ␛[0;2mrole 1 (alt+2 for 2, up to␛[m␛[0;2m   ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m                     ␛[0;2m9), still typing␛[m␛[0;2m             ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m pgup pgdown         ␛[0;2mscroll the conversation␛[m␛[0;2m      ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+t              ␛[0;2mshow or hide tool calls␛[m␛[0;2m      ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+o              ␛[0;2mshow or hide thinking␛[m␛[0;2m        ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+c              ␛[0;2mstop the turn, clear, or quit␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ctrl+d              ␛[0;2mquit, from an empty input␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ?                   ␛[0;2mthese keys, from an empty␛[m␛[0;2m    ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m                     ␛[0;2minput␛[m␛[0;2m                        ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m│␛[m ␛[0;2many key closes this␛[m␛[0;2m                              ␛[m ␛[0;2m│␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m╰───────────────────────────────────────────────────╯␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m▶ replying   … waiting for scheduled work␛[m            ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m~ scheduled work runs   ● unread␛[m                     ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m                                                      ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m─────────────────────────────────────────────────────␛[m␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;36m›␛[m                                                    ␛[m ␛[0;36m│␛[m
+␛[0;2m│␛[m                   ␛[m ␛[0;2m│␛[m␛[m␛[0;36m│␛[m ␛[0;2m  ready · ctrl+j for a new line · ? keys␛[m             ␛[m ␛[0;36m│␛[m
+␛[0;2m╰␛[m␛[0;2m────────────────────␛[m␛[0;2m╯␛[m␛[m␛[0;36m╰␛[m␛[0;36m───────────────────────────────────────────────────────␛[m␛[0;36m╯␛[m
+ ␛[0;1mTYPING␛[m  ␛[0;36menter␛[m␛[0;2m send␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m move␛[m␛[0;2m • ␛[m␛[0;36malt+1␛[m␛[0;2m role␛[m␛[0;2m • ␛[m␛[0;36mctrl+t␛[m␛[0;2m details␛[m␛[0;2m • ␛[m␛[0;36m?␛[m␛[0;2m keys␛[m

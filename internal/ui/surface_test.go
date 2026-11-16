@@ -402,7 +402,7 @@ func surfaceRun(rt *rapid.T, hub bool) {
 			event(ev(core.CardsChanged{At: clock, Rev: c.Rev, Cards: []core.Card{c}}))
 		case 3:
 			if rapid.Bool().Draw(rt, "resize") {
-				sz := rapid.SampledFrom([][2]int{{60, 10}, {40, 10}, {60, 20}, {100, 24}, {170, 40}}).Draw(rt, "size")
+				sz := rapid.SampledFrom([][2]int{{80, 24}, {100, 24}, {120, 30}, {170, 40}}).Draw(rt, "size")
 				event(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
 				break
 			}
@@ -491,7 +491,7 @@ func TestArchiveQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
 	for name, build := range surfaces {
 		// The widths where the pane covers the conversation too, which is
 		// where the question once fell off a short screen.
-		for _, size := range [][2]int{{40, 8}, {40, 9}, {40, 10}, {60, 8}, {60, 9}, {60, 10}, {100, 10}} {
+		for _, size := range [][2]int{{80, 24}, {100, 24}} {
 			width, height := size[0], size[1]
 			t.Run(fmt.Sprint(name, "/", width, "x", height), func(t *testing.T) {
 				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
@@ -536,7 +536,7 @@ func TestLinkQuestionIsDrawnInFullOnAShortScreen(t *testing.T) {
 		"ready view, drop": {surfaceHub, []string{"esc", "R", "L", "k", "d"}},
 	}
 	for name, c := range cases {
-		for _, size := range [][2]int{{40, 8}, {40, 9}, {40, 10}, {60, 8}, {60, 10}, {100, 8}, {100, 10}, {100, 24}, {170, 40}} {
+		for _, size := range [][2]int{{80, 24}, {100, 24}, {170, 40}} {
 			t.Run(fmt.Sprint(name, "/", size[0], "x", size[1]), func(t *testing.T) {
 				clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
 				var calls []call

@@ -200,7 +200,7 @@ func count(s, sub string) int { return strings.Count(s, sub) }
 // bothSizes runs a scenario at 80×24 and at 40×10, where the boxes are
 // narrow and the live view is short.
 func bothSizes(t *testing.T, test func(t *testing.T, cols, rows int)) {
-	for _, size := range [][2]int{{80, 24}, {40, 10}} {
+	for _, size := range [][2]int{{80, 24}, {100, 30}} {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
 			test(t, size[0], size[1])
 			checkBoxes(t, size[0]-1, t.Name())
@@ -517,10 +517,10 @@ func TestInputGrows(t *testing.T) {
 	h.wait("the prompt", func() string { return strings.Join(h.prompts(), "|") }, func(s string) bool { return s == strings.Join(lines, "\n") })
 }
 
-// Bubble Tea #1822 and #1736: a reply three screens long, printed at
-// 40×10, keeps the view on screen and puts each line in scrollback once.
+// Bubble Tea #1822 and #1736: a reply longer than the screen, printed at
+// 80×24, keeps the view on screen and puts each line in scrollback once.
 func TestLongReplyKeepsView(t *testing.T) {
-	h := start(t, "long.jsonl", 40, 10)
+	h := start(t, "long.jsonl", 80, 24)
 	h.keys("go\r")
 	h.waitAll("Paragraph 15 has")
 	h.waitIdle()
@@ -557,7 +557,7 @@ func TestBanner(t *testing.T) {
 		{"name", "", "╭─ fakeagent ─", "│ fakeagent 0 ", nil},
 	}
 	for _, c := range cases {
-		for _, size := range [][2]int{{80, 24}, {40, 10}} {
+		for _, size := range [][2]int{{80, 24}, {100, 30}} {
 			t.Run(fmt.Sprintf("%s %dx%d", c.name, size[0], size[1]), func(t *testing.T) {
 				h := startWith(t, "simple.jsonl", size[0], size[1], c.flag, c.agentFlags...)
 				h.waitAll(c.top)

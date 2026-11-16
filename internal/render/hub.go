@@ -11,29 +11,15 @@ import (
 )
 
 // Hub mode draws the whole screen, from the hub's state alone: a sidebar
-// of roles beside the conversation in focus. On a narrow screen it draws
-// one or the other, as a phone would: the list of roles, or the
-// conversation with a way back to the list.
-
-// HubWideMin is the narrowest drawing width that gets the sidebar beside
-// the conversation. The shell draws one column short of the screen, so
-// this is a 73-column screen.
-const HubWideMin = 72
-
-// HubWide reports whether the sidebar stands beside the conversation.
-func HubWide(width int) bool { return width >= HubWideMin }
+// of roles beside the conversation in focus. The terminal is always wide
+// enough for both (ui.MinWidth).
 
 // SidebarWidth is how wide the sidebar is at width.
 func SidebarWidth(width int) int { return min(max(width/4, 22), 30) }
 
 // HubMainWidth is the width beside the sidebar: the conversation's panel,
 // and the workspace pane when there is room for it.
-func HubMainWidth(width int) int {
-	if HubWide(width) {
-		return width - SidebarWidth(width)
-	}
-	return width
-}
+func HubMainWidth(width int) int { return width - SidebarWidth(width) }
 
 // hubColumns is how wide the conversation's panel and the pane beside it
 // are, in wide hub mode, with a column between them; pane is 0 when the
@@ -178,33 +164,6 @@ func roleRow(h core.Hub, r core.Role, now time.Time, width int) string {
 	return truncate(line, width)
 }
 
-// describe says in words where a role stands, for the list screen.
-func describe(h core.Hub, r core.Role, now time.Time) string {
-	var parts []string
-	c := r.Conv
-	if c == nil {
-		parts = append(parts, "no conversation")
-	} else {
-		switch c.Turn {
-		case core.TurnRunning:
-			parts = append(parts, "replying")
-		case core.TurnQueued:
-			parts = append(parts, "waiting for scheduled work")
-		}
-		if c.Unread {
-			parts = append(parts, "unread")
-		}
-		parts = append(parts, plural(c.Turns, "turn"))
-		if !c.LastActivity.IsZero() {
-			parts = append(parts, Duration(max(now.Sub(c.LastActivity), 0))+" ago")
-		}
-	}
-	if r.Working {
-		parts = append(parts, "scheduled work runs")
-	}
-	return strings.Join(parts, " · ")
-}
-
 func plural(n int, word string) string {
 	if n == 1 {
 		return "1 " + word
@@ -279,60 +238,12 @@ func sidebar(h core.Hub, now time.Time, width, height int) []string {
 	return append(lines, foot...)
 }
 
-// listScreen is the narrow screen's list of roles, with a line in words
-// under each.
-func listScreen(h core.Hub, now time.Time, width, height int) []string {
-	lines := []string{styled(bold, truncate("roles", width))}
-	switch {
-	case !h.RosterLoaded:
-		lines = append(lines, styled(faint, truncate("loading roles…", width)))
-	case len(h.Roles) == 0:
-		lines = append(lines, styled(faint, truncate("no roles", width)))
-	}
-	head := len(lines)
-	var rows []string
-	for _, r := range h.Roles {
-		rows = append(rows, roleRow(h, r, now, width), styled(faint, truncate("  "+describe(h, r, now), width)))
-	}
-	// The note about the service keeps its rows, whatever the list is.
-	var note []string
-	if n := embeddedNote(h); n != "" {
-		for _, l := range capLines(wrap(n, width), 2, width) {
-			note = append(note, styled(bold, l))
-		}
-	}
-	room := max(height-1, 0)
-	lines = append(lines, window(rows, 2, selected(h), max(room-head-len(note), 0))...)
-	if len(lines) > room-len(note) {
-		lines = lines[:max(room-len(note), 0)]
-	}
-	for len(lines) < room-len(note) {
-		lines = append(lines, "")
-	}
-	lines = append(lines, note...)
-	foot := styled(faint, truncate(modeTag(true)+" · enter open · ↑↓ move · "+readyKey(h)+" · ? keys", width))
-	if h.Notice != "" {
-		foot = styled(faint, truncate("! "+said(h.Notice), width))
-	}
-	lines = lines[:min(len(lines), room)]
-	return append(lines, foot)
-}
-
 // HubInputWidth is the width of the input box that HubView draws at
 // width: the text area must be the box's inside, or text typed past it
 // would be out of sight.
 func HubInputWidth(h core.Hub, width int) int {
-	w := width
-	if HubWide(width) {
-		cw, _ := hubColumns(h, width)
-		return framed(cw) // the prompt mark is the text area's own
-	} else if h.List || h.Focus == "" {
-		return InputWidth(width)
-	}
-	if h.Focused() != nil && Side(w) {
-		w = MainWidth(w)
-	}
-	return InputWidth(w)
+	cw, _ := hubColumns(h, width)
+	return framed(cw) // the prompt mark is the text area's own
 }
 
 // HubView draws the whole screen at width, height rows. input is the text
@@ -346,26 +257,22 @@ func HubView(h core.Hub, input, hint string, now time.Time, width, height int) H
 
 func hubScreen(h core.Hub, input, hint string, now time.Time, width, height int) HubFrame {
 	height = max(height, 2)
-	wide := HubWide(width)
 	// What has the keys is what is drawn as active: core.HubSurface
 	// decides it, and nothing here decides it again.
 	switch surf := core.HubSurface(h); surf.Kind {
 	case core.SurfaceReady, core.SurfaceReadyInput, core.SurfaceReadyLinkAsk:
 		return readyScreen(h, now, width, height)
 	case core.SurfaceHelp:
-		f := withHelp(h, input, hint, now, width, height, wide)
+		f := withHelp(h, input, hint, now, width, height)
 		f.Active = core.SurfaceHelp
 		return f
 	}
-	return hubFrame(h, input, hint, now, width, height, wide, nil)
+	return panels(h, input, hint, now, width, height, nil)
 }
 
-func withHelp(h core.Hub, input, hint string, now time.Time, width, height int, wide bool) HubFrame {
-	mw := HubMainWidth(width)
-	if wide {
-		cw, _ := hubColumns(h, width)
-		mw = framed(cw)
-	}
+func withHelp(h core.Hub, input, hint string, now time.Time, width, height int) HubFrame {
+	cw, _ := hubColumns(h, width)
+	mw := framed(cw)
 	moving := !core.HubSurface(h).Covered().Typing()
 	rows, title := TypingKeys, "typing keys"
 	if moving {
@@ -380,48 +287,11 @@ func withHelp(h core.Hub, input, hint string, now time.Time, width, height int, 
 		legend = append(legend, styled(faint, truncate(l, InputWidth(mw))))
 	}
 	help = append(help, legend...)
-	return hubFrame(h, input, hint, now, width, height, wide, help)
-}
-
-func hubFrame(h core.Hub, input, hint string, now time.Time, width, height int, wide bool, help []string) HubFrame {
-	surf := core.HubSurface(h)
-	if wide {
-		return panels(h, input, hint, now, width, height, help)
-	}
-	if surf.Column == core.ColumnPane && h.Focus == "" && help == nil {
-		return paneScreen(h, now, width, height)
-	}
-	if surf.Column == core.ColumnList || h.Focus == "" {
-		lines := listScreen(h, now, width, height)
-		if help != nil {
-			lines = append(lines[:max(height-len(help), 0)], help...)
-			lines = lines[:min(len(lines), height)]
-		}
-		return HubFrame{Content: strings.Join(lines, "\n"), Active: core.SurfaceList}
-	}
-	return hubMain(h, input, hint, now, width, height, true, help)
-}
-
-// paneScreen is the narrow screen's pane with no role in focus: the
-// list gave it the keys, and it takes the list's place.
-func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
-	head := styled(faint, "‹ h roles")
-	if e := elsewhere(h); e != "" {
-		head += "  " + e
-	}
-	lines := []string{truncate(head, width)}
-	var foot []string
-	if h.Notice != "" {
-		foot = append(foot, styled(faint, truncate("! "+said(h.Notice), width)))
-	}
-	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
-	lines = append(append(lines, pane...), foot...)
-	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx.Max, Card: mx.Card, Active: paneActive(h.App, core.State{}),
-		AskShown: askShown(boardAsk(h.App), pane)}
+	return panels(h, input, hint, now, width, height, help)
 }
 
 // elsewhere summarises the other roles that want the operator, for the
-// narrow conversation's header.
+// top bar.
 func elsewhere(h core.Hub) string {
 	unread := 0
 	for _, r := range h.Roles {
@@ -439,39 +309,9 @@ func elsewhere(h core.Hub) string {
 	return strings.Join(parts, " ")
 }
 
-// hubMain is the conversation in focus: a header, the conversation
-// bottom-aligned, then queued messages, the input box and the status
-// line. help, when set, covers the
-// bottom of the conversation.
-func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, narrow bool, help []string) HubFrame {
-	// With room for it, the workspace pane stands beside the conversation,
-	// as it does in the single-session view: a display is in front of
-	// the operator without a key.
-	if paneShown(h) && Side(width) {
-		mw := MainWidth(width)
-		f := hubMainAt(h, input, hint, now, mw, height, narrow, help, true)
-		pane, mx := paneRender(h.App, focusedChat(h), now, PaneWidth(width), height)
-		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, mw), "\n")
-		f.DetailMax, f.Card = mx.Max, mx.Card
-		f.AskShown = askShown(boardAsk(h.App), pane)
-		if h.App.PaneFocus && help == nil {
-			f.Active = paneActive(h.App, focusedChat(h)) // the pane is drawn with the keys
-		}
-		return f
-	}
-	return hubMainAt(h, input, hint, now, width, height, narrow, help, false)
-}
-
-// hubMainAt draws the conversation at width. beside says the pane is drawn
-// beside it, so it neither covers the conversation nor needs its key named.
-func hubMainAt(h core.Hub, input, hint string, now time.Time, width, height int, narrow bool, help []string, beside bool) HubFrame {
-	return hubConv(h, input, hint, now, width, height, narrow, help, beside, false)
-}
-
-// hubConv draws the conversation at width. In a panel (inPanel) the header
-// goes to the panel's border rather than a row of its own, and the input
-// is a prompt under a rule rather than a box.
-func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, narrow bool, help []string, beside, inPanel bool) HubFrame {
+// hubConv draws the conversation at width, inside its panel: the header
+// goes to the panel's border, and the input is a prompt under a rule.
+func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, help []string, beside bool) HubFrame {
 	role := h.RoleByID(h.Focus)
 	conv := h.Focused()
 	var s core.State
@@ -486,20 +326,12 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	if role != nil {
 		title = roleName(*role)
 	}
-	head := styled(bold, title)
-	panelTitle := head
+	panelTitle := styled(bold, title)
 	if h.Focus == "" {
 		panelTitle = "" // no role, so nothing to name: the frame goes unbroken
 	}
-	if narrow {
-		head = styled(faint, "‹ h roles · ") + head
-		if e := elsewhere(h); e != "" {
-			head += "  " + e
-		}
-	}
 	right := ""
 	if conv != nil && role != nil && role.Conv != nil && role.Conv.Turns > 0 {
-		head += styled(faint, " · "+plural(role.Conv.Turns, "turn"))
 		right = plural(role.Conv.Turns, "turn")
 	}
 	scroll := 0
@@ -524,7 +356,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		bottom = append(bottom, styled(faint, truncate("! "+said(h.Notice), width)))
 	}
 	bottom = append(bottom, "")
-	inputAt, x := 0, 0
+	inputAt := 0
 	showInput := false
 	active := core.SurfaceConversation
 	switch {
@@ -538,35 +370,22 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		if surf.Kind == core.SurfaceInput {
 			active = core.SurfaceInput
 		}
-		if inPanel {
-			bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
-			inputAt = len(bottom)
-			bottom = append(bottom, prompt(strings.Split(input, "\n"))...)
-		} else {
-			inputAt = len(bottom)
-			if boxed(width) {
-				inputAt++
-				x = 2
-			}
-			bottom = append(bottom, box("", strings.Split(input, "\n"), width)...)
-		}
+		bottom = append(bottom, styled(faint, strings.Repeat("─", width)))
+		inputAt = len(bottom)
+		bottom = append(bottom, prompt(strings.Split(input, "\n"))...)
 		showInput = true
 	}
 	var status string
-	mode := ""
-	if !inPanel {
-		mode = modeTag(moving) + " · "
-	}
 	if h.Focus == "" {
-		status = styled(faint, truncate("  "+mode+"no role in focus · h roles · ? keys", width))
+		status = styled(faint, truncate("  no role in focus · h roles · ? keys", width))
 	} else if conv == nil {
 		// Typing sends the first message and starts one; the esc hint comes
-		// before the rest so a phone's 60 columns keep it.
+		// before the rest so the narrowest panel keeps it.
 		start := "esc moves"
 		if moving {
 			start = "i to type a message and start one"
 		}
-		status = styled(faint, truncate("  "+mode+"no conversation · "+start+" · ? keys", width))
+		status = styled(faint, truncate("  no conversation · "+start+" · ? keys", width))
 	} else {
 		st := core.Status(h.App, s, now)
 		if role != nil { // the roster may not have come yet
@@ -575,22 +394,18 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 			}
 		}
 		st.PaneHint = st.PaneItems > 0 && !beside && surf.Column != core.ColumnPane
-		st.ShowMode = !inPanel // the panels name it in the row of keys
+		st.ShowMode = false // the panels name it in the row of keys
 		st.Moving = moving
 		status = StatusText(st, hint, now, width)
 	}
 	bottom = append(bottom, status)
 
 	// The conversation, or what covers it.
-	headRows := 1
-	if inPanel {
-		headRows = 0
-	}
 	// free is the rows left above the bottom. It is below zero when the
 	// bottom alone is taller than the screen, and what the pane is owed is
 	// counted from there: counted from zero, a note above a tall draft
 	// pushed the first row of the pane's question off the top.
-	free := height - headRows - len(bottom)
+	free := height - len(bottom)
 	if surf.Column == core.ColumnPane && !beside && showInput {
 		// The pane covers the conversation and needs room for its question:
 		// a tall draft gives up its top rows, down to one, as in View.
@@ -603,10 +418,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 			// top, and then the input itself, which nothing types in
 			// while the pane has the keys. A question is read whole
 			// before a key can answer it.
-			above := inputAt
-			if inPanel || boxed(width) {
-				above-- // the rule, or the box's top border
-			}
+			above := inputAt - 1 // the rule over the input
 			if k := min(need-free, above); k > 0 {
 				bottom = bottom[k:]
 				inputAt -= k
@@ -647,7 +459,6 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		lines = lines[:len(lines)-scroll]
 	}
 	if scroll > 0 {
-		head += styled(faint, fmt.Sprintf(" · ↓ %d more", scroll))
 		right = strings.TrimPrefix(right+fmt.Sprintf(" · ↓ %d more", scroll), " · ")
 	}
 	if help != nil {
@@ -658,12 +469,8 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		lines = lines[len(lines)-room:]
 	}
 	pad := make([]string, max(room-len(lines), 0))
-	var top []string
-	if !inPanel {
-		top = []string{truncate(head, width)}
-	}
-	all := append(append(append(top, pad...), lines...), bottom...)
-	y := headRows + len(pad) + len(lines) + inputAt
+	all := append(append(pad, lines...), bottom...)
+	y := len(pad) + len(lines) + inputAt
 	if over := len(all) - height; over > 0 { // a screen too short for the bottom: the top goes
 		all = all[over:]
 		y -= over
@@ -673,7 +480,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	return HubFrame{
 		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detail.Max, Card: detail.Card, AskShown: shown,
-		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputX: x, InputY: max(y, 0),
+		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputY: max(y, 0),
 		title: panelTitle, right: styled(faint, right), Active: active,
 	}
 }
@@ -708,7 +515,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 	surf := core.HubSurface(h)
 	convKeys := surf.Column == core.ColumnConversation
 
-	f := hubConv(h, input, hint, now, framed(cw), mid-2, false, help, pw > 0, true)
+	f := hubConv(h, input, hint, now, framed(cw), mid-2, help, pw > 0)
 	main := panel(f.title, f.right, "", strings.Split(f.Content, "\n"), cw, mid, convKeys)
 	side := rolesPanel(h, now, sw, mid)
 	keys := ""

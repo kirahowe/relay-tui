@@ -274,28 +274,6 @@ func TestHubConversationEndedElsewhereIsDropped(t *testing.T) {
 	h.waitScreen("gone", contains("No conversation with Dev"))
 }
 
-func TestHubNarrowScreenShowsTheListOrTheConversation(t *testing.T) {
-	h := startHub(t, threeRoles(), 44, 16, "")
-	s := h.waitScreen("the list", contains("News"))
-	if strings.Contains(s, "│ ") && strings.Contains(s, "relay") {
-		t.Errorf("a sidebar on a narrow screen:\n%s", s)
-	}
-	h.keys("\r")
-	s = h.waitScreen("the conversation", contains("hello from dev"))
-	if strings.Contains(s, "News") || !strings.Contains(s, "h roles") {
-		t.Errorf("narrow conversation:\n%s", s)
-	}
-	h.escape()
-	h.keys("h")
-	h.waitScreen("the list again", contains("News"))
-	h.keys("l")
-	h.waitScreen("the conversation again", contains("hello from dev"))
-	h.keys("h")
-	h.waitScreen("the list again", contains("News"))
-	h.keys("\x1b") // esc goes back to the conversation
-	h.waitScreen("the conversation again", contains("hello from dev"))
-}
-
 func TestHubWorkingFlagShowsInTheSidebar(t *testing.T) {
 	cfg := threeRoles()
 	h := startHub(t, cfg, 100, 24, "dev")
@@ -482,7 +460,7 @@ func TestHubReadyNoteOpensWholeAndRevertsAnItem(t *testing.T) {
 "title":"Daily note for Monday 26 October: 1 change to check","lines":["1. New how-to grants, shaped by a mail by stranger@example.org. To undo it: relay revert 14.","Reply not N to drop a suggestion."],
 "from":"from a mail by stranger@example.org","outsider":true,"message":9,"messageKind":"digest","urgency":"normal","thread":9,"replyTo":9,"replies":[],
 "acts":[{"n":1,"op":"revert","line":0,"done":null}]}`)}
-	h := startHub(t, cfg, 60, 30, "dev")
+	h := startHub(t, cfg, 80, 30, "dev")
 	h.escape()
 	h.keys("R")
 	h.waitScreen("the note in the list", func(s string) bool { return strings.Contains(s, "Daily note for Monday") })

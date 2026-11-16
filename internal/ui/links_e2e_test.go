@@ -153,10 +153,10 @@ func TestALiveLinkReachesTheTerminalAsAHyperlink(t *testing.T) {
 	h.noAddressAsText(t)
 }
 
-// On a narrow screen the long link does not fit a row. It is wrapped as
+// On the smallest screen the long link does not fit a row. It is wrapped as
 // any text is, and every piece of it opens the whole address.
 func TestALinkLongerThanItsRowOpensTheWholeAddressFromEachRow(t *testing.T) {
-	h := startHub(t, linksHub(), 60, 30, "")
+	h := startHub(t, linksHub(), 80, 24, "")
 	h.waitLog("links")
 	h.keys("R")
 	h.waitScreen("the ready view", contains("Two grants"))
@@ -180,16 +180,22 @@ func TestALinkLongerThanItsRowOpensTheWholeAddressFromEachRow(t *testing.T) {
 		if !ok {
 			return false
 		}
-		// Every cell of the link, on this row and the next, opens the
-		// whole address.
+		// Every cell of the link, on this row and the rows after it
+		// until it is whole, opens the whole address.
 		shown = ""
-		for dy := range 2 {
-			text := rowText(s, x, y+dy)
+		for dy := 0; len(shown) < len(e2eLongBroken) && dy < 6; dy++ {
+			// The link starts mid-row after "The council's form: ";
+			// its next rows start at the frame's text column, 2.
+			col := x
+			if dy > 0 {
+				col = 2
+			}
+			text := rowText(s, col, y+dy)
 			if text == "" {
 				return false
 			}
 			for i := range ansi.StringWidth(text) {
-				if h.emu.linkAt(x+i, y+dy) != e2eLong {
+				if h.emu.linkAt(col+i, y+dy) != e2eLong {
 					return false
 				}
 			}
@@ -370,17 +376,20 @@ func TestKeepingALinkFromTheBoard(t *testing.T) {
 	h.noAddressAsText(t)
 }
 
-// A long host is never cut in the question. On a phone-sized 30x6 the
-// question's first rows give way to it, "Keep it?" stays, and a y keeps
-// the link; on a screen too small to show the host and "Keep it?" a y
-// keeps nothing, however long the question has been up.
+// A long host is never cut in the question. On the smallest supported
+// screen, 80x24, a host of a few lines gives the question's first rows
+// way to it, "Keep it?" stays, and a y keeps the link; a host too long
+// for the screen with "Keep it?" beside it keeps nothing on a y, however
+// long the question has been up.
 func TestAYesKeepsALongHostOnlyWhereItIsOnScreen(t *testing.T) {
-	const long = "hxxps://accounts[.]bank[.]example[.]secure-login-verify-session-id[.]evil[.]test/x"
-	const host = "hxxps://accounts[.]bank[.]example[.]secure-login-verify-session-id[.]evil[.]test"
+	const base = "hxxps://accounts[.]bank[.]example[.]secure-login-verify-session-id[.]evil[.]test"
 	for _, c := range []struct {
 		w, h int
+		pad  int // characters added to the host
 		kept bool
-	}{{30, 6, true}, {30, 5, false}, {22, 4, false}} {
+	}{{80, 24, 0, true}, {80, 24, 150, true}, {80, 24, 3000, false}} {
+		host := base + strings.Repeat("a", c.pad)
+		long := host + "/x"
 		cfg := linksHub()
 		cfg.Ready = []json.RawMessage{json.RawMessage(`{"id": "message:4", "kind": "message", "at": "2026-10-14T12:00:00Z", "seq": 4,
 			"title": "Sign in", "lines": ["Your bank: ` + long + `"], "from": "Drew on: a mail", "outsider": true,

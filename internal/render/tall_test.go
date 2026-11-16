@@ -126,14 +126,14 @@ func TestALongChecklistItemCanBeReadToItsEnd(t *testing.T) {
 	t.Fatal("page down never brought the item's end into view")
 }
 
-// An open card's pane at every height (cardDraw): below the least it
-// needs, the pane says it is too small and tells the keys so, and the
-// focused line counts as not shown. At or above it, the frame and the
-// focused line are on the screen, and the line under the card (a
-// tracker's cell) is there whole or not at all. Reviews of relay#110 found
+// An open card's pane at every height (cardDraw): with room for the head,
+// the foot, the frame and three rows of body, the frame and the focused
+// line are on the screen, and the line under the card (a tracker's cell)
+// is there whole or not at all. Shorter panes are below what the
+// terminal's least size gives the pane, and are only drawn to height. Reviews of relay#110 found
 // the key hints, a tracker's long cell line and an empty surface each
 // crowding the card out of a short pane, and a cell line cut in half.
-func TestAnOpenCardIsDrawnWholeOrSaysThePaneIsTooSmall(t *testing.T) {
+func TestAnOpenCardIsDrawnWholeInAPaneWithRoom(t *testing.T) {
 	long := cardTracker
 	long.Rows = []core.CardElem{{ID: 1, CardText: ct(strings.Repeat("long row ", 20) + "TAIL")}}
 	long.Columns, long.Cells = nil, nil
@@ -154,16 +154,12 @@ func TestAnOpenCardIsDrawnWholeOrSaysThePaneIsTooSmall(t *testing.T) {
 				flat := ansi.Strip(strings.Join(rows, "\n"))
 				least := len(pr.head) + len(pr.foot) + 2 + 3
 				where := fmt.Sprintf("%s at %dx%d", c.Title.Text, width, height)
-				if height < least {
-					if !pd.Card.Small || pd.Card.Shown && line > 0 || height > len(pr.head) && !strings.Contains(flat, "Too small") {
-						t.Fatalf("%s, under %d rows: small %v, shown %v:\n%s", where, least, pd.Card.Small, pd.Card.Shown, flat)
-					}
-					continue
-				}
 				// The focused line counts as shown only when every row of
-				// it is on the screen, and always when it is short enough
-				// for the least window between its marks.
+				// it is on the screen, at any height.
 				f := cardFrame(s.Board, c, s.Links, width, true, true)
+				if len(rows) != height {
+					t.Fatalf("%s: %d rows", where, len(rows))
+				}
 				if line > 0 && pd.Card.Shown {
 					for _, r := range f.body[f.selA:f.selB] {
 						if !strings.Contains(flat, strings.TrimSpace(ansi.Strip(r))) {
@@ -171,9 +167,14 @@ func TestAnOpenCardIsDrawnWholeOrSaysThePaneIsTooSmall(t *testing.T) {
 						}
 					}
 				}
+				if height < least {
+					continue // below what the terminal's least size gives the pane
+				}
+				// With room, the frame is there, and a short focused line
+				// is always shown.
 				short := line == 0 || f.selB-f.selA <= 1
-				if pd.Card.Small || !strings.Contains(flat, "╭") || !strings.Contains(flat, "╰") || short && !pd.Card.Shown {
-					t.Fatalf("%s: small %v, shown %v:\n%s", where, pd.Card.Small, pd.Card.Shown, flat)
+				if !strings.Contains(flat, "╭") || !strings.Contains(flat, "╰") || short && !pd.Card.Shown {
+					t.Fatalf("%s: shown %v:\n%s", where, pd.Card.Shown, flat)
 				}
 				if info := strings.Join(pr.info, ""); info != "" && strings.Contains(flat, "cell:") {
 					for _, l := range pr.info {

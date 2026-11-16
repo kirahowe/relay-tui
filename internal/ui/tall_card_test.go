@@ -134,13 +134,13 @@ func readTallNote(t *testing.T, mode string) {
 	var ops []core.CardOp
 	width := 170
 	if strings.HasPrefix(mode, "narrow") {
-		width = 60
+		width = 80 // the pane takes the conversation's place
 	}
 	var m Model
 	if strings.HasSuffix(mode, "hub") {
-		m = tallHub(t, &ops, width, 20, tallNote(1, 60))
+		m = tallHub(t, &ops, width, 24, tallNote(1, 60))
 	} else {
-		m = tallSingle(t, &ops, width, 20, tallNote(1, 60))
+		m = tallSingle(t, &ops, width, 24, tallNote(1, 60))
 	}
 	if strings.Contains(screen(m), "line 060") {
 		t.Fatal("the test needs a note taller than the pane")
@@ -171,7 +171,7 @@ func TestATallTextFormCanBeReadToItsLastLine(t *testing.T) {
 	c := tallNote(1, 60)
 	c.Kind, c.Text, c.Note = "poll", c.Note.Text, nil
 	var ops []core.CardOp
-	m := tallHub(t, &ops, 170, 20, c)
+	m := tallHub(t, &ops, 170, 24, c)
 	for range 100 {
 		m = update(m, tea.KeyPressMsg{Code: tea.KeyDown})
 	}
@@ -190,7 +190,7 @@ func TestATallSurfaceIsReadInItsFrame(t *testing.T) {
 		tail int
 	}{{nil, 50}, {[]int{2, 30, 30}, 30}} {
 		var ops []core.CardOp
-		m := tallHub(t, &ops, 170, 20, tallSurface(t, 1, tc.gaps, tc.tail))
+		m := tallHub(t, &ops, 170, 24, tallSurface(t, 1, tc.gaps, tc.tail))
 		frame := func(s string) {
 			t.Helper()
 			if !strings.Contains(s, "steward") || !strings.Contains(s, "from outside") || !strings.Contains(s, "Trip prep") {
@@ -240,7 +240,7 @@ func TestMovingThroughATallSurfaceKeepsWhatXTicksOnTheScreen(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		gaps := rapid.SliceOfN(rapid.IntRange(0, 12), 0, 8).Draw(rt, "gaps")
 		tail := rapid.IntRange(0, 20).Draw(rt, "tail")
-		height := rapid.IntRange(8, 40).Draw(rt, "height")
+		height := rapid.IntRange(24, 40).Draw(rt, "height")
 		var ops []core.CardOp
 		m := tallHub(rt, &ops, 170, height, tallSurface(rt, 1, gaps, tail))
 		keys := map[string]tea.KeyPressMsg{"up": {Code: tea.KeyUp}, "down": {Code: tea.KeyDown},
@@ -285,34 +285,11 @@ func TestMovingThroughATallSurfaceKeepsWhatXTicksOnTheScreen(t *testing.T) {
 	})
 }
 
-// On a pane too short to draw the card's body, tab focuses a box nobody
-// can see, and x sends nothing, whether the pane was short from the
-// start or became short after the box was focused.
-func TestABoxOffTheScreenIsNotSent(t *testing.T) {
-	for _, resize := range []bool{false, true} {
-		var ops []core.CardOp
-		height := 10
-		if resize {
-			height = 20
-		}
-		m := tallSingle(t, &ops, 60, height, tallSurface(t, 1, []int{0}, 0))
-		m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
-		if resize {
-			m = update(m, tea.WindowSizeMsg{Width: 60, Height: 10})
-		}
-		before := screen(m)
-		m = update(m, letter('x'))
-		if !strings.Contains(before, "box 00") && len(ops) > 0 {
-			t.Fatalf("resize %v: a box off the screen was sent: %+v\n%s", resize, ops[0], before)
-		}
-	}
-}
-
 // Tab to a box, scroll it out of sight, press x: the box comes back into
 // view and nothing is sent. The next x ticks it.
 func TestXOnABoxScrolledAwayBringsItBack(t *testing.T) {
 	var ops []core.CardOp
-	m := tallHub(t, &ops, 170, 20, tallSurface(t, 1, []int{2}, 60))
+	m := tallHub(t, &ops, 170, 24, tallSurface(t, 1, []int{2}, 60))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyPgDown}, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if strings.Contains(screen(m), "box 00") {
 		t.Fatalf("the box is still on the screen:\n%s", screen(m))
@@ -328,10 +305,11 @@ func TestXOnABoxScrolledAwayBringsItBack(t *testing.T) {
 
 // Review of relay#110's rebuild: an x on a box scrolled away put up a
 // notice, which took the rows the box needed on a short pane, so every x
-// after it found the box off the screen again.
+// after it found the box off the screen again. At the least terminal the
+// second x ticks it.
 func TestXBringsABoxBackOnAShortPane(t *testing.T) {
 	var ops []core.CardOp
-	m := tallSingle(t, &ops, 60, 13, tallSurface(t, 1, []int{0}, 60))
+	m := tallSingle(t, &ops, 80, 24, tallSurface(t, 1, []int{0}, 60))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyPgDown}, tea.KeyPressMsg{Code: tea.KeyPgDown})
 	if strings.Contains(screen(m), "box 00") {
 		t.Fatal("the test needs the box off the screen")
@@ -362,62 +340,18 @@ func TestTabMovesThroughTheLinks(t *testing.T) {
 	}
 }
 
-// Review round four of relay#110's rebuild: at 170 by 2 the hub cut the
-// pane after the pane had drawn the focused box and said it was shown, so
-// x ticked a box that was not on the screen. A pane that small is under
-// the least an open card needs, and says so.
-func TestABoxInAHubTooShortForItIsNotTicked(t *testing.T) {
-	var ops []core.CardOp
-	m := tallHub(t, &ops, 170, 20, tallSurface(t, 1, []int{0}, 0))
-	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.WindowSizeMsg{Width: 170, Height: 2})
-	before := screen(m)
-	if m.paneCard(m.now()).Shown || strings.Contains(before, "box 00") {
-		t.Fatalf("the test needs the box off the screen and counted so:\n%s", before)
-	}
-	if m = update(m, letter('x')); len(ops) != 0 {
-		t.Fatalf("x sent %+v:\n%s", ops, before)
-	}
-}
-
-// While an open card is too small to draw, the archive question is not on
-// the screen either, so y does not archive, and enter does not send the
-// board's input; both stay open.
-func TestNoAnswerCountsWhileTheCardIsTooSmall(t *testing.T) {
-	c := tallNote(1, 1)
-	var ops []core.CardOp
-	m := tallSingle(t, &ops, 134, 20, c)
-	now := m.now()
-	m.clock = func() time.Time { return now }
-	m = update(m, letter('X'), tea.WindowSizeMsg{Width: 134, Height: 4})
-	if !m.paneCard(m.now()).Small {
-		t.Fatalf("the test needs the card too small to draw:\n%s", screen(m))
-	}
-	now = now.Add(core.ArmDelay + time.Second)
-	if m = update(m, letter('y')); len(ops) != 0 || m.one.App.Board.Confirm == 0 {
-		t.Fatalf("y archived, or the question went: ops %+v", ops)
-	}
-	m = update(m, letter('n'), tea.WindowSizeMsg{Width: 134, Height: 20}, letter('e'))
-	if m.one.App.Board.Input == nil {
-		t.Fatalf("no input open:\n%s", screen(m))
-	}
-	m = update(m, letter('z'), tea.WindowSizeMsg{Width: 134, Height: 4}, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if len(ops) != 0 || m.one.App.Board.Input == nil {
-		t.Fatalf("enter sent the input unseen: ops %+v", ops)
-	}
-}
-
 // Review round five of relay#110's rebuild: in the narrow tracker layout
 // a row's cells come under its name, and a row counted as on the screen
 // once its first row was. With a long name, x marked a cell below the
 // window. A line counts only when all of it is on the screen.
 func TestACellBelowTheWindowIsNotMarked(t *testing.T) {
 	c := core.Card{ID: 1, Rev: 1, Kind: core.CardTracker, Status: core.CardActive, Title: core.CardText{Text: "Tracker", Rev: 1},
-		Rows: []core.CardElem{{ID: 1, CardText: core.CardText{Text: strings.Repeat("long row ", 20) + "TAIL", Rev: 1}}}}
+		Rows: []core.CardElem{{ID: 1, CardText: core.CardText{Text: strings.Repeat("long row ", 120) + "TAIL", Rev: 1}}}}
 	for i := range 8 {
 		c.Columns = append(c.Columns, core.CardElem{ID: i + 1, CardText: core.CardText{Text: fmt.Sprintf("Week%02d", i+1), Rev: 1}})
 	}
 	var ops []core.CardOp
-	m := tallSingle(t, &ops, 134, 7, c)
+	m := tallSingle(t, &ops, 80, 24, c)
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyRight})
 	before := screen(m)
 	if strings.Contains(before, "Week02") {
@@ -425,5 +359,31 @@ func TestACellBelowTheWindowIsNotMarked(t *testing.T) {
 	}
 	if m = update(m, letter('x')); len(ops) != 0 {
 		t.Fatalf("x marked a cell off the screen: %+v\n%s", ops, before)
+	}
+}
+
+// On a terminal smaller than relay-tui draws in, it says so and takes no
+// key but ctrl+c: nothing it would draw can be acted on. Review round four
+// of relay#110 found the hub cutting a pane at 170 by 2 after the pane
+// had drawn a box, which x then ticked.
+func TestATerminalTooSmallTakesNoKeys(t *testing.T) {
+	for _, mode := range []string{"hub", "single"} {
+		var ops []core.CardOp
+		build := tallHub
+		if mode == "single" {
+			build = tallSingle
+		}
+		m := build(t, &ops, 170, 30, tallSurface(t, 1, []int{0}, 0))
+		m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+		for _, size := range [][2]int{{170, 2}, {79, 30}, {170, 23}} {
+			small := update(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			if got := small.View().Content; !strings.Contains(got, "Terminal too small") || strings.Contains(got, "box 00") {
+				t.Fatalf("%s at %v: %q", mode, size, got)
+			}
+			small = update(small, letter('x'), letter('X'), letter('y'), tea.KeyPressMsg{Code: tea.KeyEsc})
+			if len(ops) != 0 || !small.app().Board.Detail || small.app().Board.Confirm != 0 {
+				t.Fatalf("%s at %v: a key acted: ops %+v board %+v", mode, size, ops, small.app().Board)
+			}
+		}
 	}
 }

@@ -741,7 +741,7 @@ func TestRelaysOwnWordsAboutOutsideTextHaveTheirLinksBroken(t *testing.T) {
 	refused := hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyReplyKey})
 	refused.Ready.Message, refused.Ready.Failure = core.ReplyRefusedNote, "No reply to http://evil.test/y is possible."
 	for name, hub := range map[string]core.Hub{"the list": list, "an item open": hubStep(list, core.ReadyKey{At: t0, Action: core.ReadyOpenKey}), "a refusal": refused} {
-		for _, width := range []int{50, 100, 160} {
+		for _, width := range []int{79, 100, 160} {
 			content := HubView(hub, "", "", t0, width, 30).Content
 			if plain := ansi.Strip(content); linkable(plain) || hasLinks(content) {
 				t.Fatalf("%s at %d can be followed:\n%s", name, width, plain)
@@ -772,10 +772,10 @@ func TestRelaysOwnWordsAboutOutsideTextHaveTheirLinksBroken(t *testing.T) {
 	for name, got := range map[string]string{
 		"an undo":                 HubView(undone, "", "", t0, 120, 30).Content,
 		"an undo refused":         HubView(kept, "", "", t0, 120, 30).Content,
-		"an undo refused, narrow": HubView(kept, "", "", t0, 50, 30).Content,
+		"an undo refused, narrow": HubView(kept, "", "", t0, 79, 30).Content,
 		"a notice":                HubView(noticed, "", "", t0, 120, 30).Content,
-		"a notice over the list":  HubView(listed, "", "", t0, 60, 30).Content,
-		"a notice over the pane":  HubView(paned, "", "", t0, 60, 30).Content,
+		"a notice over the list":  HubView(listed, "", "", t0, 79, 30).Content,
+		"a notice over the pane":  HubView(paned, "", "", t0, 79, 30).Content,
 		"a tool":                  StatusText(core.StatusLine{Kind: core.StatusRunning, Detail: true, Tools: 1, Tool: "web_get https://evil.test/?d=1"}, "", t0, 120),
 		"a retry":                 StatusText(core.StatusLine{Kind: core.StatusRetrying, RetryIn: time.Second, Reason: "https://evil.test/ said no"}, "", t0, 120),
 		"a message":               StatusText(core.StatusLine{Kind: core.StatusIdle, Message: "see www.evil.test"}, "", t0, 120),
@@ -1111,8 +1111,10 @@ func genOutsideCard(t *rapid.T, id int64) core.Card {
 func TestNothingFromOutsideIsFollowedButALiveLink(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		live := genLive(t)
-		w := rapid.IntRange(20, 140).Draw(t, "width")
-		h := rapid.IntRange(6, 50).Draw(t, "height")
+		// The sizes relay-tui draws at: the shell keeps one column back
+		// from a terminal of at least ui.MinWidth by ui.MinHeight.
+		w := rapid.IntRange(79, 140).Draw(t, "width")
+		h := rapid.IntRange(24, 50).Draw(t, "height")
 
 		// The board: in the pane's list, and one card open.
 		card := genOutsideCard(t, 7)

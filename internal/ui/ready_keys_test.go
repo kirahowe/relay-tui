@@ -181,7 +181,7 @@ func noteModel(acts *[]string) Model {
 	note := core.ReadyItem{ID: "message:9", Kind: core.ReadyMessage, At: now.Format(time.RFC3339), Title: "Daily note", Message: 9, ReplyTo: 9,
 		Lines: []string{"1. A change", "And 5 more changes like these", "7. A suggestion"},
 		Acts:  []core.ReadyAct{{N: 1, Op: core.OpRevert, Line: 0}, {N: 7, Op: core.OpDismiss, Line: 2}}}
-	return update(m, tea.WindowSizeMsg{Width: 60, Height: 30},
+	return update(m, tea.WindowSizeMsg{Width: 80, Height: 30},
 		ev(core.HubConnected{At: now}),
 		ev(core.RosterUpdate{At: now, Roles: []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}}),
 		ev(core.Attached{At: now, Role: "dev", Session: "s1"}),

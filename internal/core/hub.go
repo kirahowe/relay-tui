@@ -93,7 +93,7 @@ type Hub struct {
 	Convs             []Conv
 	// Focus is the role whose conversation is on screen ("" for none).
 	// Cursor is the role the list has selected. List says the list has
-	// the keys: on a narrow screen it is the screen. The keys are in one
+	// the keys. The keys are in one
 	// of three columns: the list, the conversation in focus, or the pane
 	// (App.PaneFocus). With no role in focus there is no conversation
 	// column, so the keys are in the list or the pane.

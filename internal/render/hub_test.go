@@ -55,9 +55,9 @@ func TestHubGolden(t *testing.T) {
 		name string
 		h    core.Hub
 	}{{"conversation", h}, {"list", list}, {"ending", ending}, {"help", helped}, {"no_conversation", empty}} {
-		for _, w := range []int{39, 99} {
+		for _, w := range []int{79, 99} {
 			t.Run(fmt.Sprintf("%s_%d", c.name, w), func(t *testing.T) {
-				f := HubView(c.h, strings.Repeat(" ", InputWidth(HubMainWidth(w))), "ctrl+j for a new line", now, w, 16)
+				f := HubView(c.h, strings.Repeat(" ", HubInputWidth(c.h, w)), "ctrl+j for a new line", now, w, 24)
 				requireGolden(t, f.Content)
 			})
 		}
@@ -95,23 +95,6 @@ func TestHubFrameFits(t *testing.T) {
 	}
 }
 
-func TestHubNarrowShowsOneOrTheOther(t *testing.T) {
-	h := hubFixture()
-	conv := HubView(h, "", "", t0, 50, 14).Content
-	if strings.Contains(conv, "Garden planner") || !strings.Contains(conv, "h roles") || !strings.Contains(conv, "dentist") {
-		t.Errorf("conversation screen:\n%s", conv)
-	}
-	list := HubView(hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content
-	if strings.Contains(list, "dentist") || !strings.Contains(list, "Garden planner") {
-		t.Errorf("list screen:\n%s", list)
-	}
-	// Wide shows both.
-	wide := HubView(h, "", "", t0, 100, 14).Content
-	if !strings.Contains(wide, "Garden planner") || !strings.Contains(wide, "dentist") {
-		t.Errorf("wide screen:\n%s", wide)
-	}
-}
-
 func TestHubMarksStandOut(t *testing.T) {
 	h := hubFixture()
 	f := HubView(h, "", "", t0, 100, 14).Content
@@ -134,9 +117,14 @@ func TestHubQueuedTurnIsSaid(t *testing.T) {
 	if !strings.Contains(f, "waiting for the role's scheduled work") {
 		t.Errorf("the queued turn is not said:\n%s", f)
 	}
-	list := ansi.Strip(HubView(hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), "", "", t0, 50, 14).Content)
-	if !strings.Contains(list, "waiting for scheduled work") {
-		t.Errorf("the list does not say it:\n%s", list)
+	// The list marks it beside the role, as the list of keys explains.
+	list := ansi.Strip(HubView(hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), "", "", t0, 100, 24).Content)
+	marked := false
+	for _, l := range strings.Split(list, "\n") {
+		marked = marked || strings.Contains(l, "Mail") && strings.Contains(l, "…")
+	}
+	if !marked {
+		t.Errorf("the list does not mark it:\n%s", list)
 	}
 }
 
@@ -155,8 +143,8 @@ func TestHubRoleTitlesAreSanitized(t *testing.T) {
 func TestHubDrawsAConversationBeforeTheRoster(t *testing.T) {
 	h := hubStep(core.NewHub("dev"), core.HubConnected{At: t0}, core.Attached{At: t0, Role: "dev", Session: "s1"},
 		core.Routed{Session: "s1", Event: core.TextChunk{At: t0, Text: "early"}})
-	for _, w := range []int{30, 100} {
-		if f := HubView(h, "", "", t0, w, 10).Content; !strings.Contains(ansi.Strip(f), "early") {
+	for _, w := range []int{79, 100} {
+		if f := HubView(h, "", "", t0, w, 24).Content; !strings.Contains(ansi.Strip(f), "early") {
 			t.Errorf("%d wide:\n%s", w, f)
 		}
 	}
@@ -195,8 +183,11 @@ func hubOf(st core.State) core.Hub {
 // prints for the same entries, at the same width.
 func TestHubConversationShowsWhatTheInlineViewShows(t *testing.T) {
 	st := parityState()
-	for _, w := range []int{40, 60} {
-		inline := Entries(nil, st.Entries, w, t0)
+	for _, w := range []int{79, 120} {
+		// The inline view at the width the hub gives the conversation in
+		// its panel.
+		cw, _ := hubColumns(hubOf(st), w)
+		inline := Entries(nil, st.Entries, framed(cw), t0)
 		got := ansi.Strip(HubView(hubOf(st), "", "", t0, w, 80).Content)
 		for _, l := range inline {
 			l = strings.TrimSpace(ansi.Strip(l))
@@ -303,18 +294,11 @@ func TestHubSaysWhenConversationsEndWithTheClient(t *testing.T) {
 		name string
 		h    core.Hub
 		w    int
-	}{{"wide conversation", h, 100}, {"narrow conversation", h, 50}, {"narrow list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 50},
-		{"wide list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 100}} {
-		got := ansi.Strip(HubView(v.h, "", "", t0, v.w, 20).Content)
+	}{{"conversation", h, 100}, {"narrowest conversation", h, 79}, {"narrowest list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 79},
+		{"list", hubStep(h, core.StopTyping{At: t0}, core.Move{At: t0, Delta: -1}), 100}} {
+		got := ansi.Strip(HubView(v.h, "", "", t0, v.w, 24).Content)
 		if !strings.Contains(strings.Join(strings.Fields(got), " "), "Chats end when you close this") {
 			t.Errorf("%s:\n%s", v.name, got)
-		}
-	}
-	// It fits one row of a phone, whole, with no word left alone on the next.
-	for _, w := range []int{40, 50, 59} {
-		got := ansi.Strip(HubView(h, "", "", t0, w, 20).Content)
-		if !strings.Contains(got, EmbeddedNote+"\n") && !strings.HasSuffix(strings.TrimRight(got, "\n"), EmbeddedNote) {
-			t.Errorf("width %d: the note is not on a row of its own:\n%s", w, got)
 		}
 	}
 	// With the service, or when relay did not say, nothing.
@@ -459,22 +443,22 @@ func TestTheDashboardNeverNamesALabelOrAGate(t *testing.T) {
 }
 
 // With no conversation yet and the keys typing, the status line keeps its
-// way out (esc) within a phone's 60 columns.
-func TestNoConversationStatusKeepsEscWithin60Columns(t *testing.T) {
+// way out (esc) at the least terminal width.
+func TestNoConversationStatusKeepsEscAtTheLeastWidth(t *testing.T) {
 	h := hubStep(core.NewHub(""), core.HubConnected{At: t0, Agent: "relay"},
 		core.RosterUpdate{At: t0, Roles: rosterFixture()}, core.FocusIndex{At: t0, Index: 2}, core.Type{At: t0})
-	for _, w := range []int{40, 59, 60} {
-		out := ansi.Strip(HubView(h, "", "", t0, w, 20).Content)
+	for _, w := range []int{79, 100} {
+		out := ansi.Strip(HubView(h, "", "", t0, w, 24).Content)
 		var line string
 		for _, l := range strings.Split(out, "\n") {
-			if strings.Contains(l, "no conversation") && strings.Contains(l, "TYPING") {
+			if strings.Contains(l, "no conversation") {
 				line = l
 			}
 		}
 		if line == "" {
 			t.Fatalf("no status line at %d:\n%s", w, out)
 		}
-		if w >= 59 && !strings.Contains(line, "esc") {
+		if !strings.Contains(line, "esc") {
 			t.Errorf("width %d: %q lacks the esc hint", w, line)
 		}
 	}

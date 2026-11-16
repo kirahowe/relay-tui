@@ -84,7 +84,7 @@ func TestHelpOverlay(t *testing.T) {
 // lost, so nothing prints while the view is open. What the agent wrote
 // meanwhile reaches scrollback once the view closes, once and in order.
 func TestNothingLostBehindTranscript(t *testing.T) {
-	h := start(t, "tool_burst.jsonl", 40, 10)
+	h := start(t, "tool_burst.jsonl", 80, 24)
 	h.waitIdle()
 	h.keys("go\r\x14")
 	h.waitScreen("the end, in the view", func(s string) bool {
@@ -99,7 +99,7 @@ func TestNothingLostBehindTranscript(t *testing.T) {
 
 // Ctrl-D in the view still leaves everything in scrollback.
 func TestQuitFromTranscriptKeepsScrollback(t *testing.T) {
-	h := start(t, "tool_burst.jsonl", 40, 10)
+	h := start(t, "tool_burst.jsonl", 80, 24)
 	h.waitIdle()
 	h.keys("go\r\x14")
 	h.waitScreen("the end, in the view", func(s string) bool {

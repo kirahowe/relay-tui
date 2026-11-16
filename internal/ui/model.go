@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"fmt"
 	"image/color"
 	"reflect"
 	"strings"
@@ -296,6 +297,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // update handles a message once input is no longer held.
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// On a terminal too small to draw in, nothing on the screen can be
+	// acted on: no key counts but ctrl+c, which still stops or quits.
+	if k, ok := msg.(tea.KeyPressMsg); ok && m.tooSmall() && k.String() != "ctrl+c" {
+		return m, nil
+	}
+	if _, ok := msg.(tea.PasteMsg); ok && m.tooSmall() {
+		return m, nil
+	}
 	if m.kind == kindHub {
 		next, cmd := m.updateHub(msg)
 		nm := next.(Model)
@@ -453,12 +462,7 @@ func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, deta
 	if b := a.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
-			e := core.PaneKey{At: now, Action: a, Text: text}
-			if b.Detail {
-				c := card()
-				e.Card = &c
-			}
-			return e
+			return core.PaneKey{At: now, Action: a, Text: text}
 		}
 		e := core.PaneKey{At: now, Action: ClassifyBoard(k)}
 		if b.Detail {
@@ -605,6 +609,15 @@ func (m *Model) tick(now time.Time) tea.Cmd {
 	return tea.Tick(tickEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+// MinWidth and MinHeight are the smallest terminal relay-tui draws in,
+// the classic default terminal. On a smaller one it says so, draws
+// nothing else and takes no key but ctrl+c, rather than draw part of a
+// screen whose parts could then be acted on unseen.
+const MinWidth, MinHeight = 80, 24
+
+// tooSmall says the terminal is smaller than relay-tui draws in.
+func (m Model) tooSmall() bool { return m.sized && (m.w < MinWidth || m.h < MinHeight) }
+
 // width is the width everything is drawn at: one column narrower than
 // the screen, so a wide grapheme measured differently cannot wrap (Bubble
 // Tea #1802), and printed boxes line up with the input box.
@@ -624,6 +637,11 @@ func (m Model) View() tea.View {
 		// screen replaces it, and against a plain agent leaving it gives
 		// the inline view the terminal as it was.
 		v := tea.NewView(connectingLine(len(m.held), m.width()))
+		v.AltScreen = true
+		return v
+	}
+	if m.tooSmall() {
+		v := tea.NewView(fmt.Sprintf("Terminal too small: relay-tui needs %d×%d.", MinWidth, MinHeight))
 		v.AltScreen = true
 		return v
 	}

@@ -154,24 +154,6 @@ func TestHubListMovesToTheBoard(t *testing.T) {
 	}
 }
 
-// On a narrow screen the list is the screen, so the board opened from it
-// takes its place, and esc or h brings the list back.
-func TestHubNarrowListOpensTheBoardInItsPlace(t *testing.T) {
-	h := startHub(t, boardRoles(), 60, 24, "")
-	h.waitScreen("the list", contains("News"))
-	h.keys("l")
-	s := h.waitScreen("the board", contains("Trip prep"))
-	if strings.Contains(s, "News") {
-		t.Errorf("the list is still on screen:\n%s", s)
-	}
-	h.keys("\x1b")
-	h.waitScreen("the list again", contains("News"))
-	h.keys("l")
-	h.waitScreen("the board again", func(s string) bool { return !strings.Contains(s, "News") })
-	h.keys("h")
-	h.waitScreen("the list again", contains("News"))
-}
-
 // surfaceRoles is threeRoles with relay's checklist fixture card as the
 // whole board, at id 21 and with the matching surface id. It also returns
 // the card's rev.

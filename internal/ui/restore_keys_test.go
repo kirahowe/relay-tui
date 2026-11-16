@@ -149,7 +149,7 @@ func authorized(c call) bool {
 // maxHeld keys more are dropped, and the status line says how many once
 // the agent answers.
 func TestHeldInputIsBounded(t *testing.T) {
-	m := update(New(nopConn{}, ""), tea.WindowSizeMsg{Width: 80, Height: 20})
+	m := update(New(nopConn{}, ""), tea.WindowSizeMsg{Width: 80, Height: 24})
 	if v := m.View(); !strings.Contains(v.Content, "connecting…") || !v.AltScreen {
 		t.Fatalf("screen %q alt %v", v.Content, v.AltScreen)
 	}

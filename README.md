@@ -414,9 +414,7 @@ relay told you, drafts it prepared in your own accounts, entries on the
 agent's calendar, findings it put on the board and files it moved,
 newest first; things that came at the same moment are in the order
 relay recorded them, the latest first. `R`
-again, Esc, `q` or `h` closes it. It covers the whole screen, so it reads
-the same on a phone-width terminal (about 60 columns) as on a wide one,
-and the keys row names it everywhere as `R ready`, with how many things
+again, Esc, `q` or `h` closes it. It covers the whole screen, and the keys row names it everywhere as `R ready`, with how many things
 are in it.
 
 Each thing is a panel of its own. Its kind and title sit in the top
@@ -501,18 +499,17 @@ other agent nothing here applies, and the client works as described
 above. `relay [--open ROLE]` runs it as
 `relay-tui [--open ROLE] -- relay acp`.
 
-The whole screen is drawn on the alternate screen, from state. On a
-screen 73 columns or wider it is drawn as panels, each in a frame with
-its title in the top border: the roles, then the conversation in focus,
+relay-tui needs a terminal of at least 80 columns by 24 rows. On a
+smaller one it says so, draws nothing else and takes no key but ctrl+c,
+so nothing it would draw can be acted on unseen.
+
+The whole screen is drawn on the alternate screen, from state, as
+panels, each in a frame with its title in the top border: the roles, then the conversation in focus,
 then, with room, the workspace pane. The panel that has the keys has its
 frame in the accent colour, and the role in focus sits on a tinted bar.
 A top row names relay, the role in focus and what the other roles want.
 A bottom row lists the keys for whatever has them, each key in the
-accent colour. On a narrower one you see one column at a time, as on a
-phone: the list of roles, the conversation, or the pane in the
-conversation's place, and `h` and `l` move between them. The
-conversation's first row says `h roles`. Without `--open` relay-tui
-starts on the list, moving.
+accent colour. Without `--open` relay-tui starts on the list, moving.
 
 If relay had to drop the oldest history from a replay, the conversation
 starts with "relay: earlier history is not shown".
@@ -551,9 +548,8 @@ wide screen, or, once `l` gives the pane the keys, in the
 conversation's place. Its ops work from a role that has no
 conversation, and open none. With no role in focus there is no
 conversation column, so `l` on the list goes straight to the board, and
-esc or `h` there goes back to the list, with the cursor where it was. On
-a narrow screen, where the list is the screen, the board takes its
-place until then. The workspace items in the pane are the
+esc or `h` there goes back to the list, with the cursor where it was.
+The workspace items in the pane are the
 focused conversation's own. Moving to another role gives the keys back to
 its conversation. Only the conversation on screen can bring its items
 into view; a display in another one waits there until you look.
@@ -574,7 +570,7 @@ It keeps which column had the keys, not the mode: back in a
 conversation you are typing, and anywhere else you are moving. A role
 with no conversation yet counts as anywhere else, so the keys of the
 dashboard (`R`) work on the first key; its status line says `esc moves`
-in the first 60 columns. If the conversation fails to open, or ends,
+first. If the conversation fails to open, or ends,
 before you have pressed a key, you are moving too. Once you have pressed
 a key, the keys stay where you put them.
 

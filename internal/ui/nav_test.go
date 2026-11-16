@@ -207,9 +207,9 @@ func TestArchiveAsksFirst(t *testing.T) {
 // The key that closes the list of keys only closes it: an x there does
 // not tick the item the list covered, on any screen.
 func TestClosingHelpDoesNothingElse(t *testing.T) {
-	for _, w := range []int{60, 170} {
+	for _, w := range []int{80, 170} {
 		var calls []string
-		m := update(navHub(t, &calls), tea.WindowSizeMsg{Width: w, Height: 20},
+		m := update(navHub(t, &calls), tea.WindowSizeMsg{Width: w, Height: 24},
 			tea.KeyPressMsg{Code: tea.KeyEscape}, letter('l'), tea.KeyPressMsg{Code: tea.KeyEnter}, letter('j'))
 		if !m.hub.App.PaneFocus || !m.hub.App.Board.Detail {
 			t.Fatalf("%d: not on an open card", w)
@@ -225,7 +225,7 @@ func TestClosingHelpDoesNothingElse(t *testing.T) {
 	// Against a single agent too.
 	now := time.Now()
 	var calls []string
-	m := update(New(recConn{calls: &calls}, ""), tea.WindowSizeMsg{Width: 60, Height: 20}, ev(core.Connected{At: now}),
+	m := update(New(recConn{calls: &calls}, ""), tea.WindowSizeMsg{Width: 80, Height: 24}, ev(core.Connected{At: now}),
 		ev(core.CardsLoaded{At: now, Rev: 2, Cards: navCards()}),
 		tea.KeyPressMsg{Code: tea.KeyEscape}, letter('l'), tea.KeyPressMsg{Code: tea.KeyEnter}, letter('j'), letter('?'), letter('x'))
 	if m.one.State.Help || len(calls) != 0 {

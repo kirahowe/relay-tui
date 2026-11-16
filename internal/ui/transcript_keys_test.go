@@ -73,7 +73,7 @@ func TestAgentExitFromTranscript(t *testing.T) {
 		return next.(Model)
 	}
 	m := New(nopConn{}, "")
-	m = step(m, tea.WindowSizeMsg{Width: 40, Height: 10})
+	m = step(m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = step(m, readyMsg{})
 	m = step(m, EventMsg{Event: core.Connected{}})
 	m = step(m, printedMsg{})
