@@ -78,24 +78,6 @@ func TestTheFocusReachesEveryLineOnAnyPane(t *testing.T) {
 	}
 }
 
-// With room for the borders and no row of body, the frame stays, with the
-// title, the owner and "from outside" on it.
-func TestTheFrameStaysWhenOnlyItsBordersFit(t *testing.T) {
-	const width = 60
-	c := plainSurface(t, 1, true, "")
-	c.Owner = "steward"
-	s := detail(boardState(true, c), c.ID, 0, 0)
-	pr := paneParts(s.App, s.State, t0, width)
-	height := len(pr.head) + len(pr.foot) + len(wrap(styleKeys(pr.keys), width)) + 2
-	rows, _ := paneRender(s.App, s.State, t0, width, height)
-	flat := ansi.Strip(strings.Join(rows, "\n"))
-	for _, want := range []string{"╭", "╰", "Surface", "steward", "from outside"} {
-		if !strings.Contains(flat, want) {
-			t.Fatalf("no %q with room for both borders:\n%s", want, flat)
-		}
-	}
-}
-
 // Review of relay#110's rebuild: page down moved by the window's rows,
 // and the marks at its ends hid one row from both pages. Paging down from
 // the top shows every row of a note.
@@ -144,48 +126,25 @@ func TestALongChecklistItemCanBeReadToItsEnd(t *testing.T) {
 	t.Fatal("page down never brought the item's end into view")
 }
 
-// Review of relay#110's rebuild: on a short pane the key hints took every
-// row an open tracker had for its body, so the selected row could not be
-// drawn and x could never tick it. The hints give way to the body.
-func TestTheHintsGiveWayToTheCardsBody(t *testing.T) {
-	for _, c := range []core.Card{cardTracker, cardChecklist} {
-		for height := 4; height <= 12; height++ {
-			s := detail(boardState(true, c), c.ID, 1, 0)
-			rows, pd := paneRender(s.App, s.State, t0, 44, height)
-			if len(rows) != height {
-				t.Fatalf("%s at height %d: %d rows", c.Title.Text, height, len(rows))
-			}
-			pr := paneParts(s.App, s.State, t0, 44)
-			if fits := len(pr.head)+len(pr.foot)+3 <= height; fits && !pd.Card.Shown {
-				t.Fatalf("%s at height %d: the selected line is not drawn:\n%s", c.Title.Text, height, ansi.Strip(strings.Join(rows, "\n")))
-			}
-		}
-	}
-}
-
-// The pane hands out its rows in one order (cardDraw): on any pane with
-// room for its head, its foot and the frame, the frame is drawn; with a
-// row more, so is the focused line. Review round three of relay#110's
-// rebuild found a tracker's long cell line and an empty surface each
-// crowding the card out on a short pane.
-func TestTheCardComesFirstOnAShortPane(t *testing.T) {
+// An open card's pane at every height (cardDraw): below the least it
+// needs, the pane says it is too small and tells the keys so, and the
+// focused line counts as not shown. At or above it, the frame and the
+// focused line are on the screen, and the line under the card (a
+// tracker's cell) is there whole or not at all. Reviews of relay#110 found
+// the key hints, a tracker's long cell line and an empty surface each
+// crowding the card out of a short pane, and a cell line cut in half.
+func TestAnOpenCardIsDrawnWholeOrSaysThePaneIsTooSmall(t *testing.T) {
 	long := cardTracker
-	long.Rows = []core.CardElem{{ID: 1, CardText: ct(strings.Repeat("long row ", 20))}}
+	long.Rows = []core.CardElem{{ID: 1, CardText: ct(strings.Repeat("long row ", 20) + "TAIL")}}
 	long.Columns, long.Cells = nil, nil
 	for i := range 8 {
-		long.Columns = append(long.Columns, core.CardElem{ID: i + 1, CardText: ct("Period")})
+		long.Columns = append(long.Columns, core.CardElem{ID: i + 1, CardText: ct(fmt.Sprintf("Week%02d", i+1))})
 	}
 	empty := plainSurface(t, 1, true, "")
 	empty.Owner = "steward"
 	empty.Surface.A2UI.Components = map[string]a2ui.Component{"root": {ID: "root", Type: "Column", Props: map[string]any{"children": []any{}}}}
-	// The reviewer's case: a 44 by 8 pane, the long row selected.
-	s := detail(boardState(true, long), long.ID, 1, 0)
-	if rows, pd := paneRender(s.App, s.State, t0, 44, 8); !pd.Card.Shown {
-		t.Fatalf("the long row is not drawn at 44x8:\n%s", ansi.Strip(strings.Join(rows, "\n")))
-	}
 	hostile, _ := surfaceCard(t, "hostile", 1)
-	cards := []core.Card{cardTracker, long, cardChecklist, cardNote, empty, hostile}
-	for _, c := range cards {
+	for _, c := range []core.Card{cardTracker, long, cardChecklist, cardNote, empty, hostile} {
 		for _, width := range []int{30, 44, 60} {
 			for height := 1; height <= 16; height++ {
 				line := min(1, c.Lines()-1)
@@ -193,12 +152,23 @@ func TestTheCardComesFirstOnAShortPane(t *testing.T) {
 				pr := paneParts(s.App, s.State, t0, width)
 				rows, pd := paneRender(s.App, s.State, t0, width, height)
 				flat := ansi.Strip(strings.Join(rows, "\n"))
-				need := len(pr.head) + len(pr.foot)
-				if need+2 <= height && (!strings.Contains(flat, "╭") || !strings.Contains(flat, "╰")) {
-					t.Fatalf("%s at %dx%d: no frame:\n%s", c.Title.Text, width, height, flat)
+				least := len(pr.head) + len(pr.foot) + 2 + 3
+				where := fmt.Sprintf("%s at %dx%d", c.Title.Text, width, height)
+				if height < least {
+					if !pd.Card.Small || pd.Card.Shown && line > 0 || height > len(pr.head) && !strings.Contains(flat, "Too small") {
+						t.Fatalf("%s, under %d rows: small %v, shown %v:\n%s", where, least, pd.Card.Small, pd.Card.Shown, flat)
+					}
+					continue
 				}
-				if need+3 <= height && !pd.Card.Shown {
-					t.Fatalf("%s at %dx%d: the focused line is not drawn:\n%s", c.Title.Text, width, height, flat)
+				if pd.Card.Small || !strings.Contains(flat, "╭") || !strings.Contains(flat, "╰") || !pd.Card.Shown {
+					t.Fatalf("%s: small %v, shown %v:\n%s", where, pd.Card.Small, pd.Card.Shown, flat)
+				}
+				if info := strings.Join(pr.info, ""); info != "" && strings.Contains(flat, "cell:") {
+					for _, l := range pr.info {
+						if !strings.Contains(flat, strings.TrimSpace(ansi.Strip(l))) {
+							t.Fatalf("%s: the cell line is cut:\n%s", where, flat)
+						}
+					}
 				}
 			}
 		}

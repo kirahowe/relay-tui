@@ -361,3 +361,47 @@ func TestTabMovesThroughTheLinks(t *testing.T) {
 		t.Fatalf("shift+tab: link %d", m.app().Board.Links.Sel)
 	}
 }
+
+// Review round four of relay#110's rebuild: at 170 by 2 the hub cut the
+// pane after the pane had drawn the focused box and said it was shown, so
+// x ticked a box that was not on the screen. A pane that small is under
+// the least an open card needs, and says so.
+func TestABoxInAHubTooShortForItIsNotTicked(t *testing.T) {
+	var ops []core.CardOp
+	m := tallHub(t, &ops, 170, 20, tallSurface(t, 1, []int{0}, 0))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.WindowSizeMsg{Width: 170, Height: 2})
+	before := screen(m)
+	if m.paneCard(m.now()).Shown || strings.Contains(before, "box 00") {
+		t.Fatalf("the test needs the box off the screen and counted so:\n%s", before)
+	}
+	if m = update(m, letter('x')); len(ops) != 0 {
+		t.Fatalf("x sent %+v:\n%s", ops, before)
+	}
+}
+
+// While an open card is too small to draw, the archive question is not on
+// the screen either, so y does not archive, and enter does not send the
+// board's input; both stay open.
+func TestNoAnswerCountsWhileTheCardIsTooSmall(t *testing.T) {
+	c := tallNote(1, 1)
+	var ops []core.CardOp
+	m := tallSingle(t, &ops, 134, 20, c)
+	now := m.now()
+	m.clock = func() time.Time { return now }
+	m = update(m, letter('X'), tea.WindowSizeMsg{Width: 134, Height: 4})
+	if !m.paneCard(m.now()).Small {
+		t.Fatalf("the test needs the card too small to draw:\n%s", screen(m))
+	}
+	now = now.Add(core.ArmDelay + time.Second)
+	if m = update(m, letter('y')); len(ops) != 0 || m.one.App.Board.Confirm == 0 {
+		t.Fatalf("y archived, or the question went: ops %+v", ops)
+	}
+	m = update(m, letter('n'), tea.WindowSizeMsg{Width: 134, Height: 20}, letter('e'))
+	if m.one.App.Board.Input == nil {
+		t.Fatalf("no input open:\n%s", screen(m))
+	}
+	m = update(m, letter('z'), tea.WindowSizeMsg{Width: 134, Height: 4}, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if len(ops) != 0 || m.one.App.Board.Input == nil {
+		t.Fatalf("enter sent the input unseen: ops %+v", ops)
+	}
+}

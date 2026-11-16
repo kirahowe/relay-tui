@@ -344,8 +344,12 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 		// Too wide for a grid: each row's name, then its cells by column.
 		for i, r := range c.Rows {
 			var cells []string
-			for _, k := range c.Columns {
-				cells = append(cells, outside(k.CardText, cardLine(k.Text, k.Outsider, live))+" "+cellGlyph(c.CellState(r.ID, k.ID)))
+			for j, k := range c.Columns {
+				g := cellGlyph(c.CellState(r.ID, k.ID))
+				if full && focus && i+1 == line && j == col {
+					g = styled(reverse, ansi.Strip(g)) // the selected cell, as in the grid
+				}
+				cells = append(cells, outside(k.CardText, cardLine(k.Text, k.Outsider, live))+" "+g)
 			}
 			name := hang("", outside(r.CardText, cardLine(r.Text, r.Outsider, live)), width)
 			add(i+1, append(name, hang("  ", strings.Join(cells, styled(faint, " · ")), width)...))

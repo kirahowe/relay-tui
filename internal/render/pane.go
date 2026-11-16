@@ -462,29 +462,38 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, paneDrawn) {
 // holds, with marks for what is above and below. A card that fits is
 // framed as tall as it is.
 //
-// The rows go out in one order, so a short pane loses the least of it:
-// the head and the foot first, since the foot holds what the operator is
+// A pane without room for its head, its foot, the frame and three rows
+// of body says it is too small. Otherwise the rows go out in one order:
+// the head and the foot, since the foot holds what the operator is
 // answering; then the frame's borders, which say whose card it is and
-// where its text came from; then a row of body; then the line about the
-// card under it (info), then the key hints; and the body takes the rest.
+// where its text came from; then three rows of body; then the line about
+// the card under it (info), whole or not at all; then the key hints; and
+// the body takes the rest.
 func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	f := pr.card
 	n := len(pr.body)
 	focused := pr.selB > pr.selA
 	cs := core.CardScroll{Card: pr.cardID, Shown: !focused}
-	left := height - len(pr.head) - len(pr.foot)
-	if left < 0 {
-		all := append(append([]string(nil), pr.head...), pr.foot...)
-		return finish(all[len(all)-height:], width, height), paneDrawn{Card: cs}
-	}
 	border := 0
-	if boxed(width) && left >= 2 {
+	if boxed(width) {
 		border = 2
 	}
-	left -= border
-	least := min(n, 1, left)
+	left := height - len(pr.head) - len(pr.foot) - border
+	if left < leastBody {
+		// Too small for the card: say so rather than draw part of it, and
+		// tell the keys, so nothing it would show can be acted on.
+		cs.Shown, cs.Small = false, true
+		all := append(slices.Clone(pr.head), styled(faint, "Too small to show this card."))
+		return finish(all, width, height), paneDrawn{Card: cs}
+	}
+	least := min(n, leastBody)
 	left -= least
-	info := pr.info[:min(len(pr.info), left)]
+	// The line under the card shows whole or not at all: part of it could
+	// leave out what it is there to say.
+	var info []string
+	if len(pr.info) <= left {
+		info = pr.info
+	}
 	left -= len(info)
 	hints := pr.hints[:min(len(pr.hints), left)]
 	left -= len(hints)
@@ -530,6 +539,9 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	all = append(append(append(all, info...), pr.foot...), hints...)
 	return finish(all, width, height), paneDrawn{Card: cs}
 }
+
+// leastBody is the fewest rows of body an open card is drawn with.
+const leastBody = 3
 
 // finish cuts lines to the pane: height rows, none wider than width.
 func finish(all []string, width, height int) []string {
