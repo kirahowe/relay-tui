@@ -217,6 +217,8 @@ func TestResolvedButtons(t *testing.T) {
 		{"child is a list", set("child", []any{"t1"})},
 		{"no child", func(s *Surface) { delete(s.Components["go"].Props, "child") }},
 		{"extra property", set("weight", 1.0)},
+		{"label with a line break", func(s *Surface) { s.Components["t1"].Props["text"] = "Plan\nthe route" }},
+		{"label with a carriage return", func(s *Surface) { s.Components["t1"].Props["text"] = "Plan\rthe route" }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

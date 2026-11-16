@@ -149,6 +149,9 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 		}
 		if t, ok := s.Components[child]; !ok || t.Type != "Text" {
 			return nil, errorf(CodeInvalid, "component %s has a child that is not a Text", id)
+		} else if label, _ := t.Props["text"].(string); strings.ContainsAny(label, "\n\r") {
+			// relay sends a label on one line; a break would draw as two buttons.
+			return nil, errorf(CodeInvalid, "component %s has a label of more than one line", id)
 		}
 		if err := oneOf("variant", buttonVariants); err != nil {
 			return nil, err

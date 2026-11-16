@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"pgregory.net/rapid"
 
@@ -59,7 +60,7 @@ func GenResolved(t *rapid.T, text *rapid.Generator[string]) a2ui.Surface {
 		case "Button":
 			n++
 			label := fmt.Sprintf("b%d", n)
-			comps[label] = a2ui.Component{ID: label, Type: "Text", Props: map[string]any{"text": text.Draw(t, "buttonLabel")}}
+			comps[label] = a2ui.Component{ID: label, Type: "Text", Props: map[string]any{"text": strings.NewReplacer("\n", " ", "\r", " ").Replace(text.Draw(t, "buttonLabel"))}}
 			props["child"] = label
 			if rapid.Bool().Draw(t, "primary") {
 				props["variant"] = "primary"
