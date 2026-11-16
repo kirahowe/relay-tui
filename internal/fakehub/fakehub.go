@@ -36,6 +36,7 @@
 //	finish <role>                a "slow" turn ends
 //	archive-card <id>            another process archived the card
 //	bump-card <id>               the card's rev moves on, and the client is not told
+//	take-up <id>                 the card's owner read the memos of its event buttons
 //
 // Everything the client does is logged, one line each: "new <role>
 // attached=<bool>", "load <session>", "prompt <session> <json text>",
@@ -686,6 +687,10 @@ func (h *Hub) control(ctx context.Context, line string) {
 	cmd, id := fields[0], fields[1]
 	if cmd == "archive-card" {
 		h.archiveCard(ctx, id)
+		return
+	}
+	if cmd == "take-up" {
+		h.takeUp(id)
 		return
 	}
 	if cmd == "bump-card" {

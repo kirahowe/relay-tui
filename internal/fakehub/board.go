@@ -8,7 +8,8 @@ package fakehub
 // without answers the board's methods method-not-found. An op takes tick
 // and untick of a checklist item, archive (refused if "seen" is not the
 // card's rev), and input on a surface card, which sets the boolean a
-// CheckBox of the surface is bound to, with relay's refusals. Each call
+// CheckBox of the surface is bound to, and press on one of its buttons,
+// with relay's refusals. Each call
 // is logged as "cards <params>" or "card-op <params>". As relay does,
 // each refuses a parameter it does not take: the board is the
 // connection's, so a sessionId is refused. The control file's
@@ -31,6 +32,9 @@ type board struct {
 	rev        int64
 	cards      []map[string]any // wire forms, as JSON objects
 	subscribed bool
+	// unread holds the buttons whose last press the card's owner has not
+	// yet taken up, as "<card>/<component>".
+	unread map[string]bool
 }
 
 func newBoard(raw []json.RawMessage) (*board, error) {
@@ -126,7 +130,7 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 		b.subscribed = true
 		return copyOf(map[string]any{"rev": b.rev, "cards": b.active()}), nil
 	case "_relay/cards/op":
-		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "path", "value", "seen"); err != nil {
+		if err := strict(method, params, "card", "op", "item", "row", "column", "state", "text", "path", "value", "component", "seen"); err != nil {
 			return nil, err
 		}
 		c := b.card(num(params["card"]))
@@ -136,6 +140,9 @@ func (h *Hub) boardMethod(method string, raw json.RawMessage) (json.RawMessage, 
 		op, _ := params["op"].(string)
 		if op == "input" {
 			return b.input(c, params)
+		}
+		if op == "press" {
+			return b.press(c, params)
 		}
 		if c["status"] != "active" {
 			return nil, refused(fmt.Sprintf("There is no card %v on the board.", params["card"]))
@@ -208,6 +215,81 @@ func (b *board) input(c map[string]any, params map[string]any) (json.RawMessage,
 	setPointer(data, path, value)
 	b.bump(c)
 	return copyOf(map[string]any{"card": c, "changed": true}), nil
+}
+
+// press is the op press on card c: a button whose action is setInput is
+// that box's input, and one whose action is an event changes nothing,
+// tells the card's owner, and is refused until the owner has taken it up
+// (the control file's "take-up <card>"). The refusals are relay's.
+func (b *board) press(c map[string]any, params map[string]any) (json.RawMessage, error) {
+	id := params["card"]
+	if c["kind"] != "surface" {
+		return nil, refused(fmt.Sprintf("press is not an op on a %v.", c["kind"]))
+	}
+	if c["status"] != "active" {
+		return nil, refused(fmt.Sprintf("Card %v is archived. Restore it first.", id))
+	}
+	seen, ok := params["seen"]
+	if !ok {
+		return nil, refused("press needs seen: the card's rev when you read it.")
+	}
+	if num(seen) < num(c["rev"]) {
+		return nil, refused(fmt.Sprintf("Card %v has changed since rev %v. Read the card again before you change it.", id, num(seen)))
+	}
+	if num(seen) > num(c["rev"]) {
+		return nil, refused("seen must be a rev you read. Read the card again for it.")
+	}
+	component, _ := params["component"].(string)
+	action := buttonAction(surfaceMessage(c), component)
+	if action == nil {
+		return nil, refused(fmt.Sprintf("Nothing on card %v is a button with that id.", id))
+	}
+	owner, _ := c["owner"].(string)
+	if owner == "" || owner == "operator" {
+		return nil, refused(fmt.Sprintf("Nobody keeps card %v now, so a press would tell no one.", id))
+	}
+	if fc, ok := action["functionCall"].(map[string]any); ok {
+		args, _ := fc["args"].(map[string]any)
+		return b.input(c, map[string]any{"card": id, "path": args["path"], "value": args["value"], "seen": seen})
+	}
+	key := fmt.Sprintf("%v/%s", id, component)
+	if b.unread[key] {
+		return nil, refused(owner + " has not yet taken up your last press of that button.")
+	}
+	if b.unread == nil {
+		b.unread = map[string]bool{}
+	}
+	b.unread[key] = true
+	return copyOf(map[string]any{"card": c, "changed": true}), nil
+}
+
+// buttonAction is the action of the Button with id in the createSurface
+// message, or nil.
+func buttonAction(create map[string]any, id string) map[string]any {
+	comps, _ := create["components"].([]any)
+	for _, x := range comps {
+		comp, _ := x.(map[string]any)
+		if comp["component"] == "Button" && comp["id"] == id {
+			a, _ := comp["action"].(map[string]any)
+			return a
+		}
+	}
+	return nil
+}
+
+// takeUp is the card's owner reading the memos of every press on card
+// id, so its buttons can be pressed again.
+func (h *Hub) takeUp(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.board == nil {
+		return
+	}
+	for k := range h.board.unread {
+		if strings.HasPrefix(k, id+"/") {
+			delete(h.board.unread, k)
+		}
+	}
 }
 
 // surfaceMessage is the createSurface member of a surface card's first
