@@ -22,6 +22,9 @@ type (
 	Connected struct {
 		At                           time.Time
 		Agent, Title, Version, Model string
+		// InertText says initialize carried relay/inertText: relay makes
+		// a contaminated session's conversation text inert itself.
+		InertText bool
 	}
 	// Usage is the agent's context window use, and what the session has
 	// cost so far when the agent says. Size 0 means the window is unknown.
@@ -30,9 +33,14 @@ type (
 		Used, Size uint64
 		Cost       *Cost
 	}
+	// TextChunk is a piece of the agent's reply. Links are the live
+	// links relay listed for this chunk's text (relay/links), and
+	// LinksLeftOut how many more it left out of the list.
 	TextChunk struct {
 		At              time.Time
 		MessageID, Text string
+		Links           []Link
+		LinksLeftOut    int
 	}
 	ThoughtChunk struct {
 		At              time.Time
@@ -246,6 +254,10 @@ type Entry struct {
 	// Defang says the session was contaminated when the agent wrote this,
 	// so URLs in it show defanged. See render.Defang.
 	Defang bool
+	// Links is, for a reply, the live links relay listed for the chunks
+	// of its message so far, each once, in the order they came. Only a
+	// relay that makes text inert itself sends them (Links.InertText).
+	Links []Link
 }
 
 // Cost is an amount of money: the session's spend so far.
@@ -331,6 +343,7 @@ func (r *reducer) apply(e Event) {
 			r.refresh()
 			// The session exists, so the board can be asked for.
 			r.a.Live = true
+			r.a.Links.InertText = e.InertText
 			// The live links first, so the board's links can be held to
 			// them as soon as it is drawn.
 			r.askLinks()
@@ -484,7 +497,7 @@ func (r *reducer) agentEvent(e Event) {
 	switch e := e.(type) {
 	case TextChunk:
 		s.Turn.Activity = Writing
-		r.appendText(e.MessageID, e.Text)
+		r.appendText(e.MessageID, e.Text, e.Links)
 		r.citeLatest()
 	case ThoughtChunk:
 		s.Turn.Activity = Thinking
@@ -566,23 +579,26 @@ func (r *reducer) findCall(id string) (int, int) {
 }
 
 // appendText adds a chunk to the open agent entry, or opens one, and then
-// moves every complete block of it into its own final entry.
-func (r *reducer) appendText(id, text string) {
+// moves every complete block of it into its own final entry. Every block
+// keeps the links listed for the message so far: a new message, which
+// opens a new entry, starts with none.
+func (r *reducer) appendText(id, text string, links []Link) {
 	es := r.s.Entries
 	if n := len(es); n > 0 && es[n-1].Kind == Agent && !es[n-1].Final && (id == "" || es[n-1].ID == id) {
 		es[n-1].Text += text
 		es[n-1].Defang = es[n-1].Defang || r.s.Labels.Contaminated
+		es[n-1].Links = unionLinks(es[n-1].Links, links)
 	} else {
-		r.add(Entry{Kind: Agent, ID: id, Text: text})
+		r.add(Entry{Kind: Agent, ID: id, Text: text, Links: unionLinks(nil, links)})
 	}
 	open := r.s.Entries[len(r.s.Entries)-1]
 	r.s.Entries = r.s.Entries[:len(r.s.Entries)-1]
 	blocks, tail := splitBlocks(open.Text)
 	for _, b := range blocks {
-		r.s.Entries = append(r.s.Entries, Entry{Kind: Agent, ID: open.ID, Text: b, Final: true, Defang: open.Defang})
+		r.s.Entries = append(r.s.Entries, Entry{Kind: Agent, ID: open.ID, Text: b, Final: true, Defang: open.Defang, Links: open.Links})
 	}
 	if tail != "" {
-		r.s.Entries = append(r.s.Entries, Entry{Kind: Agent, ID: open.ID, Text: tail, Defang: open.Defang})
+		r.s.Entries = append(r.s.Entries, Entry{Kind: Agent, ID: open.ID, Text: tail, Defang: open.Defang, Links: open.Links})
 	}
 }
 

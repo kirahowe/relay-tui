@@ -28,7 +28,7 @@ func Capabilities() acp.ClientCapabilities {
 // answered: the agent's name, title and version from agentInfo, and the
 // current model when the session has a config option of category model.
 func Connected(init acp.InitializeResponse, sess acp.NewSessionResponse, at time.Time) core.Event {
-	c := core.Connected{At: at, Model: model(sess.ConfigOptions)}
+	c := core.Connected{At: at, Model: model(sess.ConfigOptions), InertText: InertText(init)}
 	if info := init.AgentInfo; info != nil {
 		c.Agent, c.Version = oneLine(info.Name), oneLine(info.Version)
 		if info.Title != nil {
@@ -73,13 +73,24 @@ func model(opts []acp.SessionConfigOption) string {
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
+// The _meta keys of an agent message chunk that list the live links its
+// text shows (relay#104).
+const (
+	chunkLinksKey        = "relay/links"
+	chunkLinksLeftOutKey = "relay/linksLeftOut"
+)
+
 // Update translates one session/update notification.
 func Update(n acp.SessionNotification, at time.Time) core.Event {
 	u := n.Update
 	switch {
 	case u.AgentMessageChunk != nil:
 		c := u.AgentMessageChunk
-		return core.TextChunk{At: at, MessageID: messageID(c.MessageId), Text: blockText(c.Content)}
+		// The links relay lists for the chunk's text are read as a card's
+		// are: a list that cannot be read costs the chunk its links and
+		// nothing else. Only a message chunk carries them.
+		links, leftOut := rawLinks{Links: c.Meta[chunkLinksKey], LinksLeftOut: c.Meta[chunkLinksLeftOutKey]}.links()
+		return core.TextChunk{At: at, MessageID: messageID(c.MessageId), Text: blockText(c.Content), Links: links, LinksLeftOut: leftOut}
 	case u.UserMessageChunk != nil:
 		c := u.UserMessageChunk
 		return core.UserChunk{At: at, MessageID: messageID(c.MessageId), Text: blockText(c.Content)}

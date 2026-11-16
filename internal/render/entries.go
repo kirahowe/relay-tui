@@ -59,6 +59,14 @@ func entryAs(e core.Entry, x expand, live core.Links, width int, now time.Time) 
 		// renderer then draws as link spans; the drawn lines are checked
 		// once more.
 		e.Defang = false
+		if live.InertText {
+			// relay made it inert (anchoredSource): it is drawn as sent.
+			if e.Kind == core.Agent {
+				src, anchored := anchoredSource(e.Text, e.Links, live)
+				return defangLines(markdown(src, anchored, width))
+			}
+			return defangLines(entryAs(e, x, live, width, now))
+		}
 		return defangLines(entryAs(defanged(e, live), x, live, width, now))
 	}
 	switch e.Kind {

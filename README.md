@@ -203,6 +203,15 @@ to the address relay listed. An agent's reply comes as the agent wrote
 it and has no such list, so a whole address in it that is in the set is
 drawn the same way.
 
+A relay whose `initialize` says `relay/inertText` makes a contaminated
+session's text inert itself: every link broken, hidden characters shown
+as escapes, Markdown's link syntax escaped. relay-tui then draws that
+text as relay sent it and leaves out its own breaker and the step that
+takes hidden characters out. A reply's links come from the list relay
+sends beside each chunk of it (`relay/links`), found in the text as on a
+card. Against a relay without `relay/inertText`, or a plain ACP agent,
+relay-tui breaks links itself as described above.
+
 The address travels only as the hyperlink's target, so what a click
 opens does not depend on how your terminal reads text. Terminals find
 links in text each in their own way, and they disagree on where an

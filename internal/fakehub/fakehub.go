@@ -74,6 +74,12 @@ type Config struct {
 	// Links is relay's live links (see links.go). Without it their
 	// methods are not found, and the client breaks every link.
 	Links []string `json:"links"`
+	// InertText plays a relay that makes conversation text inert itself
+	// (relay#104): initialize says "relay/inertText": 1, an agent message
+	// chunk lists the live links its text shows under "relay/links", and
+	// a replay starts with the role's labels, as agentloop sends them.
+	// The text itself is sent as configured: a test writes it inert.
+	InertText bool `json:"inertText"`
 }
 
 // RoleConfig is one role.
@@ -156,12 +162,14 @@ type Hub struct {
 	ready *readyView
 	// links is relay's live links, or nil for a relay without them.
 	links *links
+	// inert says the hub plays a relay that makes text inert (Config).
+	inert bool
 }
 
 // New returns a hub with the config's roles. log receives one line per
 // client action.
 func New(cfg Config, log io.Writer) *Hub {
-	h := &Hub{log: log, unbusy: make(chan struct{}), gone: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond}
+	h := &Hub{log: log, unbusy: make(chan struct{}), gone: make(chan struct{}), now: time.Now, keeps: !cfg.Embedded, lag: 30 * time.Millisecond, inert: cfg.InertText}
 	b, err := newBoard(cfg.Cards)
 	if err != nil {
 		fmt.Fprintf(log, "config: cards: %v\n", err)
@@ -277,6 +285,10 @@ func (h *Hub) Initialize(_ context.Context, req acp.InitializeRequest) (acp.Init
 	_, review := req.ClientCapabilities.Meta["relay/review"]
 	h.logf("initialize review=%v", review)
 	title := "relay"
+	meta := map[string]json.RawMessage{"relay/hub": json.RawMessage("1"), "relay/keeps": json.RawMessage(fmt.Sprint(h.keeps))}
+	if h.inert {
+		meta["relay/inertText"] = json.RawMessage("1")
+	}
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersion(acp.ProtocolVersionNumber),
 		AgentInfo:       &acp.Implementation{Name: "relay", Version: "fake", Title: &title},
@@ -285,7 +297,7 @@ func (h *Hub) Initialize(_ context.Context, req acp.InitializeRequest) (acp.Init
 
 			SessionCapabilities: acp.SessionCapabilities{List: &acp.SessionListCapabilities{}},
 		},
-		Meta: map[string]json.RawMessage{"relay/hub": json.RawMessage("1"), "relay/keeps": json.RawMessage(fmt.Sprint(h.keeps))},
+		Meta: meta,
 	}, nil
 }
 
@@ -293,15 +305,51 @@ func (h *Hub) Initialize(_ context.Context, req acp.InitializeRequest) (acp.Init
 func (h *Hub) replay(c *conv) {
 	h.mu.Lock()
 	hist := append([]Said(nil), c.history...)
+	var labels []string
+	if r, _ := h.byRole(c.session); r != nil {
+		labels = r.Labels
+	}
 	h.mu.Unlock()
+	if h.inert && len(labels) > 0 {
+		raw, _ := json.Marshal(labels)
+		h.update(c.session, acp.SessionUpdate{SessionInfoUpdate: &acp.SessionSessionInfoUpdate{
+			SessionUpdate: "session_info_update", Meta: map[string]json.RawMessage{"agentloop/labels": raw}}})
+	}
 	for _, s := range hist {
 		if s.User != "" {
 			h.update(c.session, acp.UpdateUserMessageText(s.User))
 		}
 		if s.Agent != "" {
-			h.update(c.session, acp.UpdateAgentMessageText(s.Agent))
+			h.update(c.session, h.agentChunk(s.Agent))
 		}
 	}
+}
+
+// agentChunk is a chunk of the agent's reply. A hub that plays an inert
+// relay lists each live link whose broken form the text shows, as relay
+// lists them beside a card.
+func (h *Hub) agentChunk(text string) acp.SessionUpdate {
+	u := acp.UpdateAgentMessageText(text)
+	if !h.inert {
+		return u
+	}
+	h.mu.Lock()
+	var live []string
+	if h.links != nil {
+		live = slices.Clone(h.links.live)
+	}
+	h.mu.Unlock()
+	var listed []map[string]string
+	for _, l := range live {
+		if strings.Contains(text, broken(l)) {
+			listed = append(listed, map[string]string{"address": l, "shown": broken(l)})
+		}
+	}
+	if len(listed) > 0 {
+		raw, _ := json.Marshal(listed)
+		u.AgentMessageChunk.Meta = map[string]json.RawMessage{"relay/links": raw, "relay/linksLeftOut": json.RawMessage("0")}
+	}
+	return u
 }
 
 // replayed tells the client the replay is over.
@@ -469,8 +517,14 @@ func (h *Hub) Prompt(ctx context.Context, req acp.PromptRequest) (acp.PromptResp
 	}
 	if stop != acp.StopReasonCancelled {
 		half := len(reply) / 2
+		if h.inert {
+			// relay sends whole words only.
+			if i := strings.LastIndex(reply[:half], " "); i >= 0 {
+				half = i + 1
+			}
+		}
 		for _, chunk := range []string{reply[:half], reply[half:]} {
-			h.update(string(req.SessionId), acp.UpdateAgentMessageText(chunk))
+			h.update(string(req.SessionId), h.agentChunk(chunk))
 		}
 		h.mu.Lock()
 		c.history = append(c.history, Said{Agent: reply})

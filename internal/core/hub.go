@@ -200,6 +200,9 @@ type (
 		At                    time.Time
 		Agent, Title, Version string
 		KeepsKnown, Keeps     bool
+		// InertText says initialize carried relay/inertText (see
+		// Links.InertText).
+		InertText bool
 	}
 	// RosterUpdate is the whole roster, from _relay/roles or
 	// _relay/roles/changed. Err is set when the roster could not be had.
@@ -440,6 +443,7 @@ func (r *hubReducer) apply(e Event) {
 		// The board is the connection's: it is asked for now, before any
 		// conversation opens.
 		h.App.Live = true
+		h.App.Links.InertText = e.InertText
 		// The live links first, so what the board and the ready view
 		// hold can be drawn against them at once.
 		r.withApp(func(rd *reducer) { rd.askLinks(); rd.askCards() })

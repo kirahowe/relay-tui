@@ -35,6 +35,12 @@ type Links struct {
 	// what is a link. They are never kept in the connection's state.
 	Own   []Link
 	Thing bool
+	// InertText says relay makes a contaminated session's conversation
+	// text inert before it sends it (initialize's relay/inertText), and
+	// lists a reply's live links beside each chunk (Entry.Links). Such
+	// text is drawn as relay sent it, and the client's own breaker is
+	// not run on it. It is set once, when initialize answers.
+	InertText bool
 }
 
 // Link is a live link relay attached to a card or a ready item: the
@@ -60,6 +66,19 @@ func (l Links) Has(addr string) bool {
 		return false
 	}
 	return LinkShape(addr)
+}
+
+// unionLinks is a with each link of b that a does not hold put after
+// it, in b's order. It never changes a in place: a may be shared with an
+// earlier state.
+func unionLinks(a, b []Link) []Link {
+	out := a
+	for _, l := range b {
+		if !slices.Contains(out, l) {
+			out = append(slices.Clip(out), l)
+		}
+	}
+	return out
 }
 
 // Empty says there is no live link.

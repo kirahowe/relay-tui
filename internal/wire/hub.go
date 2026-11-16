@@ -20,6 +20,9 @@ const (
 	// keepsKey says whether the service holds conversations after this
 	// client goes.
 	keepsKey = "relay/keeps"
+	// inertTextKey says relay makes conversation text inert before it
+	// sends it (relay#104).
+	inertTextKey = "relay/inertText"
 
 	MethodRoles        = "_relay/roles"
 	MethodRolesChanged = "_relay/roles/changed"
@@ -40,9 +43,19 @@ func IsHub(init acp.InitializeResponse) bool {
 	return err == nil && n >= 1
 }
 
+// InertText says initialize answered with _meta["relay/inertText"], a
+// positive version number, as relay/hub is one: relay makes the text of
+// a contaminated session inert before any client sees it. Anything else,
+// true or "1" included, is a relay from before it or plain ACP.
+func InertText(init acp.InitializeResponse) bool {
+	raw := init.Meta[inertTextKey]
+	var n int64
+	return len(raw) > 0 && jsontext.Value(raw).Kind() == '0' && strictjson.Unmarshal(raw, &n) == nil && n >= 1
+}
+
 // HubConnected describes the hub once initialize has answered.
 func HubConnected(init acp.InitializeResponse, at time.Time) core.HubConnected {
-	c := core.HubConnected{At: at}
+	c := core.HubConnected{At: at, InertText: InertText(init)}
 	var keeps bool
 	if strictjson.Unmarshal(init.Meta[keepsKey], &keeps) == nil && len(init.Meta[keepsKey]) > 0 {
 		c.KeepsKnown, c.Keeps = true, keeps

@@ -420,3 +420,39 @@ func defanged(e core.Entry, live core.Links) core.Entry {
 	e.Calls = calls
 	return e
 }
+
+// Against a relay that makes a contaminated session's text inert before
+// any client sees it (relay/inertText), that text is drawn as relay sent
+// it: every link broken, hidden characters shown as escapes, and
+// Markdown's link and HTML syntax escaped. A breaker of the client's own
+// would add nothing, and it would read relay's escapes as text to break,
+// so none runs. A reply's hyperlinks are the links relay listed for its
+// message (anchoredSource). The checks on the rows drawn and on the frame
+// (defangLines, gate) stay where they are.
+
+// anchoredSource is a reply's Markdown source with each link relay listed
+// for it made a Markdown autolink, where its shown form stands in a word
+// as relay wrote it (core.Anchored) and its address is a live link: the
+// renderer then draws the hyperlink over the address's broken form, which
+// is what relay showed (mdRenderer.link). Every other word is left as it
+// came, and no address is read out of the text.
+//
+// anchored is the set the renderer may draw as links: the addresses
+// written here, and only those the text did not hold whole already. An
+// autolink the text wrote itself, which relay escapes and so never sends,
+// is then drawn as text.
+func anchoredSource(t string, own []core.Link, live core.Links) (src string, anchored core.Links) {
+	if len(own) == 0 || !strings.Contains(t, "hxxp") {
+		return t, core.Links{}
+	}
+	var made []string
+	src = wordRE.ReplaceAllStringFunc(t, func(w string) string {
+		before, l, after, ok := core.Anchored(w, own)
+		if !ok || !live.Has(l.Address) || strings.Contains(t, l.Address) {
+			return w
+		}
+		made = append(made, l.Address)
+		return before + autolink(l.Address) + after
+	})
+	return src, core.LinksOf(made...)
+}
