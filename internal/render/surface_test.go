@@ -413,10 +413,10 @@ func readCard(t testing.TB, name string) (a2ui.Surface, bool, core.Links) {
 	return ss[0], c.Surface.Outsider, core.LinksOf(role.Live...).Of(own)
 }
 
-// relay's three fixture cards each draw whole at the widths of the board's
+// relay's fixture cards each draw whole at the widths of the board's
 // list and its detail. The goldens show ESC as ␛ and BEL as ␇.
 func TestSurfaceCardsGolden(t *testing.T) {
-	for _, name := range []string{"checklist", "note", "hostile"} {
+	for _, name := range []string{"checklist", "note", "hostile", "buttons"} {
 		s, outsider, live := readCard(t, name)
 		if err := a2ui.Resolved(s); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -518,11 +518,12 @@ func TestAllotKeepsEveryFloorAndFitsTheRoom(t *testing.T) {
 }
 
 // For surfaces with short labels, every input's label is drawn whole, right
-// after its mark, at any width from eight, and no row is only an ellipsis.
+// after its mark (a button's between its brackets), at any width from ten,
+// and no row is only an ellipsis.
 func TestSurfaceRowsKeepEveryLabel(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := a2uitest.GenResolved(t, rapid.StringMatching(`[a-z]{1,2}`))
-		width := rapid.IntRange(8, 120).Draw(t, "width")
+		width := rapid.IntRange(10, 120).Draw(t, "width")
 		rows, _, _ := surfaceRows(s, rapid.Bool().Draw(t, "outsider"), core.Links{}, width, nil)
 		plain := ansiPlain(strings.Join(rows, "\n"))
 		for _, r := range strings.Split(plain, "\n") {
@@ -531,6 +532,12 @@ func TestSurfaceRowsKeepEveryLabel(t *testing.T) {
 			}
 		}
 		for _, in := range s.Inputs() {
+			if in.Button {
+				if !strings.Contains(plain, "[ "+in.Label+" ]") {
+					t.Fatalf("width %d: button %q is not drawn between brackets:\n%s", width, in.Label, plain)
+				}
+				continue
+			}
 			if !strings.Contains(plain, "✓ "+in.Label) && !strings.Contains(plain, "○ "+in.Label) {
 				t.Fatalf("width %d: label %q is not after a mark:\n%s", width, in.Label, plain)
 			}
@@ -600,7 +607,7 @@ func TestSurfaceRowsLoseNothingAtOrAboveTheirLeast(t *testing.T) {
 		live := rapid.SampledFrom(liveSets).Draw(t, "live")
 		_, _, _, wide := drawSurface(s, outsider, live, 4000, nil)
 		want := solidRunes(wide.raw)
-		d := &surfaceDraw{s: s, outsider: outsider, live: live, budget: a2ui.MaxNodes,
+		d := &surfaceDraw{s: s, outsider: outsider, live: live, labels: buttonLabels(s), budget: a2ui.MaxNodes,
 			wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}, needing: map[a2ui.Child]bool{}}
 		from := d.least(a2ui.Child{ID: "root"}, 0)
 		width := rapid.IntRange(from, max(from, 120)).Draw(t, "width")
@@ -649,4 +656,67 @@ func TestARowOfHugeWeightsDrawsWithinItsWidth(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A Button's label is never a hyperlink, even when it is the text of a
+// live link: nothing that looks like a button opens an address. The same
+// text in a Text is a link, so the test can tell the two apart.
+func TestAButtonsLabelIsNeverAHyperlink(t *testing.T) {
+	const comps = `[{"id":"root","component":"Column","children":["go","t"]},
+ {"id":"go","component":"Button","variant":%q,"child":"label","action":{"event":{"name":"go"}}},
+ {"id":"label","component":"Text","text":%q},
+ {"id":"t","component":"Text","text":%q}]`
+	tb := t
+	rapid.Check(t, func(t *rapid.T) {
+		label := rapid.SampledFrom([]string{keptLink, "see " + keptLink + " now", "<" + keptLink + ">"}).Draw(t, "label")
+		variant := rapid.SampledFrom([]string{"primary", ""}).Draw(t, "variant")
+		s := surfaceOf(tb, a2ui.RelayCatalogID, fmt.Sprintf(comps, variant, label, label), "")
+		if variant == "" {
+			delete(s.Components["go"].Props, "variant")
+		}
+		if err := a2ui.Resolved(s); err != nil {
+			t.Fatal(err)
+		}
+		width := rapid.IntRange(40, 120).Draw(t, "width")
+		live := core.LinksOf(keptLink)
+		rows, _, _ := surfaceRows(s, true, live, width, &a2ui.Focus{ID: "go"})
+		var buttonRows, textRows []string
+		for _, r := range rows {
+			if strings.Contains(ansi.Strip(r), "[ ") {
+				buttonRows = append(buttonRows, r)
+			} else {
+				textRows = append(textRows, r)
+			}
+		}
+		if len(buttonRows) == 0 || len(textRows) == 0 {
+			t.Fatalf("rows %q", rows)
+		}
+		for _, r := range buttonRows {
+			out := gate(r, live)
+			if osc8RE.MatchString(out) || strings.Contains(out, "\x1b]8") {
+				t.Fatalf("hyperlink in a button's row %q", out)
+			}
+			if followable(ansi.Strip(out)) {
+				t.Fatalf("a followable address in a button's row %q", ansi.Strip(out))
+			}
+			if underlined(out) {
+				t.Fatalf("underline in a button's row %q", out)
+			}
+		}
+		if !osc8RE.MatchString(gate(strings.Join(textRows, "\n"), live)) {
+			t.Fatalf("the Text holding the same link is not a hyperlink: %q", textRows)
+		}
+	})
+}
+
+// underlined says an SGR sequence of s turns on underline.
+func underlined(s string) bool {
+	for _, m := range sgrRE.FindAllString(s, -1) {
+		for _, p := range strings.Split(strings.Trim(m, "\x1b[m"), ";") {
+			if p == "4" || strings.HasPrefix(p, "4:") {
+				return true
+			}
+		}
+	}
+	return false
 }

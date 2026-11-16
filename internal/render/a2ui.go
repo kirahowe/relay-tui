@@ -63,6 +63,7 @@ func drawSurface(s a2ui.Surface, outsider bool, live core.Links, width int, focu
 	width = max(width, 1)
 	d = &surfaceDraw{s: s, outsider: outsider, live: live, focus: focus,
 		budget: a2ui.MaxNodes, wanted: map[a2ui.Child]int{}, leasts: map[a2ui.Child]int{}, measuring: map[a2ui.Child]bool{}, needing: map[a2ui.Child]bool{}}
+	d.labels = buttonLabels(s)
 	if _, ok := s.Root(); !ok {
 		d.placeholders++
 		return []string{truncate(styled(faint, "waiting for the root component"), width)}, 0, 0, d
@@ -70,6 +71,17 @@ func drawSurface(s a2ui.Surface, outsider bool, live core.Links, width int, focu
 	rows, selA, selB = d.node(a2ui.Child{ID: "root"}, width, 0)
 	d.raw = append([]string(nil), rows...)
 	return fit(drawn(rows, outsider), width), selA, selB, d
+}
+
+// buttonLabels is the ids of the Texts that are a Button's child.
+func buttonLabels(s a2ui.Surface) map[string]bool {
+	out := map[string]bool{}
+	for _, c := range s.Components {
+		if id, _ := c.Props["child"].(string); s.Kind(c) == "Button" && id != "" {
+			out[id] = true
+		}
+	}
+	return out
 }
 
 // fit cuts any line wider than width.
@@ -87,6 +99,7 @@ type surfaceDraw struct {
 	outsider bool
 	live     core.Links
 	focus    *a2ui.Focus
+	labels   map[string]bool // ids of the Texts that are a Button's label
 
 	budget       int                 // component visits left
 	visits       int                 // component visits so far
@@ -248,9 +261,6 @@ func (d *surfaceDraw) needs(ch a2ui.Child, depth int) int {
 	case "Divider":
 		return 1
 	case "Button":
-		if len(kids) == 0 {
-			return len("button") + 4
-		}
 		return widest + 4
 	}
 	return d.leafLeast(ch, d.want(ch, depth))
@@ -321,9 +331,6 @@ func (d *surfaceDraw) asks(ch a2ui.Child, depth int) int {
 	case "Divider":
 		return 1
 	case "Button":
-		if len(kids) == 0 {
-			return len("button") + 4
-		}
 		return widest + 4
 	}
 	held := d.placeholders
@@ -344,9 +351,15 @@ func (d *surfaceDraw) textLines(c a2ui.Component, sc a2ui.Scope, width int) []st
 	if raw == "" {
 		return nil
 	}
+	// A button's label is never drawn as a link, live or not: a click on
+	// what looks like a button must not open an address.
+	live := d.live
+	if d.labels[c.ID] {
+		live = core.Links{}
+	}
 	var out []string
 	if v, _ := c.Props["variant"].(string); v == "caption" {
-		for _, l := range strings.Split(d.text(raw), "\n") {
+		for _, l := range strings.Split(cardText(raw, d.outsider, live), "\n") {
 			if l == "" {
 				out = append(out, "")
 				continue
@@ -354,7 +367,7 @@ func (d *surfaceDraw) textLines(c a2ui.Component, sc a2ui.Scope, width int) []st
 			out = append(out, wrap(styled(faint, l), width)...)
 		}
 	} else {
-		out = noteLines(raw, d.outsider, d.live, width)
+		out = noteLines(raw, d.outsider, live, width)
 	}
 	if d.outsider {
 		for i, l := range out {
@@ -581,9 +594,9 @@ func shrink(want, floor []int, total int) []int {
 	return out
 }
 
-// button draws Button as its child between brackets: a bold accent frame
-// for the primary variant, and an underlined, frameless link for the
-// borderless one.
+// button draws Button as its child between brackets: bold and in the
+// accent colour for the primary variant, faint brackets otherwise. It is
+// never underlined and carries no link, so it cannot be taken for one.
 func (d *surfaceDraw) button(c a2ui.Component, sc a2ui.Scope, width, depth int) []string {
 	inner := max(width-4, 1)
 	var body []string
@@ -592,20 +605,24 @@ func (d *surfaceDraw) button(c a2ui.Component, sc a2ui.Scope, width, depth int) 
 		body = append(body, lines...)
 	}
 	if len(body) == 0 {
-		body = []string{"button"}
+		body = []string{""} // an empty label: the brackets alone
 	}
-	variant, _ := c.Props["variant"].(string)
+	frame := faint
+	if variant, _ := c.Props["variant"].(string); variant == "primary" {
+		frame = accent | bold
+	}
+	// A label that wraps keeps one pair of brackets: the opening one on
+	// its first row, the closing one on its last.
 	var out []string
-	for _, l := range body {
-		l = truncate(l, inner)
-		switch variant {
-		case "borderless":
-			out = append(out, styled(underline|accent, ansiPlain(l)))
-		case "primary":
-			out = append(out, styled(accent|bold, "[ ")+l+styled(accent|bold, " ]"))
-		default:
-			out = append(out, styled(faint, "[ ")+l+styled(faint, " ]"))
+	for i, l := range body {
+		open, shut := "  ", ""
+		if i == 0 {
+			open = styled(frame, "[ ")
 		}
+		if i == len(body)-1 {
+			shut = styled(frame, " ]")
+		}
+		out = append(out, open+truncate(l, inner)+shut)
 	}
 	return out
 }
