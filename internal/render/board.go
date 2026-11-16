@@ -538,9 +538,9 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.foot = cellLine(b, c, live, width)
 		switch c.Kind {
 		case core.CardChecklist:
-			pr.keys = "↑↓ select · x tick · a add · e edit · " + linksKey + "X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓ select · pgup/pgdn scroll · x tick · a add · e edit · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardTracker:
-			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · " + linksKey + "X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓←→ select · pgup/pgdn scroll · x mark · a row · A column · e rename · E rename column · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardSurface:
 			if len(c.Inputs()) > 0 {
 				pr.keys = "tab box · ↑↓ scroll · x tick · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"

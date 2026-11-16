@@ -346,9 +346,10 @@ Keys on the board:
 
 - Up and down, or k and j, select a card, or, in an open checklist or
   tracker, its title and then each item or row; the card scrolls to keep
-  the selected line in view. An open note, a card shown as its text form
-  and a surface are read like a page: up, down, Page Up and Page Down
-  scroll them. On a surface, tab and shift+tab move the focus from box to
+  the selected line in view. Page Up and Page Down scroll any open card
+  and leave the selection where it is. An open note, a card shown as its
+  text form and a surface are read like a page: up and down scroll them
+  too. On a surface, tab and shift+tab move the focus from box to
   box and bring the box into view; scrolling leaves the focus where it
   is. An x on a focused box that has scrolled out of sight brings it back
   into view and ticks nothing, so x never acts on a box you cannot see.

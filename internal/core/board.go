@@ -276,10 +276,6 @@ type CardScroll struct {
 	Shown          bool
 }
 
-// offScreenNotice says why x did not act: the focused line was out of
-// sight, and is now brought back into view.
-const offScreenNotice = "That box was off the screen. It is shown now: x again to tick it."
-
 // Scrolls says the open card is read like a page, scrolled with the keys
 // that move, rather than a list whose lines they select: a note, a card
 // shown as its text form, and a surface.
@@ -767,22 +763,27 @@ func (r *reducer) boardKey(e PaneKey) {
 	case PaneUp, PaneDown, PagePrev, PageNext, PaneTab, PaneBackTab:
 		d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -scrollPage, PageNext: scrollPage, PaneTab: 1, PaneBackTab: -1}[e.Action]
 		tab := e.Action == PaneTab || e.Action == PaneBackTab
+		page := e.Action == PagePrev || e.Action == PageNext
 		switch {
 		case i < 0:
+		case b.Detail && (page || c.Scrolls() && !tab):
+			// The page keys scroll every open card, and up and down scroll
+			// one read like a page. The focus stays where it is.
+			r.scrollCard(c, e)
 		case b.Detail && c.Scrolls():
-			// A card read like a page: the keys that move scroll it, and
-			// tab moves the focus from box to box.
-			if tab {
-				r.focusNext(c, d, e.Card)
-			} else {
-				r.scrollCard(c, e)
-			}
+			// Tab moves the focus from box to box, as in a form.
+			r.focusNext(c, d, e.Card)
 		case b.Detail:
-			// A list: the keys move the selection, and the window follows.
+			// A list: up, down and tab move the selection, and the window
+			// follows it.
 			b.Line = min(max(BoardLine(*b, c)+d, 0), c.Lines()-1)
 			b.Box = nil
 			if c.Kind == CardSurface && b.Line > 0 {
 				b.Box = c.Surface
+			}
+			b.ScrollCard, b.Follow = c.ID, true
+			if v := e.Card; v != nil && v.Card == c.ID {
+				b.Scroll = v.Top
 			}
 		default:
 			j := min(max(i+d, 0), len(b.Cards)-1)
@@ -812,9 +813,10 @@ func (r *reducer) boardKey(e PaneKey) {
 		// x acts on the focused line only while it is on the screen. On
 		// one scrolled out of sight it brings it back into view instead,
 		// so what x acts on is always what the operator sees.
+		// It says nothing: a notice would take rows from the pane, and on
+		// a short one leave no room to show the box.
 		if v := e.Card; i >= 0 && b.Detail && v != nil && BoardLine(*b, c) > 0 && (v.Card != c.ID || !v.Shown) {
 			b.Follow = true
-			b.Message = offScreenNotice
 		} else if i >= 0 && b.Detail {
 			r.mark(c)
 		}
@@ -870,9 +872,9 @@ func (r *reducer) boardLinksKey(e PaneKey) {
 	act, delta := linkNothing, 0
 	asked := b.Links.Ask != nil
 	switch e.Action {
-	case PaneUp:
+	case PaneUp, PaneBackTab:
 		act, delta = linkMove, -1
-	case PaneDown:
+	case PaneDown, PaneTab:
 		act, delta = linkMove, 1
 	case PagePrev:
 		act, delta = linkMove, -scrollPage

@@ -476,7 +476,13 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 		all = append(append([]string(nil), pr.head...), pr.foot...)
 		all = all[max(len(all)-height, 0):]
 	default:
+		// A page moves by the rows the window shows between its marks,
+		// less one, so each page starts on the last row of the one
+		// before and none is passed over.
 		cs.Max, cs.Page = max(n-room, 0), max(room-1, 1)
+		if room >= 3 {
+			cs.Page = max(room-3, 1)
+		}
 		start := min(max(pr.top, 0), cs.Max)
 		if pr.follow && focused {
 			start = reveal(start, pr.selA, pr.selB, room, n)

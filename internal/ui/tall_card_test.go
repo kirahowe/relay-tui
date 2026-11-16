@@ -325,3 +325,39 @@ func TestXOnABoxScrolledAwayBringsItBack(t *testing.T) {
 		t.Fatalf("x on the screen: ops %+v", ops)
 	}
 }
+
+// Review of relay#110's rebuild: an x on a box scrolled away put up a
+// notice, which took the rows the box needed on a short pane, so every x
+// after it found the box off the screen again.
+func TestXBringsABoxBackOnAShortPane(t *testing.T) {
+	var ops []core.CardOp
+	m := tallSingle(t, &ops, 60, 13, tallSurface(t, 1, []int{0}, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyPgDown}, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if strings.Contains(screen(m), "box 00") {
+		t.Fatal("the test needs the box off the screen")
+	}
+	m = update(m, letter('x'), letter('x'))
+	if len(ops) != 1 {
+		t.Fatalf("two x sent %d ops:\n%s", len(ops), screen(m))
+	}
+}
+
+// Review of relay#110's rebuild: tab and shift+tab had stopped moving
+// through a card's list of links (L).
+func TestTabMovesThroughTheLinks(t *testing.T) {
+	c := tallNote(1, 1)
+	c.Note.Text, c.Note.Outsider = "see hxxps://two[.]example/ and hxxps://three[.]example/", true
+	c.Links = []core.Link{{Address: "https://two.example/", Shown: "hxxps://two[.]example/"}, {Address: "https://three.example/", Shown: "hxxps://three[.]example/"}}
+	var ops []core.CardOp
+	m := tallSingle(t, &ops, 100, 30, c)
+	m = update(m, tea.KeyPressMsg{Code: 'L', Text: "L", Mod: tea.ModShift})
+	if m.app().Board.Links == nil {
+		t.Fatalf("no list of links:\n%s", screen(m))
+	}
+	if m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}); m.app().Board.Links.Sel != 1 {
+		t.Fatalf("tab: link %d", m.app().Board.Links.Sel)
+	}
+	if m = update(m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}); m.app().Board.Links.Sel != 0 {
+		t.Fatalf("shift+tab: link %d", m.app().Board.Links.Sel)
+	}
+}

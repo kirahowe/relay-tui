@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -92,4 +93,52 @@ func TestTheFrameStaysWhenOnlyItsBordersFit(t *testing.T) {
 			t.Fatalf("no %q with room for both borders:\n%s", want, flat)
 		}
 	}
+}
+
+// Review of relay#110's rebuild: page down moved by the window's rows,
+// and the marks at its ends hid one row from both pages. Paging down from
+// the top shows every row of a note.
+func TestPageDownPassesOverNoRow(t *testing.T) {
+	var lines []string
+	for i := range 80 {
+		lines = append(lines, fmt.Sprintf("row %02d", i))
+	}
+	c := cardNote
+	c.Note = &core.CardText{Text: strings.Join(lines, "\n"), Rev: 1}
+	for height := 8; height <= 30; height++ {
+		s := detail(boardState(true, c), c.ID, 0, 0)
+		seen := map[string]bool{}
+		for range 100 {
+			rows, pd := paneRender(s.App, s.State, t0, 60, height)
+			for _, l := range lines {
+				if strings.Contains(ansi.Strip(strings.Join(rows, "\n")), l) {
+					seen[l] = true
+				}
+			}
+			s, _ = core.ReduceSingle(s, core.PaneKey{At: t0, Action: core.PageNext, Card: &pd.Card})
+		}
+		for _, l := range lines {
+			if !seen[l] {
+				t.Fatalf("height %d: page down never showed %q", height, l)
+			}
+		}
+	}
+}
+
+// Review of relay#110's rebuild: a checklist item taller than the window
+// showed only its first rows, since every key moved the selection. The
+// page keys scroll a list too, so the item's tail comes into view.
+func TestALongChecklistItemCanBeReadToItsEnd(t *testing.T) {
+	c := cardChecklist
+	c.Items = []core.CardElem{{ID: 1, CardText: ct(strings.Repeat("word ", 400) + "TAIL")}}
+	s := detail(boardState(true, c), c.ID, 0, 0)
+	s, _ = core.ReduceSingle(s, core.PaneKey{At: t0, Action: core.PaneDown})
+	for range 200 {
+		rows, pd := paneRender(s.App, s.State, t0, 60, 12)
+		if strings.Contains(ansi.Strip(strings.Join(rows, "\n")), "TAIL") {
+			return
+		}
+		s, _ = core.ReduceSingle(s, core.PaneKey{At: t0, Action: core.PageNext, Card: &pd.Card})
+	}
+	t.Fatal("page down never brought the item's end into view")
 }
