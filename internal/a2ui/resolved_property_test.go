@@ -10,8 +10,8 @@ import (
 	"github.com/kirahowe/relay-tui/internal/a2ui/a2uitest"
 )
 
-// Every generated surface passes, and its Inputs are exactly the bound
-// CheckBoxes, each reading a boolean.
+// Every generated surface passes, and its Inputs are the bound CheckBoxes,
+// each reading a boolean, and the Buttons.
 func TestResolvedAcceptsEverySurfaceRelayCouldSend(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := a2uitest.GenResolved(t, rapid.String())
@@ -19,6 +19,12 @@ func TestResolvedAcceptsEverySurfaceRelayCouldSend(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, in := range s.Inputs() {
+			if in.Button {
+				if in.Path != "" || in.ID == "" {
+					t.Fatalf("button %+v", in)
+				}
+				continue
+			}
 			v, ok := a2ui.Get(s.Data, in.Path)
 			if b, isBool := v.(bool); !ok || !isBool || b != in.On {
 				t.Fatalf("input %+v reads %v", in, v)
@@ -91,6 +97,20 @@ func TestResolvedRejectsEveryMutationOfASurfaceRelayCouldSend(t *testing.T) {
 			s.Components = comps
 			return s
 		},
+		"button child is not a Text": func(s a2ui.Surface) a2ui.Surface {
+			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Button", Props: map[string]any{"child": "old_root",
+				"action": map[string]any{"event": map[string]any{"name": "go"}}}})
+		},
+		"button with openUrl": func(s a2ui.Surface) a2ui.Surface {
+			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Button", Props: map[string]any{"child": "t",
+				"action": map[string]any{"functionCall": map[string]any{"@call": "openUrl", "args": map[string]any{"url": "https://example.com"}}}}},
+				a2ui.Component{ID: "t", Type: "Text", Props: map[string]any{"text": "go"}})
+		},
+		"button with a userMessage": func(s a2ui.Surface) a2ui.Surface {
+			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Button", Props: map[string]any{"child": "t",
+				"action": map[string]any{"event": map[string]any{"name": "go", "userMessage": "hi"}}}},
+				a2ui.Component{ID: "t", Type: "Text", Props: map[string]any{"text": "go"}})
+		},
 		"cycle": func(s a2ui.Surface) a2ui.Surface {
 			return wrapRoot(s, a2ui.Component{ID: "x", Type: "Card", Props: map[string]any{"child": "x"}})
 		},
@@ -100,7 +120,7 @@ func TestResolvedRejectsEveryMutationOfASurfaceRelayCouldSend(t *testing.T) {
 		for k, v := range data {
 			s.Data.(map[string]any)[k] = v
 		}
-		name := rapid.SampledFrom([]string{"unknown type", "extra property", "catalog id", "template children", "missing child", "call in text", "relative path", "path to a non-boolean", "cycle", "child listed twice", "two parents list one child", "component nothing lists"}).Draw(t, "mutation")
+		name := rapid.SampledFrom([]string{"unknown type", "extra property", "catalog id", "template children", "missing child", "call in text", "relative path", "path to a non-boolean", "cycle", "button child is not a Text", "button with openUrl", "button with a userMessage", "child listed twice", "two parents list one child", "component nothing lists"}).Draw(t, "mutation")
 		bad := mutations[name](s)
 		if err := a2ui.Resolved(bad); err == nil {
 			t.Fatalf("%s: accepted", name)

@@ -14,16 +14,17 @@ import (
 )
 
 // GenResolved draws a surface that passes a2ui.Resolved: a random tree of
-// the seven components of relay's catalog, its text and labels from text,
+// the eight components of relay's catalog, its text and labels from text,
 // with CheckBoxes that are literal or bound to a boolean the data model
-// holds. Its id is "s".
+// holds, and Buttons whose child is a Text and whose action is an event
+// or sets such a boolean. Its id is "s".
 func GenResolved(t *rapid.T, text *rapid.Generator[string]) a2ui.Surface {
 	comps := map[string]a2ui.Component{}
 	data := map[string]any{}
 	n := 0
 	var build func(id string, depth int)
 	build = func(id string, depth int) {
-		kinds := []string{"Text", "Divider", "CheckBox", "CheckBox"}
+		kinds := []string{"Text", "Divider", "CheckBox", "CheckBox", "Button", "Button"}
 		if depth < 6 && n < 40 {
 			kinds = append(kinds, "Row", "Column", "List", "Card")
 		}
@@ -54,6 +55,22 @@ func GenResolved(t *rapid.T, text *rapid.Generator[string]) a2ui.Surface {
 				props["value"] = map[string]any{"@path": "/" + key}
 			} else {
 				props["value"] = rapid.Bool().Draw(t, "literal")
+			}
+		case "Button":
+			n++
+			label := fmt.Sprintf("b%d", n)
+			comps[label] = a2ui.Component{ID: label, Type: "Text", Props: map[string]any{"text": text.Draw(t, "buttonLabel")}}
+			props["child"] = label
+			if rapid.Bool().Draw(t, "primary") {
+				props["variant"] = "primary"
+			}
+			if rapid.Bool().Draw(t, "setsInput") {
+				key := fmt.Sprintf("k%d", n)
+				data[key] = rapid.Bool().Draw(t, "on")
+				props["action"] = map[string]any{"functionCall": map[string]any{"@call": "relay:setInput",
+					"args": map[string]any{"path": "/" + key, "value": rapid.Bool().Draw(t, "to")}}}
+			} else {
+				props["action"] = map[string]any{"event": map[string]any{"name": rapid.StringMatching(`[a-z_]{1,12}`).Draw(t, "event")}}
 			}
 		case "Card":
 			props["child"] = child()

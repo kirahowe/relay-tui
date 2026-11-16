@@ -56,7 +56,7 @@ func TestResolvedRejects(t *testing.T) {
 			return s
 		}(), "root"},
 		{"unknown type", with(func(s *Surface) { s.Components["t"] = Component{ID: "t", Type: "Image", Props: map[string]any{}} }), `"Image"`},
-		{"basic only type", with(func(s *Surface) { s.Components["t"] = Component{ID: "t", Type: "Button", Props: map[string]any{}} }), `"Button"`},
+		{"basic only type", with(func(s *Surface) { s.Components["t"] = Component{ID: "t", Type: "TextField", Props: map[string]any{}} }), `"TextField"`},
 		{"extra property", with(prop("t", "weight", 1.0)), `"weight"`},
 		{"catalog id", with(prop("t", "@catalogId", RelayCatalogID)), `"@catalogId"`},
 		{"at property", with(prop("t", "@call", "x")), `"@call"`},
@@ -149,7 +149,7 @@ func TestResolvedQuotesWhatItQuotes(t *testing.T) {
 
 func TestInputs(t *testing.T) {
 	got := relaySurface(t, goodComponents, goodData).Inputs()
-	want := []Input{{"a", "/items/0/done", "Tent", true}, {"c", "/items/1/done", "Map", false}}
+	want := []Input{{ID: "a", Path: "/items/0/done", Label: "Tent", On: true}, {ID: "c", Path: "/items/1/done", Label: "Map"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -165,5 +165,66 @@ func TestResolvedRefusesATypeTheClientDoesNotDraw(t *testing.T) {
 	err := Resolved(s)
 	if err == nil || !strings.Contains(err.Error(), "does not draw") || !strings.Contains(err.Error(), `"Gizmo"`) {
 		t.Fatalf("error %v", err)
+	}
+}
+
+const buttonComponents = `[
+ {"id":"root","component":"Column","children":["go","set"]},
+ {"id":"go","component":"Button","variant":"primary","child":"t1","action":{"event":{"name":"plan_route"}}},
+ {"id":"set","component":"Button","child":"t2","action":{"functionCall":{"@call":"relay:setInput","args":{"path":"/a","value":true}}}},
+ {"id":"t1","component":"Text","text":"Plan"},
+ {"id":"t2","component":"Text","text":"Pack"}]`
+
+func TestResolvedButtons(t *testing.T) {
+	data := `{"a":false}`
+	if err := Resolved(relaySurface(t, buttonComponents, data)); err != nil {
+		t.Fatal(err)
+	}
+	got := relaySurface(t, buttonComponents, data).Inputs()
+	want := []Input{{ID: "go", Label: "Plan", Button: true, Event: "plan_route"}, {ID: "set", Label: "Pack", Button: true}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	set := func(id string, v any) func(*Surface) {
+		return func(s *Surface) { s.Components["go"].Props[id] = v }
+	}
+	fn := func(call string, args map[string]any) map[string]any {
+		return map[string]any{"functionCall": map[string]any{"@call": call, "args": args}}
+	}
+	cases := []struct {
+		name string
+		edit func(*Surface)
+	}{
+		{"borderless", set("variant", "borderless")},
+		{"variant not a string", set("variant", true)},
+		{"no action", func(s *Surface) { delete(s.Components["go"].Props, "action") }},
+		{"empty action", set("action", map[string]any{})},
+		{"event and function", set("action", map[string]any{"event": map[string]any{"name": "x"}, "functionCall": map[string]any{}})},
+		{"event without a name", set("action", map[string]any{"event": map[string]any{}})},
+		{"event with an empty name", set("action", map[string]any{"event": map[string]any{"name": ""}})},
+		{"event with context", set("action", map[string]any{"event": map[string]any{"name": "x", "context": map[string]any{}}})},
+		{"event with userMessage", set("action", map[string]any{"event": map[string]any{"name": "x", "userMessage": "m"}})},
+		{"openUrl", set("action", fn("openUrl", map[string]any{"url": "https://example.com"}))},
+		{"another function", set("action", fn("formatString", map[string]any{"path": "/a", "value": true}))},
+		{"relative path", set("action", fn("relay:setInput", map[string]any{"path": "a", "value": true}))},
+		{"path is a binding", set("action", fn("relay:setInput", map[string]any{"path": map[string]any{"@path": "/a"}, "value": true}))},
+		{"value is a string", set("action", fn("relay:setInput", map[string]any{"path": "/a", "value": "true"}))},
+		{"value missing", set("action", fn("relay:setInput", map[string]any{"path": "/a"}))},
+		{"extra argument", set("action", fn("relay:setInput", map[string]any{"path": "/a", "value": true, "x": 1.0}))},
+		{"function with returnType", set("action", map[string]any{"functionCall": map[string]any{"@call": "relay:setInput", "returnType": "void", "args": map[string]any{"path": "/a", "value": true}}})},
+		{"child is a Button", set("child", "set")},
+		{"child is missing", set("child", "ghost")},
+		{"child is a list", set("child", []any{"t1"})},
+		{"no child", func(s *Surface) { delete(s.Components["go"].Props, "child") }},
+		{"extra property", set("weight", 1.0)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := relaySurface(t, buttonComponents, data)
+			c.edit(&s)
+			if err := Resolved(s); err == nil {
+				t.Fatal("accepted")
+			}
+		})
 	}
 }

@@ -12,11 +12,12 @@ var (
 	textVariants   = []string{"body", "caption"}
 	listDirections = []string{"vertical", "horizontal"}
 	dividerAxes    = []string{"horizontal", "vertical"}
+	buttonVariants = []string{"primary"}
 )
 
 // drawnTypes are the component types this client draws. A type the
 // catalog gains is refused until the client draws it.
-var drawnTypes = map[string]bool{"Text": true, "Row": true, "Column": true, "List": true, "Card": true, "Divider": true, "CheckBox": true}
+var drawnTypes = map[string]bool{"Text": true, "Row": true, "Column": true, "List": true, "Card": true, "Divider": true, "CheckBox": true, "Button": true}
 
 // Resolved reports why s is not a surface as relay sends one, or nil. A
 // surface relay sends names the relay catalog, holds only components of
@@ -141,6 +142,21 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 			}
 		}
 		return out, nil
+	case "Button":
+		child, ok := str("child")
+		if !ok {
+			return nil, errorf(CodeInvalid, "component %s has no child id", id)
+		}
+		if t, ok := s.Components[child]; !ok || t.Type != "Text" {
+			return nil, errorf(CodeInvalid, "component %s has a child that is not a Text", id)
+		}
+		if err := oneOf("variant", buttonVariants); err != nil {
+			return nil, err
+		}
+		if err := resolvedAction(id, c.Props["action"]); err != nil {
+			return nil, err
+		}
+		return []string{child}, nil
 	case "CheckBox":
 		if _, ok := str("label"); !ok {
 			return nil, errorf(CodeInvalid, "component %s has no label string", id)
@@ -163,4 +179,47 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 		return nil, nil
 	}
 	return nil, errorf(CodeInvalid, "component %s has type %s, which this client does not check", id, escapeKind(c.Type))
+}
+
+// resolvedAction checks a Button's action as relay sends it: an event
+// with a name and nothing else, or the one function relay runs, setInput,
+// with an absolute path and a boolean. Any other function, an openUrl, an
+// event's userMessage or context, or a path relative to a list's item is
+// not one relay sends.
+func resolvedAction(id string, v any) error {
+	bad := func(why string) error {
+		return errorf(CodeInvalid, "component %s has an action that is %s", id, why)
+	}
+	act, ok := v.(map[string]any)
+	if !ok || len(act) != 1 {
+		return bad("not an event or a function call")
+	}
+	if ev, ok := act["event"]; ok {
+		m, ok := ev.(map[string]any)
+		if !ok || len(m) != 1 {
+			return bad("an event with more than a name")
+		}
+		if name, ok := m["name"].(string); !ok || name == "" {
+			return bad("an event with no name")
+		}
+		return nil
+	}
+	fc, ok := act["functionCall"].(map[string]any)
+	if !ok || len(fc) != 2 {
+		return bad("not an event or a function call")
+	}
+	if call, _ := fc["@call"].(string); call != "relay:setInput" {
+		return bad("a function other than relay:setInput")
+	}
+	args, ok := fc["args"].(map[string]any)
+	if !ok || len(args) != 2 {
+		return bad("a setInput with other arguments than path and value")
+	}
+	if path, ok := args["path"].(string); !ok || !strings.HasPrefix(path, "/") {
+		return bad("a setInput whose path is not absolute")
+	}
+	if _, ok := args["value"].(bool); !ok {
+		return bad("a setInput whose value is not a boolean")
+	}
+	return nil
 }

@@ -325,7 +325,7 @@ func TestActivateButton(t *testing.T) {
 
 func TestCatalogs(t *testing.T) {
 	relay := map[string]bool{}
-	for _, name := range []string{"Text", "Row", "Column", "List", "Card", "Divider", "CheckBox"} {
+	for _, name := range []string{"Text", "Row", "Column", "List", "Card", "Divider", "CheckBox", "Button"} {
 		relay[name] = true
 	}
 	if !reflect.DeepEqual(catalogs[RelayCatalogID], relay) {
@@ -336,7 +336,7 @@ func TestCatalogs(t *testing.T) {
 			t.Errorf("%s missing from the basic catalog", name)
 		}
 	}
-	for _, name := range []string{"Image", "Video", "AudioPlayer", "Button", "TextField", "ChoicePicker", "Tracker"} {
+	for _, name := range []string{"Image", "Video", "AudioPlayer", "TextField", "ChoicePicker", "Tracker"} {
 		if catalogs[RelayCatalogID][name] {
 			t.Errorf("%s is in the relay catalog", name)
 		}
@@ -346,7 +346,7 @@ func TestCatalogs(t *testing.T) {
 	}
 	s := Surface{CatalogID: BasicCatalogID}
 	own := Component{Type: "Divider", Props: map[string]any{"@catalogId": RelayCatalogID}}
-	button := Component{Type: "Button", Props: map[string]any{"@catalogId": RelayCatalogID}}
+	button := Component{Type: "TextField", Props: map[string]any{"@catalogId": RelayCatalogID}}
 	if s.Kind(own) != "Divider" || s.Kind(button) != "" || s.Kind(Component{Type: "Tracker"}) != "" || (Surface{}).Kind(Component{Type: "Text"}) != "" {
 		t.Fatal("catalog resolution is wrong")
 	}
