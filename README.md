@@ -482,8 +482,8 @@ is as the move left it goes back exactly, and the status line says "Put
 back 3 files." A file you changed since, such as one you edited after it
 moved, stays, and the view names it, relative to your folder, with why.
 When nothing could go back, relay refuses and the view shows its reason.
-Either reason takes up to a third of the screen, so it reads whole on a
-phone. Once all of it is back, the panel reads "Moved back". One undo is
+Either reason takes up to a third of the screen, so it reads whole even
+on the smallest terminal. Once all of it is back, the panel reads "Moved back". One undo is
 on its way at a time.
 
 `L` lists the links in the selected thing, or in the one open whole,
@@ -576,8 +576,8 @@ a key, the keys stay where you put them.
 
 The saved view goes in a file of relay-tui's own, one per agent command
 (everything after `--`), under `~/.local/state/relay-tui/`, or under
-`--state-dir DIR`. Each device keeps its own, so the laptop and the phone
-can look different. No environment variable chooses the path. The file
+`--state-dir DIR`. Each machine keeps its own, so two computers can look
+different. No environment variable chooses the path. The file
 is written atomically, readable only by you, at most every half second
 while the view changes, and again when relay-tui closes, so a crash or a
 kill loses little. It holds your drafts as plain text.

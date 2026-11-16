@@ -55,11 +55,11 @@ func TestReadyGolden(t *testing.T) {
 		name string
 		h    core.Hub
 	}{{"items", h}, {"last", moved}, {"reply", replying}, {"empty", empty}, {"move", move}, {"undo_refused", undoRefused}} {
-		// A 60 column phone and a 120 column screen; the shell draws one
-		// column short of the screen.
-		for _, w := range []int{59, 119} {
+		// The smallest terminal relay-tui draws in, 80 by 24, and a 120
+		// column one; the shell draws one column short of the screen.
+		for _, w := range []int{79, 119} {
 			t.Run(fmt.Sprintf("%s_%d", c.name, w), func(t *testing.T) {
-				requireGolden(t, HubView(c.h, "", "", t0, w, 16).Content)
+				requireGolden(t, HubView(c.h, "", "", t0, w, 24).Content)
 			})
 		}
 	}

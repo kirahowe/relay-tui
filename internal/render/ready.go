@@ -416,7 +416,7 @@ func readyScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 
 	// A refusal with no reply open may take up to a third of the screen,
 	// at least three rows, so its reason (which files an undo left, and
-	// why) is read whole on a phone.
+	// why) is read whole even on the smallest terminal.
 	status := []string{readyStatus(r, width)}
 	linksItem, links, listing := core.ReadyLinks(r, live)
 	asking := listing && r.Links.Ask != nil

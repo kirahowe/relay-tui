@@ -130,8 +130,8 @@ func helpBox(title string, rows []KeyHelp, width int) []string {
 	}
 	inner := InputWidth(width)
 	var lines []string
-	// A description wraps under itself when the line is too narrow, so a
-	// phone shows all of it.
+	// A description wraps under itself when the line is too narrow, so
+	// all of it shows.
 	room := max(inner-w-2, 8)
 	for i, r := range rows {
 		parts := wrap(r.What, room)
