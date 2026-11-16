@@ -210,12 +210,15 @@ func TestAChangedCardArmsThePressAgain(t *testing.T) {
 	}
 }
 
-// Over any run of keys at any times, replayed or live, with the button
-// now on the screen and now scrolled away, and the card's rev moving, a
-// press op goes out only for the button the focus is on, from a live key
-// that finds it on the screen, at least ArmDelay after the later of: the
-// focus (or a new rev of the card) coming to it, and its last coming back
-// on the screen. The test keeps its own record of that, from what it sent.
+// Over any run of keys, resizes and card changes at any times, replayed
+// or live, with the frame now showing the focused button whole and now
+// not (it may be off the screen, or too tall to fit), a press op goes out
+// only for the button the focus is on, from a live key that finds it whole
+// on the screen, at least ArmDelay after the latest of: the focus (or a new
+// rev of the card) coming to it, and the frame first showing it whole
+// since. The test keeps its own record of that from what it told the core.
+// The frame's word comes with a key (CardScroll) or alone (CardDrawn, as
+// after a resize), and is nothing the test assumes on arrival.
 func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 	sent := 0
 	defer func() {
@@ -236,15 +239,44 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 			}
 			return ""
 		}
-		cur, armedFrom, wasShown := focus(s), t0, true
+		// The test's record: the button focused, when it was armed from,
+		// and whether the frame last showed it whole (known only once
+		// the frame has said so for this button).
+		cur, armedFrom := focus(s), t0
+		wasShown, known := false, false
+		observe := func(shown bool) {
+			if cur == "" {
+				return
+			}
+			if known && shown && !wasShown {
+				armedFrom = at
+			}
+			wasShown, known = shown, true
+		}
+		refocus := func() {
+			if now := focus(s); now != cur {
+				cur, armedFrom, known = now, at, false
+			}
+		}
+		draw := func() {
+			// The shell's word after the event, whatever the frame shows.
+			shown := rapid.IntRange(0, 2).Draw(t, "frame shown") != 0
+			sc := onScreen()
+			sc.Shown = shown
+			observe(shown)
+			s = DrawnSingle(s, CardDrawn{At: at, Card: *sc})
+		}
 		for step := range rapid.IntRange(1, 80).Draw(t, "steps") {
 			at = at.Add(time.Duration(rapid.IntRange(0, 900).Draw(t, "ms")) * time.Millisecond)
-			if rapid.IntRange(0, 9).Draw(t, "rev") == 0 {
+			switch rapid.IntRange(0, 9).Draw(t, "what") {
+			case 0:
 				rev++
 				s, _ = feedS(s, CardsChanged{At: at, Rev: rev, Cards: []Card{buttonCard(rev)}})
-				if now := focus(s); now != cur {
-					cur, armedFrom, wasShown = now, at, true
-				}
+				refocus()
+				draw()
+				continue
+			case 1:
+				draw() // a resize or a reflow: no key
 				continue
 			}
 			replayed := rapid.IntRange(0, 5).Draw(t, "replayed") == 0
@@ -254,13 +286,7 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 			scroll.Shown = shown
 			c, _ := BoardCard(s.Board)
 			line := BoardLine(s.Board, c)
-			// The model's side of the key, before the reducer sees it.
-			if cur != "" && shown && !wasShown {
-				armedFrom = at
-			}
-			if cur != "" {
-				wasShown = shown
-			}
+			observe(shown) // the key's own word, before the reducer judges it
 			next, fx := feedS(s, KeyPressed{At: at, Replayed: replayed}, PaneKey{At: at, Action: a, Card: scroll})
 			for _, op := range effectsOf[SendCardOp](fx) {
 				if op.Op.Op != "press" {
@@ -286,9 +312,8 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 				t.Fatal("sending cleared without an answer")
 			}
 			s = next
-			if now := focus(s); now != cur {
-				cur, armedFrom, wasShown = now, at, true
-			}
+			refocus()
+			draw()
 			// An answer now and then, so a later press can go out.
 			if s.Board.Sending != 0 && rapid.Bool().Draw(t, "answer") {
 				card, _ := BoardCard(s.Board)

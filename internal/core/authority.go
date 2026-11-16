@@ -62,16 +62,54 @@ type Reveal struct {
 	N     int
 }
 
-// noteReveal updates a.Board.Reveal from a key of the pane that says
-// whether the open card's focused line is fully on the screen. A press is
-// armed from when the button came (back) on screen, so a button that was
-// scrolled away, or brought back by x, is a new thing to arm: the
-// operator must see its label for ArmDelay before a key can press it.
-// It runs before the key's authority is decided, and the ids it changes
-// are the ones the key is judged against.
+// CardDrawn is the shell's word on what the frame now shows of the open
+// card, sent after any update that may have changed it: a resize, a card
+// arriving, scrolling, the focus moving. Card.Shown says the focused line
+// is fully on the screen.
+type CardDrawn struct {
+	At   time.Time
+	Card CardScroll
+}
+
+func (e CardDrawn) at() time.Time { return e.At }
+
+// DrawnHub and DrawnSingle fold CardDrawn into the state. It is not an
+// event the reducers act on: it only keeps what arming knows of the frame,
+// and so leaves the notices and everything else as they are.
+func DrawnHub(h Hub, e CardDrawn) Hub {
+	h.App = settleSurface(noteReveal(h.App, e), HubSurfaceID(h), e.At)
+	return h
+}
+
+// DrawnSingle is DrawnHub against a single agent.
+func DrawnSingle(x Single, e CardDrawn) Single {
+	x.App = settleSurface(noteReveal(x.App, e), SingleSurfaceID(x), e.At)
+	return x
+}
+
+// WantsDrawn says the shell should tell the core what the frame shows of
+// the open card (CardDrawn): the focus is on a button, or the core still
+// holds what it knew of one.
+func WantsDrawn(a App) bool { return pressing(a) != "" || a.Board.Reveal != (Reveal{}) }
+
+// noteReveal updates a.Board.Reveal from what the frame shows of the open
+// card's focused line, as a key of the pane carries it or CardDrawn tells
+// it. A press is armed from when the button came (back) on screen, so a
+// button that was scrolled away, brought back by x or a resize, or too
+// tall to be whole until now, is a new thing to arm: the operator must
+// see its whole label for ArmDelay before a key can press it. When the
+// focus first comes to a button, its state is what the frame shows, never
+// assumed. It runs before the event's authority is decided, and the ids it
+// changes are the ones the event is judged against.
 func noteReveal(a App, e Event) App {
-	k, ok := e.(PaneKey)
-	if !ok || k.Card == nil {
+	var v *CardScroll
+	switch e := e.(type) {
+	case PaneKey:
+		v = e.Card
+	case CardDrawn:
+		v = &e.Card
+	}
+	if v == nil {
 		return a
 	}
 	id := pressing(a)
@@ -81,13 +119,11 @@ func noteReveal(a App, e Event) App {
 	}
 	key := id[:strings.LastIndex(id, "/")]
 	c, _ := BoardCard(a.Board)
-	shown := k.Card.Card == c.ID && k.Card.Shown
+	shown := v.Card == c.ID && v.Shown
 	r := a.Board.Reveal
 	if r.Key != key {
-		// The focus has just come to the button, and the window follows it.
-		r = Reveal{Key: key, Shown: true, N: 0}
-	}
-	if shown && !r.Shown {
+		r = Reveal{Key: key, Shown: shown}
+	} else if shown && !r.Shown {
 		r.N++
 	}
 	r.Shown = shown

@@ -295,8 +295,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m.update(msg)
 }
 
-// update handles a message once input is no longer held.
+// update handles a message once input is no longer held, and then tells
+// the core what the frame shows of the open card.
 func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.updateMsg(msg)
+	nm := next.(Model)
+	nm.tellCardDrawn()
+	return nm, cmd
+}
+
+// tellCardDrawn tells the core what the frame now shows of the open
+// card's focused line, after any message that may have changed it (a
+// resize, a card arriving, a scroll), for what the core arms from it. The
+// frame is only drawn for it while the core wants it.
+func (m *Model) tellCardDrawn() {
+	if m.kind == kindUnknown || !core.WantsDrawn(m.app()) {
+		return
+	}
+	now := m.now()
+	e := core.CardDrawn{At: now, Card: m.paneCard(now)}
+	if m.kind == kindHub {
+		m.hub = core.DrawnHub(m.hub, e)
+		return
+	}
+	m.one = core.DrawnSingle(m.one, e)
+}
+
+// updateMsg is update before the core is told what the frame shows.
+func (m Model) updateMsg(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// On a terminal too small to draw in, nothing on the screen can be
 	// acted on: no key counts but ctrl+c, which still stops or quits.
 	if k, ok := msg.(tea.KeyPressMsg); ok && m.tooSmall() && k.String() != "ctrl+c" {

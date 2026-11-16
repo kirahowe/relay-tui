@@ -392,6 +392,12 @@ func TestATerminalTooSmallTakesNoKeys(t *testing.T) {
 // the role, and tail more lines of text.
 func tallButtons(t tb, id int64, gap, tail int) core.Card {
 	t.Helper()
+	return tallButtonLabelled(t, id, gap, tail, "Plan it")
+}
+
+// tallButtonLabelled is tallButtons with the button's label given.
+func tallButtonLabelled(t tb, id int64, gap, tail int, label string) core.Card {
+	t.Helper()
 	comps := map[string]a2ui.Component{}
 	var kids []any
 	addText := func(n int) {
@@ -402,7 +408,7 @@ func tallButtons(t tb, id int64, gap, tail int) core.Card {
 		}
 	}
 	addText(gap)
-	comps["label"] = a2ui.Component{ID: "label", Type: "Text", Props: map[string]any{"text": "Plan it"}}
+	comps["label"] = a2ui.Component{ID: "label", Type: "Text", Props: map[string]any{"text": label}}
 	comps["go"] = a2ui.Component{ID: "go", Type: "Button", Props: map[string]any{"child": "label",
 		"action": map[string]any{"event": map[string]any{"name": "plan"}}}}
 	kids = append(kids, "go")
@@ -475,6 +481,56 @@ func TestAButtonScrolledAwayAndBackIsArmedAfresh(t *testing.T) {
 	m = update(m, letter('x'))
 	if len(ops) != 0 {
 		t.Fatalf("pressed right after the button scrolled back: %+v", ops)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	if update(m, letter('x')); len(ops) != 1 {
+		t.Fatalf("ops %+v", ops)
+	}
+}
+
+// A resize is no key, but it can take the button off the screen and bring
+// it back: that arms the press afresh, as scrolling does.
+func TestAButtonThatAResizeBroughtBackIsArmedAfresh(t *testing.T) {
+	var ops []core.CardOp
+	m := tallHub(t, &ops, 170, 40, tallButtons(t, 1, 22, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyUp}) // the window stops following; the button is still shown
+	m = update(m, tea.WindowSizeMsg{Width: 170, Height: 24})
+	if strings.Contains(screen(m), "Plan it") {
+		t.Fatalf("the button is still on the screen at 24 rows:\n%s", screen(m))
+	}
+	m = update(m, tea.WindowSizeMsg{Width: 170, Height: 40})
+	if !strings.Contains(screen(m), "Plan it") {
+		t.Fatalf("the button is not back on the screen:\n%s", screen(m))
+	}
+	back := time.Now()
+	m = update(m, letter('x'))
+	if len(ops) != 0 {
+		t.Fatalf("pressed %v after the button came back on screen: %+v", time.Since(back), ops)
+	}
+}
+
+// A button too tall for the window is not on screen when the focus comes
+// to it. It counts as revealed when it first becomes whole, and a press
+// is armed from then, not from the focus.
+func TestAButtonTooTallToFitIsArmedFromWhenItFirstFits(t *testing.T) {
+	var ops []core.CardOp
+	label := "Plan it " + strings.Repeat("word ", 150) + "END"
+	m := tallHub(t, &ops, 170, 24, tallButtonLabelled(t, 1, 2, 0, label))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if strings.Contains(screen(m), "END") {
+		t.Fatalf("the button is whole at 24 rows:\n%s", screen(m))
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	m = update(m, tea.WindowSizeMsg{Width: 170, Height: 60})
+	if !strings.Contains(screen(m), "END") {
+		t.Fatalf("the button is not whole at 60 rows:\n%s", screen(m))
+	}
+	whole := time.Now()
+	m = update(m, letter('x'))
+	if len(ops) != 0 {
+		t.Fatalf("pressed %v after the button was first whole: %+v", time.Since(whole), ops)
 	}
 	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	if update(m, letter('x')); len(ops) != 1 {
