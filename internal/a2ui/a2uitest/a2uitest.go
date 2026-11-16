@@ -61,18 +61,25 @@ func GenResolved(t *rapid.T, text *rapid.Generator[string]) a2ui.Surface {
 			n++
 			label := fmt.Sprintf("b%d", n)
 			comps[label] = a2ui.Component{ID: label, Type: "Text", Props: map[string]any{"text": strings.NewReplacer("\n", " ", "\r", " ").Replace(text.Draw(t, "buttonLabel"))}}
-			props["child"] = label
+			btn := map[string]any{"child": label}
 			if rapid.Bool().Draw(t, "primary") {
-				props["variant"] = "primary"
+				btn["variant"] = "primary"
 			}
-			if rapid.Bool().Draw(t, "setsInput") {
-				key := fmt.Sprintf("k%d", n)
-				data[key] = rapid.Bool().Draw(t, "on")
-				props["action"] = map[string]any{"functionCall": map[string]any{"@call": "relay:setInput",
-					"args": map[string]any{"path": "/" + key, "value": rapid.Bool().Draw(t, "to")}}}
-			} else {
-				props["action"] = map[string]any{"event": map[string]any{"name": rapid.StringMatching(`[a-z_]{1,12}`).Draw(t, "event")}}
+			if !rapid.Bool().Draw(t, "setsInput") {
+				btn["action"] = map[string]any{"event": map[string]any{"name": rapid.StringMatching(`[A-Za-z][A-Za-z0-9_]{0,15}`).Draw(t, "event")}}
+				props = btn
+				break
 			}
+			// A button that sets a box sits beside a CheckBox bound to
+			// the path it sets, in a Row that takes this component's id.
+			key := fmt.Sprintf("k%d", n)
+			data[key] = rapid.Bool().Draw(t, "on")
+			btn["action"] = map[string]any{"functionCall": map[string]any{"@call": "relay:setInput",
+				"args": map[string]any{"path": "/" + key, "value": rapid.Bool().Draw(t, "to")}}}
+			btnID, boxID := fmt.Sprintf("bb%d", n), fmt.Sprintf("bx%d", n)
+			comps[btnID] = a2ui.Component{ID: btnID, Type: "Button", Props: btn}
+			comps[boxID] = a2ui.Component{ID: boxID, Type: "CheckBox", Props: map[string]any{"label": "box", "value": map[string]any{"@path": "/" + key}}}
+			kind, props = "Row", map[string]any{"children": []any{btnID, boxID}}
 		case "Card":
 			props["child"] = child()
 		default:

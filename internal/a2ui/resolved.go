@@ -2,6 +2,7 @@ package a2ui
 
 import (
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -156,7 +157,7 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 		if err := oneOf("variant", buttonVariants); err != nil {
 			return nil, err
 		}
-		if err := resolvedAction(id, c.Props["action"]); err != nil {
+		if err := s.resolvedAction(id, c.Props["action"]); err != nil {
 			return nil, err
 		}
 		return []string{child}, nil
@@ -184,12 +185,29 @@ func (s Surface) resolvedComponent(c Component) ([]string, error) {
 	return nil, errorf(CodeInvalid, "component %s has type %s, which this client does not check", id, escapeKind(c.Type))
 }
 
+// eventName is the pattern relay holds an event's name to.
+var eventName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
+
+// boxBoundTo says some CheckBox of the surface has its value bound to
+// path.
+func (s Surface) boxBoundTo(path string) bool {
+	for _, c := range s.Components {
+		if c.Type != "CheckBox" {
+			continue
+		}
+		if p, ok := boundPath(c.Props["value"]); ok && p == path {
+			return true
+		}
+	}
+	return false
+}
+
 // resolvedAction checks a Button's action as relay sends it: an event
 // with a name and nothing else, or the one function relay runs, setInput,
 // with an absolute path and a boolean. Any other function, an openUrl, an
 // event's userMessage or context, or a path relative to a list's item is
 // not one relay sends.
-func resolvedAction(id string, v any) error {
+func (s Surface) resolvedAction(id string, v any) error {
 	bad := func(why string) error {
 		return errorf(CodeInvalid, "component %s has an action that is %s", id, why)
 	}
@@ -202,8 +220,8 @@ func resolvedAction(id string, v any) error {
 		if !ok || len(m) != 1 {
 			return bad("an event with more than a name")
 		}
-		if name, ok := m["name"].(string); !ok || name == "" {
-			return bad("an event with no name")
+		if name, ok := m["name"].(string); !ok || !eventName.MatchString(name) {
+			return bad("an event whose name is not a letter and up to 63 letters, digits or underscores")
 		}
 		return nil
 	}
@@ -218,8 +236,12 @@ func resolvedAction(id string, v any) error {
 	if !ok || len(args) != 2 {
 		return bad("a setInput with other arguments than path and value")
 	}
-	if path, ok := args["path"].(string); !ok || !strings.HasPrefix(path, "/") {
+	path, ok := args["path"].(string)
+	if !ok || !strings.HasPrefix(path, "/") {
 		return bad("a setInput whose path is not absolute")
+	}
+	if !s.boxBoundTo(path) {
+		return bad("a setInput whose path no CheckBox is bound to")
 	}
 	if _, ok := args["value"].(bool); !ok {
 		return bad("a setInput whose value is not a boolean")

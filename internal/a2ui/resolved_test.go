@@ -169,11 +169,22 @@ func TestResolvedRefusesATypeTheClientDoesNotDraw(t *testing.T) {
 }
 
 const buttonComponents = `[
- {"id":"root","component":"Column","children":["go","set"]},
+ {"id":"root","component":"Column","children":["go","set","box"]},
+ {"id":"box","component":"CheckBox","label":"Packed","value":{"@path":"/a"}},
  {"id":"go","component":"Button","variant":"primary","child":"t1","action":{"event":{"name":"plan_route"}}},
  {"id":"set","component":"Button","child":"t2","action":{"functionCall":{"@call":"relay:setInput","args":{"path":"/a","value":true}}}},
  {"id":"t1","component":"Text","text":"Plan"},
  {"id":"t2","component":"Text","text":"Pack"}]`
+
+func TestResolvedAcceptsAnEventNameAtRelaysLimits(t *testing.T) {
+	for _, name := range []string{"a", "Plan_route2", "a" + strings.Repeat("b", 63)} {
+		s := relaySurface(t, buttonComponents, `{"a":false}`)
+		s.Components["go"].Props["action"] = map[string]any{"event": map[string]any{"name": name}}
+		if err := Resolved(s); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
 
 func TestResolvedButtons(t *testing.T) {
 	data := `{"a":false}`
@@ -181,7 +192,7 @@ func TestResolvedButtons(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := relaySurface(t, buttonComponents, data).Inputs()
-	want := []Input{{ID: "go", Label: "Plan", Button: true, Event: "plan_route"}, {ID: "set", Label: "Pack", Button: true}}
+	want := []Input{{ID: "go", Label: "Plan", Button: true, Event: "plan_route"}, {ID: "set", Label: "Pack", Button: true}, {ID: "box", Path: "/a", Label: "Packed"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -217,6 +228,11 @@ func TestResolvedButtons(t *testing.T) {
 		{"child is a list", set("child", []any{"t1"})},
 		{"no child", func(s *Surface) { delete(s.Components["go"].Props, "child") }},
 		{"extra property", set("weight", 1.0)},
+		{"setInput to a path no box is bound to", set("action", fn("relay:setInput", map[string]any{"path": "/b", "value": true}))},
+		{"event name starting with a digit", set("action", map[string]any{"event": map[string]any{"name": "1go"}})},
+		{"event name with a dash", set("action", map[string]any{"event": map[string]any{"name": "plan-route"}})},
+		{"event name with a space", set("action", map[string]any{"event": map[string]any{"name": "plan route"}})},
+		{"event name of 65 characters", set("action", map[string]any{"event": map[string]any{"name": "a" + strings.Repeat("b", 64)}})},
 		{"label with a line break", func(s *Surface) { s.Components["t1"].Props["text"] = "Plan\nthe route" }},
 		{"label with a carriage return", func(s *Surface) { s.Components["t1"].Props["text"] = "Plan\rthe route" }},
 	}
