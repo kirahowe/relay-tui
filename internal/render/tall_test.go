@@ -160,7 +160,19 @@ func TestAnOpenCardIsDrawnWholeOrSaysThePaneIsTooSmall(t *testing.T) {
 					}
 					continue
 				}
-				if pd.Card.Small || !strings.Contains(flat, "╭") || !strings.Contains(flat, "╰") || !pd.Card.Shown {
+				// The focused line counts as shown only when every row of
+				// it is on the screen, and always when it is short enough
+				// for the least window between its marks.
+				f := cardFrame(s.Board, c, s.Links, width, true, true)
+				if line > 0 && pd.Card.Shown {
+					for _, r := range f.body[f.selA:f.selB] {
+						if !strings.Contains(flat, strings.TrimSpace(ansi.Strip(r))) {
+							t.Fatalf("%s: shown, but %q is not on the screen:\n%s", where, ansi.Strip(r), flat)
+						}
+					}
+				}
+				short := line == 0 || f.selB-f.selA <= 1
+				if pd.Card.Small || !strings.Contains(flat, "╭") || !strings.Contains(flat, "╰") || short && !pd.Card.Shown {
 					t.Fatalf("%s: small %v, shown %v:\n%s", where, pd.Card.Small, pd.Card.Shown, flat)
 				}
 				if info := strings.Join(pr.info, ""); info != "" && strings.Contains(flat, "cell:") {

@@ -526,8 +526,11 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 				b--
 			}
 		}
-		// The focused line is on the screen when its first row is.
-		cs.Shown = !focused || a <= pr.selA && pr.selA < b
+		// The focused line counts as on the screen only when all of it
+		// is: a tracker row in the narrow layout has its cells below its
+		// name, and x acts on a cell. One taller than the window cannot
+		// be acted on until the pane is taller.
+		cs.Shown = !focused || a <= pr.selA && pr.selB <= b
 	}
 	if border > 0 {
 		win = panel(f.title, f.right, f.foot, win, width, len(win)+2, f.focus)

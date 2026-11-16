@@ -405,3 +405,25 @@ func TestNoAnswerCountsWhileTheCardIsTooSmall(t *testing.T) {
 		t.Fatalf("enter sent the input unseen: ops %+v", ops)
 	}
 }
+
+// Review round five of relay#110's rebuild: in the narrow tracker layout
+// a row's cells come under its name, and a row counted as on the screen
+// once its first row was. With a long name, x marked a cell below the
+// window. A line counts only when all of it is on the screen.
+func TestACellBelowTheWindowIsNotMarked(t *testing.T) {
+	c := core.Card{ID: 1, Rev: 1, Kind: core.CardTracker, Status: core.CardActive, Title: core.CardText{Text: "Tracker", Rev: 1},
+		Rows: []core.CardElem{{ID: 1, CardText: core.CardText{Text: strings.Repeat("long row ", 20) + "TAIL", Rev: 1}}}}
+	for i := range 8 {
+		c.Columns = append(c.Columns, core.CardElem{ID: i + 1, CardText: core.CardText{Text: fmt.Sprintf("Week%02d", i+1), Rev: 1}})
+	}
+	var ops []core.CardOp
+	m := tallSingle(t, &ops, 134, 7, c)
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyRight})
+	before := screen(m)
+	if strings.Contains(before, "Week02") {
+		t.Fatalf("the test needs the cells off the screen:\n%s", before)
+	}
+	if m = update(m, letter('x')); len(ops) != 0 {
+		t.Fatalf("x marked a cell off the screen: %+v\n%s", ops, before)
+	}
+}
