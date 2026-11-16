@@ -199,7 +199,10 @@ type Board struct {
 	Scroll     int
 	ScrollCard int64
 	Follow     bool
-	Input      *BoardInput
+	// Reveal is what the board knows of whether the focused button was on
+	// the screen when the last key came, for arming (see noteReveal).
+	Reveal Reveal
+	Input  *BoardInput
 	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
 	// rev the operator was shown. A newer copy of it cancels the question.
 	Confirm, ConfirmRev int64
@@ -823,6 +826,9 @@ func (r *reducer) boardKey(e PaneKey) {
 		// a short one leave no room to show the box.
 		if v := e.Card; i >= 0 && b.Detail && v != nil && BoardLine(*b, c) > 0 && (v.Card != c.ID || !v.Shown) {
 			b.Follow = true
+		} else if i >= 0 && b.Detail && v == nil && pressing(r.a) != "" {
+			// A button is pressed only on the word of the pane that it is
+			// on the screen. No word means no press.
 		} else if i >= 0 && b.Detail {
 			r.mark(c)
 		}

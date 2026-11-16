@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -52,6 +53,48 @@ func PressID(id, rev int64, component string) string {
 	return fmt.Sprintf("press/%d/%d/%q", id, rev, component)
 }
 
+// Reveal says whether the button the focus is on was on the screen when
+// the last key came, and how many times it has come back on screen since
+// the focus reached it. Key names the button.
+type Reveal struct {
+	Key   string
+	Shown bool
+	N     int
+}
+
+// noteReveal updates a.Board.Reveal from a key of the pane that says
+// whether the open card's focused line is fully on the screen. A press is
+// armed from when the button came (back) on screen, so a button that was
+// scrolled away, or brought back by x, is a new thing to arm: the
+// operator must see its label for ArmDelay before a key can press it.
+// It runs before the key's authority is decided, and the ids it changes
+// are the ones the key is judged against.
+func noteReveal(a App, e Event) App {
+	k, ok := e.(PaneKey)
+	if !ok || k.Card == nil {
+		return a
+	}
+	id := pressing(a)
+	if id == "" {
+		a.Board.Reveal = Reveal{}
+		return a
+	}
+	key := id[:strings.LastIndex(id, "/")]
+	c, _ := BoardCard(a.Board)
+	shown := k.Card.Card == c.ID && k.Card.Shown
+	r := a.Board.Reveal
+	if r.Key != key {
+		// The focus has just come to the button, and the window follows it.
+		r = Reveal{Key: key, Shown: true, N: 0}
+	}
+	if shown && !r.Shown {
+		r.N++
+	}
+	r.Shown = shown
+	a.Board.Reveal = r
+	return a
+}
+
 // pressing is the id of the button the board's cursor is on, or "" when
 // it is not on one.
 func pressing(a App) string {
@@ -68,7 +111,12 @@ func pressing(a App) string {
 		return ""
 	}
 	if in := c.Inputs()[line-1]; in.Button {
-		return PressID(c.ID, c.Rev, in.ID)
+		id := PressID(c.ID, c.Rev, in.ID)
+		n := 0
+		if b.Reveal.Key == id {
+			n = b.Reveal.N
+		}
+		return fmt.Sprintf("%s/%d", id, n)
 	}
 	return ""
 }

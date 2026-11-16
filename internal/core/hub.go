@@ -311,6 +311,7 @@ func ReduceHub(h Hub, e Event) (Hub, []Effect) {
 }
 
 func reduceHubTop(h Hub, e Event) (Hub, []Effect) {
+	h.App = noteReveal(h.App, e)
 	surf := HubSurface(h)
 	id := HubSurfaceID(h)
 	if !surf.takes(e) {

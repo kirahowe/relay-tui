@@ -118,6 +118,7 @@ func ReduceSingle(x Single, e Event) (Single, []Effect) {
 }
 
 func reduceSingleTop(x Single, e Event) (Single, []Effect) {
+	x.App = noteReveal(x.App, e)
 	surf := SingleSurface(x)
 	id := SingleSurfaceID(x)
 	if !surf.takes(e) {

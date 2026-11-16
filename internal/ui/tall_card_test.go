@@ -420,7 +420,8 @@ func tallButtons(t tb, id int64, gap, tail int) core.Card {
 // A button is focused with tab and pressed with x, like a box, and only
 // while all of it is on the screen: with the button scrolled out of sight
 // the key brings it back and sends nothing, and a press that is too soon
-// after the focus came sends nothing either.
+// after the focus came, or after the button came back, sends nothing
+// either.
 func TestAButtonInATallCardIsPressedOnlyWhileOnTheScreen(t *testing.T) {
 	var ops []core.CardOp
 	m := tallHub(t, &ops, 170, 24, tallButtons(t, 1, 2, 60))
@@ -434,6 +435,14 @@ func TestAButtonInATallCardIsPressedOnlyWhileOnTheScreen(t *testing.T) {
 	if len(ops) != 0 || !strings.Contains(screen(m), "Plan it") {
 		t.Fatalf("x off the screen: ops %v\n%s", ops, screen(m))
 	}
+	// It has only just come back: the label has not been on the screen
+	// for ArmDelay, so a doubled or held x presses nothing.
+	shownAt := time.Now()
+	m = update(m, letter('x'))
+	if len(ops) != 0 {
+		t.Fatalf("pressed %v after the button came on screen: %+v", time.Since(shownAt), ops)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
 	if m = update(m, letter('x')); len(ops) != 1 || ops[0].Op != "press" || *ops[0].Component != "go" || *ops[0].Seen != 1 {
 		t.Fatalf("x on the screen: ops %+v", ops)
 	}
@@ -443,5 +452,32 @@ func TestAButtonInATallCardIsPressedOnlyWhileOnTheScreen(t *testing.T) {
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, letter('x'))
 	if len(ops) != 0 {
 		t.Fatalf("a press right after the focus came: %+v", ops)
+	}
+}
+
+// Scrolling the focused button off the screen and back with the arrow
+// keys, with no x between, arms it afresh as well: x at once presses
+// nothing, and one ArmDelay later does.
+func TestAButtonScrolledAwayAndBackIsArmedAfresh(t *testing.T) {
+	var ops []core.CardOp
+	m := tallHub(t, &ops, 170, 24, tallButtons(t, 1, 2, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyPgDown}, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if strings.Contains(screen(m), "Plan it") {
+		t.Fatal("the button is still on the screen")
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	for range 6 {
+		m = update(m, tea.KeyPressMsg{Code: tea.KeyUp}, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	}
+	if !strings.Contains(screen(m), "Plan it") {
+		t.Fatalf("not scrolled back:\n%s", screen(m))
+	}
+	m = update(m, letter('x'))
+	if len(ops) != 0 {
+		t.Fatalf("pressed right after the button scrolled back: %+v", ops)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	if update(m, letter('x')); len(ops) != 1 {
+		t.Fatalf("ops %+v", ops)
 	}
 }

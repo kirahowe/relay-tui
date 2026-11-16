@@ -518,12 +518,12 @@ func TestAllotKeepsEveryFloorAndFitsTheRoom(t *testing.T) {
 }
 
 // For surfaces with short labels, every input's label is drawn whole, right
-// after its mark (a button's between its brackets), at any width from ten,
+// after its mark (a button's between its brackets), at any width from 32 (a button in nested boxes needs room),
 // and no row is only an ellipsis.
 func TestSurfaceRowsKeepEveryLabel(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := a2uitest.GenResolved(t, rapid.StringMatching(`[a-z]{1,2}`))
-		width := rapid.IntRange(10, 120).Draw(t, "width")
+		width := rapid.IntRange(32, 120).Draw(t, "width")
 		rows, _, _ := surfaceRows(s, rapid.Bool().Draw(t, "outsider"), core.Links{}, width, nil)
 		plain := ansiPlain(strings.Join(rows, "\n"))
 		for _, r := range strings.Split(plain, "\n") {

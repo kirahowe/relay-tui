@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -59,9 +60,13 @@ func opened(card Card, n int) Single {
 	return s
 }
 
+// onScreen is what the pane says of the open card when the focused line is
+// fully on the screen.
+func onScreen() *CardScroll { return &CardScroll{Card: 10, Max: 5, Page: 3, Shown: true} }
+
 // press is the keys that press, from a live key at at.
 func press(s Single, at time.Time) (Single, []SendCardOp) {
-	s, fx := feedS(s, KeyPressed{At: at}, PaneKey{At: at, Action: PaneMark})
+	s, fx := feedS(s, KeyPressed{At: at}, PaneKey{At: at, Action: PaneMark, Card: onScreen()})
 	return s, effectsOf[SendCardOp](fx)
 }
 
@@ -171,7 +176,7 @@ func TestAPressIsTakenOnlyFromAnArmedLiveKey(t *testing.T) {
 	}
 	// A replayed key, however late.
 	s = opened(buttonCard(10), 3)
-	s, fx := feedS(s, KeyPressed{At: t0.Add(time.Hour), Replayed: true}, PaneKey{At: t0.Add(time.Hour), Action: PaneMark})
+	s, fx := feedS(s, KeyPressed{At: t0.Add(time.Hour), Replayed: true}, PaneKey{At: t0.Add(time.Hour), Action: PaneMark, Card: onScreen()})
 	if len(effectsOf[SendCardOp](fx)) != 0 || s.State.Message.Text != ReplayedNote {
 		t.Fatalf("a replayed key pressed: %v, %q", fx, s.State.Message.Text)
 	}
@@ -205,10 +210,12 @@ func TestAChangedCardArmsThePressAgain(t *testing.T) {
 	}
 }
 
-// Over any run of keys at any times, replayed or live, a press op goes out
-// only for a button the cursor is on, from a live key at least ArmDelay
-// after that button was under the cursor with the card at that rev, with
-// the card's rev and nothing but the five fields.
+// Over any run of keys at any times, replayed or live, with the button
+// now on the screen and now scrolled away, and the card's rev moving, a
+// press op goes out only for the button the focus is on, from a live key
+// that finds it on the screen, at least ArmDelay after the later of: the
+// focus (or a new rev of the card) coming to it, and its last coming back
+// on the screen. The test keeps its own record of that, from what it sent.
 func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 	sent := 0
 	defer func() {
@@ -219,14 +226,42 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		s := opened(buttonCard(10), 0)
 		at := t0
-		became, becameAt := SingleSurfaceID(s), t0
-		for step := range rapid.IntRange(1, 60).Draw(t, "steps") {
+		rev := int64(10)
+		// focus names the button the focus is on, by what the card and
+		// its line say, or "" when it is on the title or a box.
+		focus := func(s Single) string {
+			c, _ := BoardCard(s.Board)
+			if line := BoardLine(s.Board, c); line > 0 && c.Inputs()[line-1].Button {
+				return fmt.Sprintf("%d/%s", c.Rev, c.Inputs()[line-1].ID)
+			}
+			return ""
+		}
+		cur, armedFrom, wasShown := focus(s), t0, true
+		for step := range rapid.IntRange(1, 80).Draw(t, "steps") {
 			at = at.Add(time.Duration(rapid.IntRange(0, 900).Draw(t, "ms")) * time.Millisecond)
-			replayed := rapid.IntRange(0, 3).Draw(t, "replayed") == 0
-			a := rapid.SampledFrom([]PaneAction{PaneBackTab, PaneTab, PaneMark, PaneMark, PaneMark}).Draw(t, "action")
+			if rapid.IntRange(0, 9).Draw(t, "rev") == 0 {
+				rev++
+				s, _ = feedS(s, CardsChanged{At: at, Rev: rev, Cards: []Card{buttonCard(rev)}})
+				if now := focus(s); now != cur {
+					cur, armedFrom, wasShown = now, at, true
+				}
+				continue
+			}
+			replayed := rapid.IntRange(0, 5).Draw(t, "replayed") == 0
+			a := rapid.SampledFrom([]PaneAction{PaneBackTab, PaneTab, PaneUp, PaneDown, PageNext, PaneMark, PaneMark, PaneMark}).Draw(t, "action")
+			shown := rapid.IntRange(0, 2).Draw(t, "shown") != 0
+			scroll := onScreen()
+			scroll.Shown = shown
 			c, _ := BoardCard(s.Board)
 			line := BoardLine(s.Board, c)
-			next, fx := feedS(s, KeyPressed{At: at, Replayed: replayed}, PaneKey{At: at, Action: a})
+			// The model's side of the key, before the reducer sees it.
+			if cur != "" && shown && !wasShown {
+				armedFrom = at
+			}
+			if cur != "" {
+				wasShown = shown
+			}
+			next, fx := feedS(s, KeyPressed{At: at, Replayed: replayed}, PaneKey{At: at, Action: a, Card: scroll})
 			for _, op := range effectsOf[SendCardOp](fx) {
 				if op.Op.Op != "press" {
 					continue
@@ -238,8 +273,10 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 					t.Fatalf("step %d: press from %v on line %d", step, a, line)
 				case replayed:
 					t.Fatalf("step %d: press from a replayed key", step)
-				case at.Sub(becameAt) < ArmDelay:
-					t.Fatalf("step %d: press %v after the cursor arrived", step, at.Sub(becameAt))
+				case !shown:
+					t.Fatalf("step %d: press with the button off the screen", step)
+				case at.Sub(armedFrom) < ArmDelay:
+					t.Fatalf("step %d: press %v after the button was armed", step, at.Sub(armedFrom))
 				case op.Op.Component == nil || *op.Op.Component != in.ID || op.Op.Seen == nil || *op.Op.Seen != c.Rev ||
 					op.Op.Path != nil || op.Op.Value != nil || op.Op.Item != nil || op.Op.Text != nil || op.Card != 10:
 					t.Fatalf("step %d: op %+v for button %q", step, op, in.ID)
@@ -249,8 +286,8 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 				t.Fatal("sending cleared without an answer")
 			}
 			s = next
-			if id := SingleSurfaceID(s); id != became {
-				became, becameAt = id, at
+			if now := focus(s); now != cur {
+				cur, armedFrom, wasShown = now, at, true
 			}
 			// An answer now and then, so a later press can go out.
 			if s.Board.Sending != 0 && rapid.Bool().Draw(t, "answer") {
@@ -259,6 +296,44 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A button is pressed only on the pane's word that it is on the screen:
+// a key that says nothing (no Card) presses nothing, however long the
+// focus has been on it.
+func TestAPressWithNoWordFromThePaneSendsNothing(t *testing.T) {
+	s := opened(buttonCard(10), 2)
+	s, fx := feedS(s, KeyPressed{At: t0.Add(time.Hour)}, PaneKey{At: t0.Add(time.Hour), Action: PaneMark})
+	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Sending != 0 {
+		t.Fatalf("pressed with no word from the pane: %v", fx)
+	}
+}
+
+// The button coming back on the screen arms the press afresh: an x that
+// finds it there for the first time, after it was away, is too soon.
+func TestAButtonThatCameBackOnScreenIsArmedAfresh(t *testing.T) {
+	s := opened(buttonCard(10), 2)
+	at := t0.Add(time.Hour)
+	key := func(at time.Time, shown bool) (Single, []SendCardOp) {
+		sc := onScreen()
+		sc.Shown = shown
+		var fx []Effect
+		s, fx = feedS(s, KeyPressed{At: at}, PaneKey{At: at, Action: PaneMark, Card: sc})
+		return s, effectsOf[SendCardOp](fx)
+	}
+	// Off the screen for a long while: x brings it back and sends nothing.
+	if _, ops := key(at, false); len(ops) != 0 {
+		t.Fatal("pressed off the screen")
+	}
+	// The next x finds it on the screen, a moment later: too soon.
+	at = at.Add(time.Millisecond)
+	if _, ops := key(at, true); len(ops) != 0 || s.State.Message.Text != TooSoonNote {
+		t.Fatalf("pressed %v, note %q", ops, s.State.Message.Text)
+	}
+	// And one ArmDelay after that goes through.
+	if _, ops := key(at.Add(ArmDelay), true); len(ops) != 1 {
+		t.Fatalf("%d ops after ArmDelay", len(ops))
+	}
 }
 
 // Whatever replaces the card with other components sends the cursor to
