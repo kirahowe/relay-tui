@@ -454,6 +454,9 @@ func (m Model) app() core.App {
 // paneDetailMax is how far the pane's detail view scrolls, as drawn.
 // paneCard is the open card in the pane as drawn.
 func (m Model) paneCard(now time.Time) core.CardScroll {
+	if !m.frameDrawn() {
+		return core.CardScroll{} // nothing of the card is on the screen
+	}
 	if m.kind == kindHub {
 		return m.hubFrame(now).Card
 	}

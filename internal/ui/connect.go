@@ -155,6 +155,15 @@ func (m Model) settled(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmds = next.(Model), append(cmds, cmd)
 	}
 	m.at, m.replaying = time.Time{}, false
+	// Whatever the replay put up (a question, a focused button) was never
+	// drawn while the screen said "connecting", and the keys stamped it
+	// with the time they were typed. It is armed from now, when it is
+	// first on the screen.
+	if m.kind == kindHub {
+		m.hub = core.RearmHub(m.hub, m.now())
+	} else {
+		m.one = core.RearmSingle(m.one, m.now())
+	}
 	note := failed
 	if failed != "" && len(held) > 0 {
 		note = failed + "; what you typed went to the list"

@@ -293,3 +293,61 @@ func TestAPasteBeforeTheAttachSurvivesAReplayThatCameFirst(t *testing.T) {
 		t.Fatalf("pastes %+v input %q", ps, m.input.Value())
 	}
 }
+
+// held opens a hub model that restores to the pane with card 1 selected,
+// types keys while it says "connecting", and lets the roster and the
+// board come two seconds later on the fake clock. It returns the model
+// and the clock, which the test moves on.
+func heldHub(t *testing.T, calls *[]call, clock *time.Time, cards []core.Card, held ...tea.KeyPressMsg) Model {
+	t.Helper()
+	roles := []core.Role{{ID: "dev", Title: "Dev", Conv: &core.RosterConv{Session: "s1", Turn: core.TurnIdle}}}
+	saved := core.View{Hub: &core.HubView{Focus: "dev", Cursor: "dev"}, PaneFocus: true, Card: 1}
+	m := New(callConn{calls: calls, clock: clock}, "").Restore(saved, "")
+	m.clock = func() time.Time { return *clock }
+	m = update(m, tea.WindowSizeMsg{Width: 140, Height: 30})
+	for _, k := range held {
+		m = update(m, k)
+	}
+	*clock = clock.Add(2 * time.Second)
+	return update(m, ev(core.HubConnected{At: *clock}), ev(core.CardsLoaded{At: *clock, Rev: 2, Cards: cards}),
+		ev(core.RosterUpdate{At: *clock, Roles: roles}))
+}
+
+// A key held while connecting is replayed with the time it was typed. The
+// surface it puts up was never drawn then, so a live archive y a moment
+// after the screen appears must not answer the question the held X asked.
+func TestALiveYRightAfterTheScreenAppearsDoesNotAnswerAHeldX(t *testing.T) {
+	clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+	var calls []call
+	m := heldHub(t, &calls, &clock, navCards(), key("X"))
+	if m.app().Board.Confirm == 0 {
+		t.Fatal("the held X did not ask the question")
+	}
+	clock = clock.Add(50 * time.Millisecond)
+	if m = update(m, key("y")); len(calls) != 0 {
+		t.Fatalf("a live y 50ms after the screen appeared archived: %+v", calls)
+	}
+	clock = clock.Add(core.ArmDelay)
+	if m = update(m, key("y")); len(calls) != 1 || calls[0].option != "archive" {
+		t.Fatalf("a live y once armed: %+v", calls)
+	}
+}
+
+// The same for a button: held enter and tab put the focus on it, and a
+// live x a moment after the screen appears presses nothing.
+func TestALiveXRightAfterTheScreenAppearsDoesNotPressAHeldFocus(t *testing.T) {
+	clock := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
+	var calls []call
+	m := heldHub(t, &calls, &clock, []core.Card{tallButtons(t, 1, 0, 0)}, key("enter"), tea.KeyPressMsg{Code: tea.KeyTab})
+	if c, _ := core.BoardCard(m.app().Board); !m.app().Board.Detail || core.BoardLine(m.app().Board, c) == 0 {
+		t.Fatalf("the held keys did not focus the button: %+v", m.app().Board.Line)
+	}
+	clock = clock.Add(50 * time.Millisecond)
+	if m = update(m, letter('x')); len(calls) != 0 {
+		t.Fatalf("a live x 50ms after the screen appeared pressed: %+v", calls)
+	}
+	clock = clock.Add(core.ArmDelay)
+	if m = update(m, letter('x')); len(calls) != 1 || calls[0].option != "press" {
+		t.Fatalf("a live x once armed: %+v", calls)
+	}
+}

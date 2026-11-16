@@ -537,3 +537,58 @@ func TestAButtonTooTallToFitIsArmedFromWhenItFirstFits(t *testing.T) {
 		t.Fatalf("ops %+v", ops)
 	}
 }
+
+// While the terminal is too small View draws only a message, so none of
+// the card is on the screen. Shrinking and growing back brings the button
+// back on screen: a press needs ArmDelay from then, in either mode.
+func TestAButtonIsNotShownWhileTheTerminalIsTooSmall(t *testing.T) {
+	for _, mode := range []string{"hub", "single"} {
+		t.Run(mode, func(t *testing.T) {
+			var ops []core.CardOp
+			card := tallButtons(t, 1, 2, 0)
+			m := tallHub(t, &ops, 170, 40, card)
+			if mode == "single" {
+				m = tallSingle(t, &ops, 170, 40, card)
+			}
+			m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+			time.Sleep(core.ArmDelay + 100*time.Millisecond)
+			m = update(m, tea.WindowSizeMsg{Width: 79, Height: 40})
+			if !strings.Contains(screen2(m), "Terminal too small") {
+				t.Fatalf("not too small:\n%s", screen2(m))
+			}
+			m = update(m, tea.WindowSizeMsg{Width: 170, Height: 40})
+			m = update(m, letter('x'))
+			if len(ops) != 0 {
+				t.Fatalf("pressed right after the terminal grew back: %+v", ops)
+			}
+			time.Sleep(core.ArmDelay + 100*time.Millisecond)
+			if update(m, letter('x')); len(ops) != 1 {
+				t.Fatalf("ops %+v", ops)
+			}
+		})
+	}
+}
+
+// screen2 is what View draws, as plain text, whatever the size.
+func screen2(m Model) string { return ansi.Strip(m.View().Content) }
+
+// A reveal with no key before it (a resize) followed by a wait and one x
+// presses: the first x is not refused, however long it was.
+func TestAButtonRevealedByAResizeIsPressedByTheFirstXAfterTheWait(t *testing.T) {
+	var ops []core.CardOp
+	m := tallHub(t, &ops, 170, 40, tallButtons(t, 1, 22, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab})
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyUp})
+	m = update(m, tea.WindowSizeMsg{Width: 170, Height: 24})
+	if strings.Contains(screen(m), "Plan it") {
+		t.Fatal("the button is still on the screen at 24 rows")
+	}
+	m = update(m, tea.WindowSizeMsg{Width: 170, Height: 40})
+	if !strings.Contains(screen(m), "Plan it") {
+		t.Fatal("the button is not back on the screen")
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	if update(m, letter('x')); len(ops) != 1 {
+		t.Fatalf("the first x after the wait: ops %+v", ops)
+	}
+}

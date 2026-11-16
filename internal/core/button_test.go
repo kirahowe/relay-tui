@@ -288,6 +288,22 @@ func TestPressesAreArmedWhateverTheKeys(t *testing.T) {
 			line := BoardLine(s.Board, c)
 			observe(shown) // the key's own word, before the reducer judges it
 			next, fx := feedS(s, KeyPressed{At: at, Replayed: replayed}, PaneKey{At: at, Action: a, Card: scroll})
+			// The other half: a live x that finds the focused button whole,
+			// armed for ArmDelay by the test's own record, with nothing on
+			// its way, must press. A press refused for no reason the
+			// operator can see is as wrong as one sent early.
+			if live := a == PaneMark && !replayed && shown && cur != "" && s.Board.Sending == 0 &&
+				at.Sub(armedFrom) >= ArmDelay; live {
+				presses := 0
+				for _, op := range effectsOf[SendCardOp](fx) {
+					if op.Op.Op == "press" {
+						presses++
+					}
+				}
+				if presses != 1 {
+					t.Fatalf("step %d: a live x on the focused, whole button armed %v ago sent %d presses", step, at.Sub(armedFrom), presses)
+				}
+			}
 			for _, op := range effectsOf[SendCardOp](fx) {
 				if op.Op.Op != "press" {
 					continue
@@ -380,5 +396,23 @@ func TestAChangedLayoutSendsTheCursorToTheTitleNotAButton(t *testing.T) {
 	}
 	if _, ops := press(s, t0.Add(time.Hour)); len(ops) != 0 {
 		t.Fatalf("a press on the title sent %v", ops)
+	}
+}
+
+// A reveal with no key (a resize) arms the press from then: three seconds
+// later one x presses, and is not refused for the id it replaced.
+func TestAPressAfterARevealWithNoKeyGoesThrough(t *testing.T) {
+	s := opened(buttonCard(10), 2)
+	hidden, whole := onScreen(), onScreen()
+	hidden.Shown = false
+	at := t0.Add(time.Hour)
+	s = DrawnSingle(s, CardDrawn{At: at, Card: *hidden})
+	s = DrawnSingle(s, CardDrawn{At: at.Add(time.Second), Card: *whole})
+	if _, ops := press(s, at.Add(time.Second+time.Millisecond)); len(ops) != 0 {
+		t.Fatalf("pressed right after the reveal: %v", ops)
+	}
+	s2 := s
+	if _, ops := press(s2, at.Add(4*time.Second)); len(ops) != 1 {
+		t.Fatalf("%d ops three seconds after the reveal", len(ops))
 	}
 }

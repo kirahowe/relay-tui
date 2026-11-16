@@ -77,13 +77,15 @@ func (e CardDrawn) at() time.Time { return e.At }
 // event the reducers act on: it only keeps what arming knows of the frame,
 // and so leaves the notices and everything else as they are.
 func DrawnHub(h Hub, e CardDrawn) Hub {
-	h.App = settleSurface(noteReveal(h.App, e), HubSurfaceID(h), e.At)
+	h.App = noteReveal(h.App, e)
+	h.App = settleSurface(h.App, HubSurfaceID(h), e.At)
 	return h
 }
 
 // DrawnSingle is DrawnHub against a single agent.
 func DrawnSingle(x Single, e CardDrawn) Single {
-	x.App = settleSurface(noteReveal(x.App, e), SingleSurfaceID(x), e.At)
+	x.App = noteReveal(x.App, e)
+	x.App = settleSurface(x.App, SingleSurfaceID(x), e.At)
 	return x
 }
 
@@ -268,4 +270,18 @@ func settleSurface(a App, id string, at time.Time) App {
 		a.Became = Since{Surface: id, At: at}
 	}
 	return a
+}
+
+// RearmHub starts the current surface's wait afresh at at: a question or
+// a button that came up while the screen said "connecting" was never
+// drawn, so it is armed from the first moment the operator can see it.
+func RearmHub(h Hub, at time.Time) Hub {
+	h.App.Became = Since{Surface: HubSurfaceID(h), At: at}
+	return h
+}
+
+// RearmSingle is RearmHub against a single agent.
+func RearmSingle(x Single, at time.Time) Single {
+	x.App.Became = Since{Surface: SingleSurfaceID(x), At: at}
+	return x
 }

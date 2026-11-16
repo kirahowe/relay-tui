@@ -644,6 +644,19 @@ const MinWidth, MinHeight = 80, 24
 // tooSmall says the terminal is smaller than relay-tui draws in.
 func (m Model) tooSmall() bool { return m.sized && (m.w < MinWidth || m.h < MinHeight) }
 
+// frameDrawn says View draws the screen's frame: not the connecting line,
+// not the too-small message, and not the transcript view over the pane.
+// What the core is told of the frame (tellCardDrawn, paneCard) is decided
+// here too, so it cannot say a card is shown when View draws something
+// else.
+func (m Model) frameDrawn() bool {
+	return !m.waiting() && !m.tooSmall() && !m.alt
+}
+
+// waiting says View draws the connecting line: the screen is not known
+// yet, or the input held while connecting is not yet replayed.
+func (m Model) waiting() bool { return m.kind == kindUnknown || m.holding }
+
 // width is the width everything is drawn at: one column narrower than
 // the screen, so a wide grapheme measured differently cannot wrap (Bubble
 // Tea #1802), and printed boxes line up with the input box.
@@ -658,7 +671,7 @@ func (m Model) transcriptFrame(now time.Time) render.TranscriptFrame {
 }
 
 func (m Model) View() tea.View {
-	if m.kind == kindUnknown || m.holding {
+	if m.waiting() {
 		// On the alternate screen, so it leaves nothing behind: the hub's
 		// screen replaces it, and against a plain agent leaving it gives
 		// the inline view the terminal as it was.
