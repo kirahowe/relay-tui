@@ -142,3 +142,22 @@ func TestALongChecklistItemCanBeReadToItsEnd(t *testing.T) {
 	}
 	t.Fatal("page down never brought the item's end into view")
 }
+
+// Review of relay#110's rebuild: on a short pane the key hints took every
+// row an open tracker had for its body, so the selected row could not be
+// drawn and x could never tick it. The hints give way to the body.
+func TestTheHintsGiveWayToTheCardsBody(t *testing.T) {
+	for _, c := range []core.Card{cardTracker, cardChecklist} {
+		for height := 4; height <= 12; height++ {
+			s := detail(boardState(true, c), c.ID, 1, 0)
+			rows, pd := paneRender(s.App, s.State, t0, 44, height)
+			if len(rows) != height {
+				t.Fatalf("%s at height %d: %d rows", c.Title.Text, height, len(rows))
+			}
+			pr := paneParts(s.App, s.State, t0, 44)
+			if fits := len(pr.head)+len(pr.foot)+3 <= height; fits && !pd.Card.Shown {
+				t.Fatalf("%s at height %d: the selected line is not drawn:\n%s", c.Title.Text, height, ansi.Strip(strings.Join(rows, "\n")))
+			}
+		}
+	}
+}

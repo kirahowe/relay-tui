@@ -237,6 +237,10 @@ type parts struct {
 	cardID int64
 	top    int
 	follow bool
+	// hints is the key hints drawn in the pane, under the foot. An open
+	// card's body comes before them: they give way when it would have no
+	// row.
+	hints []string
 	// keys is the pane's key hints, "key what · key what"; a panel puts
 	// them on the screen's row of hints rather than in the pane.
 	keys string
@@ -359,7 +363,7 @@ func detailBody(it core.Item, width int) []string {
 func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]string, paneDrawn) {
 	pr := paneParts(a, s, now, max(width, 1))
 	if pr.keys != "" {
-		pr.foot = append(pr.foot, wrap(styleKeys(pr.keys), max(width, 1))...)
+		pr.hints = wrap(styleKeys(pr.keys), max(width, 1))
 	}
 	return paneDraw(s, pr, width, height)
 }
@@ -396,6 +400,7 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, paneDrawn) {
 	if pr.card != nil {
 		return cardDraw(pr, width, height)
 	}
+	pr.foot = append(pr.foot, pr.hints...)
 	avail := height - len(pr.head) - len(pr.foot)
 	var all []string
 	maxScroll := 0
@@ -462,6 +467,11 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	if boxed(width) && height >= 2 {
 		border = 2
 	}
+	if len(pr.body) > 0 {
+		cut := max(len(pr.head)+len(pr.foot)+len(pr.hints)+border+1-height, 0)
+		pr.hints = pr.hints[:len(pr.hints)-min(cut, len(pr.hints))]
+	}
+	pr.foot = append(slices.Clone(pr.foot), pr.hints...)
 	room := height - len(pr.head) - len(pr.foot) - border
 	n := len(pr.body)
 	focused := pr.selB > pr.selA
