@@ -423,6 +423,18 @@ func TestHubRoleTitlesAreShownSafely(t *testing.T) {
 	}
 }
 
+// relay sends a title ready to show (relay#120), so its escapes are shown
+// as sent, never doubled, and a link relay broke stays broken.
+func TestHubRoleTitleRelaySentIsShownAsSent(t *testing.T) {
+	sent := `Help\u{200b}er \\ hxxps://evil[.]test/?d=CANARY`
+	if got := roleName(core.Role{ID: "helper", Title: sent}); got != sent {
+		t.Fatalf("roleName(%q) = %q", sent, got)
+	}
+	if got := roleName(core.Role{ID: "helper", Title: "a\nb https://evil.test/x"}); strings.Contains(got, "\n") || strings.Contains(got, "evil.test") {
+		t.Fatalf("a newline or a whole link got through: %q", got)
+	}
+}
+
 // Nothing on the dashboard speaks of labels, holds, trust or approvals,
 // whatever the session has seen: Kira is told where a thing came from,
 // not how it was marked.

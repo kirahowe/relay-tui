@@ -121,11 +121,16 @@ var hubLegend = []string{
 	"~ scheduled work runs   ● unread",
 }
 
-// roleName is a role's title as text that may be shown: its controls and
-// invisible characters made visible, and every link in it broken. A role
-// that may add roles names them, and it may have read text from outside
-// first, so a title is not known to be the operator's own.
-func roleName(r core.Role) string { return paneLine(r.Title, true) }
+// roleName is a role's title as text that may be shown. relay sends it
+// ready to show, as it does a card's text (relay#120): hidden characters
+// and newlines already escaped and, when an outsider may have shaped it,
+// its links broken. So a backslash is not doubled again here. Anything
+// that does not print is still escaped, a newline included, and every
+// link broken whatever relay did: a role that may add roles names them,
+// and it may have read text from outside first.
+func roleName(r core.Role) string {
+	return Defang(strings.ReplaceAll(core.EscapeNonPrinting(r.Title), "\n", `\n`))
+}
 
 // marks are the indicators beside a role, styled. They are in the order
 // of how much they need the operator.
