@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/kirahowe/relay-tui/internal/a2ui"
 	"github.com/kirahowe/relay-tui/internal/core"
 )
 
@@ -157,6 +158,48 @@ func TestTheHintsGiveWayToTheCardsBody(t *testing.T) {
 			pr := paneParts(s.App, s.State, t0, 44)
 			if fits := len(pr.head)+len(pr.foot)+3 <= height; fits && !pd.Card.Shown {
 				t.Fatalf("%s at height %d: the selected line is not drawn:\n%s", c.Title.Text, height, ansi.Strip(strings.Join(rows, "\n")))
+			}
+		}
+	}
+}
+
+// The pane hands out its rows in one order (cardDraw): on any pane with
+// room for its head, its foot and the frame, the frame is drawn; with a
+// row more, so is the focused line. Review round three of relay#110's
+// rebuild found a tracker's long cell line and an empty surface each
+// crowding the card out on a short pane.
+func TestTheCardComesFirstOnAShortPane(t *testing.T) {
+	long := cardTracker
+	long.Rows = []core.CardElem{{ID: 1, CardText: ct(strings.Repeat("long row ", 20))}}
+	long.Columns, long.Cells = nil, nil
+	for i := range 8 {
+		long.Columns = append(long.Columns, core.CardElem{ID: i + 1, CardText: ct("Period")})
+	}
+	empty := plainSurface(t, 1, true, "")
+	empty.Owner = "steward"
+	empty.Surface.A2UI.Components = map[string]a2ui.Component{"root": {ID: "root", Type: "Column", Props: map[string]any{"children": []any{}}}}
+	// The reviewer's case: a 44 by 8 pane, the long row selected.
+	s := detail(boardState(true, long), long.ID, 1, 0)
+	if rows, pd := paneRender(s.App, s.State, t0, 44, 8); !pd.Card.Shown {
+		t.Fatalf("the long row is not drawn at 44x8:\n%s", ansi.Strip(strings.Join(rows, "\n")))
+	}
+	hostile, _ := surfaceCard(t, "hostile", 1)
+	cards := []core.Card{cardTracker, long, cardChecklist, cardNote, empty, hostile}
+	for _, c := range cards {
+		for _, width := range []int{30, 44, 60} {
+			for height := 1; height <= 16; height++ {
+				line := min(1, c.Lines()-1)
+				s := detail(boardState(true, c), c.ID, line, 0)
+				pr := paneParts(s.App, s.State, t0, width)
+				rows, pd := paneRender(s.App, s.State, t0, width, height)
+				flat := ansi.Strip(strings.Join(rows, "\n"))
+				need := len(pr.head) + len(pr.foot)
+				if need+2 <= height && (!strings.Contains(flat, "╭") || !strings.Contains(flat, "╰")) {
+					t.Fatalf("%s at %dx%d: no frame:\n%s", c.Title.Text, width, height, flat)
+				}
+				if need+3 <= height && !pd.Card.Shown {
+					t.Fatalf("%s at %dx%d: the focused line is not drawn:\n%s", c.Title.Text, width, height, flat)
+				}
 			}
 		}
 	}

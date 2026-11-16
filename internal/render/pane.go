@@ -237,10 +237,10 @@ type parts struct {
 	cardID int64
 	top    int
 	follow bool
-	// hints is the key hints drawn in the pane, under the foot. An open
-	// card's body comes before them: they give way when it would have no
-	// row.
-	hints []string
+	// hints is the key hints drawn in the pane, under the foot, and info
+	// a line about an open card drawn under it (a tracker's cell). Both
+	// give way to the card itself on a short pane (see cardDraw).
+	hints, info []string
 	// keys is the pane's key hints, "key what · key what"; a panel puts
 	// them on the screen's row of hints rather than in the pane.
 	keys string
@@ -400,7 +400,7 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, paneDrawn) {
 	if pr.card != nil {
 		return cardDraw(pr, width, height)
 	}
-	pr.foot = append(pr.foot, pr.hints...)
+	pr.foot = append(append(pr.info, pr.foot...), pr.hints...)
 	avail := height - len(pr.head) - len(pr.foot)
 	var all []string
 	maxScroll := 0
@@ -461,31 +461,37 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, paneDrawn) {
 // the pane's head and foot, and inside it the part of the body the window
 // holds, with marks for what is above and below. A card that fits is
 // framed as tall as it is.
+//
+// The rows go out in one order, so a short pane loses the least of it:
+// the head and the foot first, since the foot holds what the operator is
+// answering; then the frame's borders, which say whose card it is and
+// where its text came from; then a row of body; then the line about the
+// card under it (info), then the key hints; and the body takes the rest.
 func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	f := pr.card
-	border := 0
-	if boxed(width) && height >= 2 {
-		border = 2
-	}
-	if len(pr.body) > 0 {
-		cut := max(len(pr.head)+len(pr.foot)+len(pr.hints)+border+1-height, 0)
-		pr.hints = pr.hints[:len(pr.hints)-min(cut, len(pr.hints))]
-	}
-	pr.foot = append(slices.Clone(pr.foot), pr.hints...)
-	room := height - len(pr.head) - len(pr.foot) - border
 	n := len(pr.body)
 	focused := pr.selB > pr.selA
 	cs := core.CardScroll{Card: pr.cardID, Shown: !focused}
-	var all []string
-	switch {
-	case room == 0 && border > 0:
-		// Room for the borders and none for the body: the frame still
-		// says whose card it is and where its text came from.
-		all = append(append(append([]string(nil), pr.head...), panel(f.title, f.right, f.foot, nil, width, 2, f.focus)...), pr.foot...)
-	case room <= 0:
-		all = append(append([]string(nil), pr.head...), pr.foot...)
-		all = all[max(len(all)-height, 0):]
-	default:
+	left := height - len(pr.head) - len(pr.foot)
+	if left < 0 {
+		all := append(append([]string(nil), pr.head...), pr.foot...)
+		return finish(all[len(all)-height:], width, height), paneDrawn{Card: cs}
+	}
+	border := 0
+	if boxed(width) && left >= 2 {
+		border = 2
+	}
+	left -= border
+	least := min(n, 1, left)
+	left -= least
+	info := pr.info[:min(len(pr.info), left)]
+	left -= len(info)
+	hints := pr.hints[:min(len(pr.hints), left)]
+	left -= len(hints)
+	room := least + left
+
+	var win []string
+	if room > 0 {
 		// A page moves by the rows the window shows between its marks,
 		// less one, so each page starts on the last row of the one
 		// before and none is passed over.
@@ -499,7 +505,7 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 		}
 		cs.Top = start
 		end := min(start+room, n)
-		win := slices.Clone(pr.body[start:end])
+		win = slices.Clone(pr.body[start:end])
 		a, b := start, end
 		if room >= 3 {
 			if start > 0 {
@@ -513,14 +519,20 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 		}
 		// The focused line is on the screen when its first row is.
 		cs.Shown = !focused || a <= pr.selA && pr.selA < b
-		if border > 0 {
-			win = panel(f.title, f.right, f.foot, win, width, len(win)+2, f.focus)
-		}
-		for len(win) < room+border {
-			win = append(win, "") // the foot stays at the bottom
-		}
-		all = append(append(append([]string(nil), pr.head...), win...), pr.foot...)
 	}
+	if border > 0 {
+		win = panel(f.title, f.right, f.foot, win, width, len(win)+2, f.focus)
+	}
+	for len(win) < room+border {
+		win = append(win, "") // what is under the card stays at the bottom
+	}
+	all := append(append([]string(nil), pr.head...), win...)
+	all = append(append(append(all, info...), pr.foot...), hints...)
+	return finish(all, width, height), paneDrawn{Card: cs}
+}
+
+// finish cuts lines to the pane: height rows, none wider than width.
+func finish(all []string, width, height int) []string {
 	all = all[:min(len(all), height)]
 	for i, l := range all {
 		all[i] = truncate(l, width)
@@ -528,7 +540,7 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	for len(all) < height {
 		all = append(all, "")
 	}
-	return selfContained(all), paneDrawn{Card: cs}
+	return selfContained(all)
 }
 
 // reveal is where a window of room rows over n starts so that rows a to

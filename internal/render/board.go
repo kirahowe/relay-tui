@@ -535,7 +535,7 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 	case listing:
 		pr.keys = linkListHint(*b.Links, links, "esc back")
 	case b.Detail && sel >= 0:
-		pr.foot = cellLine(b, c, live, width)
+		pr.info = cellLine(b, c, live, width)
 		switch c.Kind {
 		case core.CardChecklist:
 			pr.keys = "↑↓ select · pgup/pgdn scroll · x tick · a add · e edit · " + linksKey + "X archive · r reload · b workspace · esc back"
