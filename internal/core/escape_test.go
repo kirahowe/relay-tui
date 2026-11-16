@@ -103,8 +103,12 @@ func TestEscapeLabelRoundTrip(t *testing.T) {
 // Regression (Codex review): variation selectors and other code points
 // that draw as nothing pass unicode.IsPrint, so a run of them could carry
 // text the person never sees. They show escaped.
+// The Brahmi number joiner and the Duployan thick letter selector are
+// marks that draw as nothing by design and are in neither Unicode's
+// default-ignorable set nor relay's list of it, so relay names them in
+// renders-blank (relay#130).
 func TestInvisibleCodePointsAreEscaped(t *testing.T) {
-	for _, r := range []rune{0xFE0F, 0xE0100, 0xE01EF, 0x180B, 0x034F, 0x115F, 0x3164, 0x2800, 0x1D159, 0xE0041} {
+	for _, r := range []rune{0xFE0F, 0xE0100, 0xE01EF, 0x180B, 0x034F, 0x115F, 0x3164, 0x2800, 0x1D159, 0xE0041, 0x1107F, 0x1BC9D} {
 		if got := EscapeLabel("a" + string(r) + "b"); got == "a"+string(r)+"b" {
 			t.Errorf("U+%04X shown as itself", r)
 		}
@@ -130,7 +134,10 @@ func TestDropHidden(t *testing.T) {
 		"a\u00adb\u200bc\u200ed\ufeffe":    "abcde",
 		"a\u2800b\x1bc\ue000d":             "abcd",
 		"e\u0301 stays":                    "e\u0301 stays",
-		"plain text\n\twith a tab":         "plain text\n\twith a tab",
+		// Two marks invisible by design, which relay.text/hidden? takes too.
+		"https:\U0001107F//evil.test": "https://evil.test",
+		"www\U0001BC9D.evil.test":     "www.evil.test",
+		"plain text\n\twith a tab":    "plain text\n\twith a tab",
 		// A code point with no character assigned, and a noncharacter.
 		"https:\u0378//evil.test": "https://evil.test",
 		"www\uffff.evil.test":     "www.evil.test",

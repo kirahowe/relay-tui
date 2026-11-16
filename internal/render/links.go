@@ -158,8 +158,15 @@ func pieces(row string) []piece {
 // itself: a "://" after anything but a broken scheme, a www. host, or a
 // scheme a finder follows with a colon and no "//". It is the check on
 // rows as drawn, and what it finds is what Defang breaks (schemeSepRE
-// and colonSchemes are Defang's own).
+// and colonSchemes are Defang's own). The text is judged as written and
+// with every character that takes no cell skipped, since a finder may
+// read past those (relay#130): Markdown can move emoji glue inside a
+// "://" that the source did not hold.
 func linkable(plain string) bool {
+	return linkableAsWritten(plain) || (holdsNoAdvance(plain) && linkableAsWritten(withoutNoAdvance(plain)))
+}
+
+func linkableAsWritten(plain string) bool {
 	for _, m := range schemeSepRE.FindAllString(plain, -1) {
 		if len(m) == 3 {
 			return true

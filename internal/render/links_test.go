@@ -58,9 +58,11 @@ func TestFang(t *testing.T) {
 // of another script before the "://", which a terminal's finder may read
 // as part of a scheme, and a scheme broken already over a host that is
 // not. What relay broke itself is left as it came, its fxp for ftp too.
+// A word whose address shows once the characters that take no cell are
+// skipped is broken as that address (relay#130).
 func TestNoWordSkipsTheLinkBreaker(t *testing.T) {
 	for in, want := range map[string]string{
-		"https\u200d://evil.test/?d=1": "https\u200d[:]//evil.test/?d=1",
+		"https\u200d://evil.test/?d=1": "hxxps://evil[.]test/?d=1",
 		"é://evil.test/x":              "é[:]//evil.test/x",
 		"hxxps://evil.test/?d=1":       "hxxps://evil[.]test/?d=1",
 		"fxp://files[.]example/a":      "fxp://files[.]example/a",
@@ -996,6 +998,29 @@ func followable(plain string) bool {
 func bare(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// skipped is s without every character a link finder might read past as
+// though it were not there, by Go's own Unicode tables and not the lists
+// the code under test keeps (relay#130): the marks that take no cell of
+// their own (Mn, Me), the format characters, the variation selectors,
+// the other default-ignorable code points, the Hangul jamo vowels and
+// finals that join a syllable, and three that draw as nothing on their
+// own: the Brahmi number joiner, the Duployan thick letter selector and
+// the combining keycap.
+func skipped(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf, unicode.Variation_Selector, unicode.Other_Default_Ignorable_Code_Point,
+			unicode.Other_Grapheme_Extend),
+			r >= 0x1160 && r <= 0x11FF, r >= 0xD7B0 && r <= 0xD7FF, r == 0x1107F, r == 0x1BC9D, r == 0x20E3,
+			// What unicode-width gives no cell that no table above holds:
+			// the Prepend letters and U+A8FA, written out here.
+			r == 0x0D4E, r == 0x111C2, r == 0x111C3, r == 0x11A3A, r == 0x11D46, r == 0x1193F, r == 0x11941, r == 0xA8FA:
 			return -1
 		}
 		return r

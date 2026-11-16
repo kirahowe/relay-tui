@@ -43,17 +43,49 @@ var defaultIgnorable = [][2]rune{
 }
 
 // blankGlyph says whether r is default-ignorable, or draws as an empty
-// space without being one: the braille blank, the musical null notehead
-// and the Khitan filler.
+// space or as nothing without being one: the braille blank, the musical
+// null notehead, the Khitan filler, and two marks that are invisible by
+// design, the Brahmi number joiner and the Duployan thick letter
+// selector (relay.text/renders-blank).
 func blankGlyph(r rune) bool {
 	switch r {
-	case 0x2800, 0x1D159, 0x16FE4:
+	case 0x2800, 0x1D159, 0x16FE4, 0x1107F, 0x1BC9D:
 		return true
 	}
 	for _, rg := range defaultIgnorable {
 		if r >= rg[0] && r <= rg[1] {
 			return true
 		}
+	}
+	return false
+}
+
+// NoAdvance says r takes no cell of its own, so a link finder may read
+// past it as though it were not there (relay#130): what a common width
+// table (Rust's unicode-width, which Alacritty uses) gives no cell. That
+// is a Grapheme_Extend character (Mn, Me, and the spacing marks Unicode
+// lists as Other_Grapheme_Extend, U+0BBE among them), a character that
+// joins the one after it (Grapheme_Cluster_Break=Prepend, and U+A8FA), a
+// format character, a character that draws as nothing (blankGlyph), or a
+// Hangul jamo vowel or final that joins the syllable before it. Such a
+// character can hide an address from a breaker that goes by letters.
+func NoAdvance(r rune) bool {
+	if r < 0x300 {
+		return r == 0xAD
+	}
+	return unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf, unicode.Other_Grapheme_Extend) || blankGlyph(r) ||
+		(r >= 0x1160 && r <= 0x11FF) || (r >= 0xD7B0 && r <= 0xD7FF) || prepend(r)
+}
+
+// prepend says r is Grapheme_Cluster_Break=Prepend (Unicode 16's list,
+// which Go's tables do not carry) or U+A8FA, which unicode-width also
+// gives no cell.
+func prepend(r rune) bool {
+	switch {
+	case r >= 0x0600 && r <= 0x0605, r == 0x06DD, r == 0x070F, r >= 0x0890 && r <= 0x0891, r == 0x08E2,
+		r == 0x0D4E, r == 0x110BD, r == 0x110CD, r >= 0x111C2 && r <= 0x111C3, r == 0x113D1, r == 0x1193F,
+		r == 0x11941, r == 0x11A3A, r >= 0x11A84 && r <= 0x11A89, r == 0x11D46, r == 0x11F02, r == 0xA8FA:
+		return true
 	}
 	return false
 }

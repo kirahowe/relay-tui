@@ -168,14 +168,23 @@ are left as written for now. The label itself is never shown, and
 nothing is held or withheld because of it. relay-tui never sends
 `resource_link` blocks.
 
-In such a session relay-tui first takes every hidden character out of
-what the agent writes: a zero-width space or joiner, a variation
+Against a relay without `relay/inertText` (see below), or a plain ACP
+agent, relay-tui does this itself, and in such a session it first takes
+every hidden character out of what the agent writes: a zero-width space or joiner, a variation
 selector, a filler, a bidi mark, a control. One of those inside `://` or
 `www.` would hide a link from relay-tui and might not hide it from your
 terminal. With it gone the pieces come together, and the link is broken
 like any other. The joiner or selector that holds an emoji together
 stays. The rule is relay's own (`relay.text/hidden?` and `emoji-glue?`),
 and relay's docs/client-protocol.md has it for every client.
+
+A combining mark or a Hangul vowel takes no cell of its own either, and
+a link finder may read past it, but such characters are not hidden: they
+show on the letter before them. So relay-tui's own breaker reads each
+word a second time with them skipped. If the skipped word holds a link the word as
+written does not, that link is broken and shown in the word's place.
+Every other word keeps its marks. The rows as drawn get the same second
+reading, which catches the keycap glue Markdown can move inside a `://`.
 
 Some lines carry no mark of where their words came from, and those have
 their links broken always, after the same hidden characters are gone: a role's title, which another role may have
@@ -201,7 +210,8 @@ form). Where a broken form stands in the text as relay wrote it, with
 nothing after it in its word but closing marks, it becomes the hyperlink
 to the address relay listed. An agent's reply comes as the agent wrote
 it and has no such list, so a whole address in it that is in the set is
-drawn the same way.
+drawn the same way. That holds for a reply from a relay without
+`relay/inertText`; one that has it lists a reply's links as well.
 
 A relay whose `initialize` says `relay/inertText` makes a contaminated
 session's text inert itself: every link broken, hidden characters shown

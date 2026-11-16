@@ -36,7 +36,59 @@ var schemeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.\-]*$`)
 // character either side of it in its word, and never one that stands in
 // [.] already. So the full stop that ends a sentence after a link stays
 // a full stop, as relay sent it.
-func Defang(s string) string {
+//
+// A word is first judged with its characters that take no cell skipped
+// (unhide), so a mark inside an address does not hide it.
+func Defang(s string) string { return breakLinks(unhide(s)) }
+
+// unhide is s with each word whose characters that take no cell
+// (core.NoAdvance) hide an address made that address, broken (relay#130).
+// Defang finds a link by its letters, so a mark or a jamo after "https:"
+// or inside www hides the link from it, while a finder that skips such
+// characters follows it. Where the word as skipped holds a link that the
+// word as written does not, the skipped form is broken and shown in its
+// place. Every other word keeps its marks, so ordinary text in a script
+// that uses them is left as written.
+func unhide(s string) string {
+	if !holdsNoAdvance(s) {
+		return s
+	}
+	return wordRE.ReplaceAllStringFunc(s, func(w string) string {
+		sk := withoutNoAdvance(w)
+		if sk == w {
+			return w
+		}
+		broken := breakLinks(sk)
+		if broken == sk || withoutNoAdvance(breakLinks(w)) == broken {
+			return w
+		}
+		return broken
+	})
+}
+
+// holdsNoAdvance says s holds a character that takes no cell. ASCII
+// holds none, and most text is ASCII.
+func holdsNoAdvance(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return strings.IndexFunc(s[i:], core.NoAdvance) >= 0
+		}
+	}
+	return false
+}
+
+// withoutNoAdvance is s with every character that takes no cell taken out.
+func withoutNoAdvance(s string) string {
+	return strings.Map(func(r rune) rune {
+		if core.NoAdvance(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// breakLinks is Defang on text whose words are judged as written.
+func breakLinks(s string) string {
 	var b strings.Builder
 	at := 0
 	for _, m := range urlRE.FindAllStringIndex(s, -1) {
