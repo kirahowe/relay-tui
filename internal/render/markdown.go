@@ -108,6 +108,11 @@ func (m *mdRenderer) blocks(n ast.Node, width int, base style, tight bool) []str
 }
 
 func (m *mdRenderer) block(n ast.Node, width int, base style) []string {
+	// Each quote level and list item takes columns from the width, so
+	// text nested deeper than the screen is wide would have none, or
+	// less than none. It gets one column; indent leaves the marks off
+	// where too few columns would be left for them.
+	width = max(width, 1)
 	switch n := n.(type) {
 	case *ast.Paragraph:
 		if m.isTable(n) {
