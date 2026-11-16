@@ -387,3 +387,61 @@ func TestATerminalTooSmallTakesNoKeys(t *testing.T) {
 		}
 	}
 }
+
+// tallButtons is a surface card of gap lines of text, a button that tells
+// the role, and tail more lines of text.
+func tallButtons(t tb, id int64, gap, tail int) core.Card {
+	t.Helper()
+	comps := map[string]a2ui.Component{}
+	var kids []any
+	addText := func(n int) {
+		for range n {
+			cid := fmt.Sprintf("t%03d", len(comps))
+			comps[cid] = a2ui.Component{ID: cid, Type: "Text", Props: map[string]any{"text": fmt.Sprintf("text %03d", len(comps))}}
+			kids = append(kids, cid)
+		}
+	}
+	addText(gap)
+	comps["label"] = a2ui.Component{ID: "label", Type: "Text", Props: map[string]any{"text": "Plan it"}}
+	comps["go"] = a2ui.Component{ID: "go", Type: "Button", Props: map[string]any{"child": "label",
+		"action": map[string]any{"event": map[string]any{"name": "plan"}}}}
+	kids = append(kids, "go")
+	addText(tail)
+	comps["root"] = a2ui.Component{ID: "root", Type: "Column", Props: map[string]any{"children": kids}}
+	s := a2ui.Surface{ID: fmt.Sprintf("card_%d", id), CatalogID: a2ui.RelayCatalogID, Components: comps, Data: map[string]any{}}
+	if err := a2ui.Resolved(s); err != nil {
+		t.Fatal(err)
+	}
+	return core.Card{ID: id, Rev: 1, Kind: core.CardSurface, Status: core.CardActive, Owner: "steward",
+		Title: core.CardText{Text: "Trip prep", Outsider: true, Rev: 1}, Text: "a surface",
+		Surface: &core.RoleSurface{Outsider: true, A2UI: s}}
+}
+
+// A button is focused with tab and pressed with x, like a box, and only
+// while all of it is on the screen: with the button scrolled out of sight
+// the key brings it back and sends nothing, and a press that is too soon
+// after the focus came sends nothing either.
+func TestAButtonInATallCardIsPressedOnlyWhileOnTheScreen(t *testing.T) {
+	var ops []core.CardOp
+	m := tallHub(t, &ops, 170, 24, tallButtons(t, 1, 2, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyPgDown}, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if strings.Contains(screen(m), "Plan it") {
+		t.Fatalf("the button is still on the screen:\n%s", screen(m))
+	}
+	// Armed, but off the screen: it comes back and nothing is sent.
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	m = update(m, letter('x'))
+	if len(ops) != 0 || !strings.Contains(screen(m), "Plan it") {
+		t.Fatalf("x off the screen: ops %v\n%s", ops, screen(m))
+	}
+	if m = update(m, letter('x')); len(ops) != 1 || ops[0].Op != "press" || *ops[0].Component != "go" || *ops[0].Seen != 1 {
+		t.Fatalf("x on the screen: ops %+v", ops)
+	}
+	// The focus on a button for less than ArmDelay presses nothing.
+	ops = nil
+	m = tallHub(t, &ops, 170, 24, tallButtons(t, 1, 2, 60))
+	m = update(m, tea.KeyPressMsg{Code: tea.KeyTab}, letter('x'))
+	if len(ops) != 0 {
+		t.Fatalf("a press right after the focus came: %+v", ops)
+	}
+}

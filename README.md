@@ -329,13 +329,30 @@ line breaks it was written with. In a note of your own a `#` heading and
 from outside shows exactly as relay sent it, marks and all: taking a
 mark out changes what the text reads as, and relay checked it as it was.
 A surface card is a card a role lays out itself from relay's catalog:
-text, rows, columns, lists, boxes, rules and checkboxes. relay-tui draws
-what relay sent, in the card's panel, and you can tick and untick a
-checkbox, and nothing else on it. A checkbox with a fixed value is not a
-line you can select. In an open surface card, tab and shift+tab move the
-focus over the title and then each checkbox, and x or space sends relay
-the opposite of the value shown. A surface relay-tui cannot draw in full shows the card's
-text form instead. The frame around a surface is relay-tui's own: the
+text, rows, columns, lists, boxes, rules, checkboxes and buttons.
+relay-tui draws what relay sent, in the card's panel, and you can tick and
+untick a checkbox and press a button, and nothing else on it. A checkbox
+with a fixed value is not a line you can select. A button is drawn as its
+label between brackets, in the accent colour and bold when the role marks
+it primary and faint otherwise. It is never underlined and never a link,
+even when its label is the text of a live link. In an open surface card,
+tab and shift+tab move the focus over the title and then each checkbox
+and button in the order they are drawn, and up and down scroll. On a
+checkbox, x or space sends relay the opposite of the value shown. On a button, x or space sends relay `press` with the
+button's id and the rev you saw, and nothing else, and then shows the card
+relay answers with. relay-tui never does what a button says itself: relay
+either sets the box the button names or tells the role that owns the card,
+which costs it a model turn. A press is therefore taken like a yes to an
+archive question: only from a key you pressed live, at least
+`core.ArmDelay` after the focus came to that button on that copy of the
+card, and never from a key held while connecting. A key that comes sooner
+says so and does nothing. If relay refuses a press, for instance because
+the role has not yet read your last press of that button, the refusal is
+shown as relay wrote it. A surface with a button in any other form than
+relay sends (another function, a link to open, a message or context, a
+label that is not text) shows the card's text form, as does any
+surface relay-tui cannot draw in full. Like a box, a button is pressed only
+while all of it is on the screen. The frame around a surface is relay-tui's own: the
 top corner names the card's owner, the role that laid it out, and "from
 outside" is on the bottom border when the surface or its title may have
 been written outside. Text an outsider may have written is drawn exactly as
@@ -372,7 +389,8 @@ Keys on the board:
 - x or space ticks or unticks the selected item. On a tracker it moves
   the selected cell from open to done to skipped and back to open. On a
   surface card it sends relay the opposite of the selected checkbox's
-  value, with the path it is bound to and the rev you saw.
+  value, with the path it is bound to and the rev you saw, or presses
+  the selected button (see above; a button's press is armed).
 - In an open card, a adds an item to a checklist or a row to a tracker,
   and A adds a column.
 - e edits the selected line's text: the title, an item or a row's name.

@@ -64,24 +64,28 @@ func genOperator(t *rapid.T, at time.Time) Event {
 }
 
 // authorizes says an effect acts on the operator's yes: an archive, an
-// end, a link kept or dropped.
+// end, a link kept or dropped, a button pressed.
 func authorizes(f Effect) bool {
 	switch f := f.(type) {
 	case EndConversation, SendLink:
 		return true
 	case SendCardOp:
-		return f.Op.Op == "archive"
+		return f.Op.Op == "archive" || f.Op.Op == "press"
 	}
 	return false
 }
 
 // asks is the surface whose yes an effect needs.
 func asks(f Effect, surf Surface) bool {
-	switch f.(type) {
+	switch f := f.(type) {
 	case EndConversation:
 		return surf.Kind == SurfaceEnd
 	case SendLink:
 		return surf.Kind == SurfaceLinkAsk || surf.Kind == SurfaceReadyLinkAsk
+	case SendCardOp:
+		if f.Op.Op == "press" {
+			return surf.Kind == SurfacePane
+		}
 	}
 	return surf.Kind == SurfaceArchive
 }
@@ -200,14 +204,14 @@ func boardEvent(t *rapid.T, at time.Time, n uint64) Event {
 		c.Status = CardArchived
 		return CardsChanged{At: at, Rev: rev, Cards: []Card{c}}
 	}
-	return CardsLoaded{At: at, Rev: rev, Cards: []Card{linkCard(50, rev), checklist(10, rev, false), checklist(30, rev, true)}}
+	return CardsLoaded{At: at, Rev: rev, Cards: []Card{linkCard(50, rev), checklist(10, rev, false), checklist(30, rev, true), buttonsOn(60)}}
 }
 
 func TestSurfaceRulesInTheHubCore(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		h, _ := apply(t, NewHub("dev"), HubConnected{At: t0}, RosterUpdate{At: t0, Roles: []Role{role("dev", "s1"), role("mail", "s2")}},
 			Attached{At: t0, Role: "dev", Session: "s1"}, Attached{At: t0, Role: "mail", Session: "s2"},
-			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false)}},
+			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false), buttonsOn(60)}},
 			LinksLoaded{At: t0, Rev: 40, Live: []string{liveA}},
 			ReadyLoaded{At: t0, Rev: 40, Items: []ReadyItem{linkItem()}})
 		surfaceChecks(t, h, ReduceHub, HubSurface, HubSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
@@ -236,7 +240,7 @@ func TestSurfaceRulesInTheHubCore(t *testing.T) {
 func TestSurfaceRulesInTheSingleCore(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		x, _ := feedS(Single{}, Connected{At: t0},
-			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false)}},
+			CardsLoaded{At: t0, Rev: 40, Cards: []Card{linkCard(50, 40), checklist(10, 10, false, true), checklist(30, 40, false), buttonsOn(60)}},
 			LinksLoaded{At: t0, Rev: 40, Live: []string{liveA}},
 			ItemsLoaded{At: t0, Items: []Item{shownItem}})
 		surfaceChecks(t, x, ReduceSingle, SingleSurface, SingleSurfaceID, func(t *rapid.T, at time.Time, n uint64) Event {
@@ -303,4 +307,12 @@ func cardIndex(b Board, id int64) int {
 		}
 	}
 	return -1
+}
+
+// buttonsOn is the card of buttons with another id, for the runs that
+// move among cards.
+func buttonsOn(id int64) Card {
+	c := buttonCard(40)
+	c.ID = id
+	return c
 }

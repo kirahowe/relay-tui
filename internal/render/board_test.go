@@ -107,7 +107,19 @@ func TestBoardGolden(t *testing.T) {
 	text := core.Card{ID: 1882, Kind: "surface?", Status: core.CardActive, Rev: 1882, Owner: "steward",
 		Title: ct("Pack for the lake weekend"), Labels: core.Labels{Private: true},
 		Text: "Card 1882: Pack for the lake weekend (surface) [[card:1882]]\nTent and stakes: done\nSleeping bags: open"}
+	buttons, buttonLive := surfaceCard(t, "buttons", 1883)
+	buttons.Labels.Contaminated = true
+	closedButtons := boardState(true, buttons)
+	closedButtons.App.Links = buttonLive
+	openButtons := func(line int) core.Single {
+		s := detail(closedButtons, buttons.ID, line, 0)
+		return s
+	}
 	cases := map[string]core.Single{
+		"buttons":         closedButtons,
+		"buttons_box":     openButtons(1),
+		"buttons_button":  openButtons(2),
+		"buttons_primary": openButtons(7),
 		"surface":         withSurface,
 		"surface_detail":  detail(withSurface, surface.ID, 3, 0),
 		"surface_outside": outside,

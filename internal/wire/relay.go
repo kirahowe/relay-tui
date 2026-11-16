@@ -211,6 +211,9 @@ func CardOpParams(card int64, op core.CardOp) map[string]any {
 	if op.Value != nil {
 		m["value"] = *op.Value
 	}
+	if op.Component != nil {
+		m["component"] = *op.Component
+	}
 	if op.Seen != nil {
 		m["seen"] = *op.Seen
 	}

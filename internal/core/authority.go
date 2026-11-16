@@ -7,7 +7,10 @@ import (
 
 // Three things ask a yes of the operator: ending a conversation,
 // archiving a card, and keeping or dropping a link. Each shows all it is
-// about where it is asked, but a stray key must not answer it.
+// about where it is asked, but a stray key must not answer it. Pressing a
+// button of a surface card is a fourth: it wakes a role and costs a model
+// turn, so the key that presses it is held to the same rule, with the
+// button as what was asked (PressID).
 // A yes is taken only from a key the operator pressed, not one replayed
 // from input held while connecting, and ArmDelay after the question came
 // up (App.Became), so a key typed for what was there before cannot answer
@@ -40,6 +43,35 @@ func EndID(session string) string { return fmt.Sprintf("end/%q", session) }
 // ArchiveID names the question whether to archive card id, as it stood
 // at rev.
 func ArchiveID(id, rev int64) string { return fmt.Sprintf("archive/%d/%d", id, rev) }
+
+// PressID names the button the board's cursor is on, in card id as it
+// stood at rev: the thing a press key would act on. A press is armed
+// afresh when the cursor arrives on a button, and when the card changes
+// in any way, since the label the operator read may be another one.
+func PressID(id, rev int64, component string) string {
+	return fmt.Sprintf("press/%d/%d/%q", id, rev, component)
+}
+
+// pressing is the id of the button the board's cursor is on, or "" when
+// it is not on one.
+func pressing(a App) string {
+	b := a.Board
+	if b.Items || !b.Detail {
+		return ""
+	}
+	c, i := BoardCard(b)
+	if i < 0 || c.Kind != CardSurface || c.Surface == nil {
+		return ""
+	}
+	line := BoardLine(b, c)
+	if line == 0 {
+		return ""
+	}
+	if in := c.Inputs()[line-1]; in.Button {
+		return PressID(c.ID, c.Rev, in.ID)
+	}
+	return ""
+}
 
 // InputID names the input of role ("" against a single agent).
 func InputID(role string) string { return fmt.Sprintf("input/%q", role) }
@@ -77,14 +109,21 @@ func surfaceID(surf Surface, a App, extra string) string {
 		return InputID(extra)
 	case SurfaceConversation:
 		return fmt.Sprintf("%d/%q", surf.Kind, extra)
+	case SurfacePane:
+		if id := pressing(a); id != "" {
+			return id
+		}
 	}
 	return fmt.Sprintf("%d/%d", surf.Kind, surf.Column)
 }
 
-// authorityOf is what e needs, on surface surf.
-func authorityOf(e Event, surf Surface) authority {
+// authorityOf is what e needs, on surface surf of app a.
+func authorityOf(e Event, surf Surface, a App) authority {
 	switch e := e.(type) {
 	case PaneKey:
+		if surf.Kind == SurfacePane && e.Action == PaneMark && pressing(a) != "" {
+			return needsArmed
+		}
 		if surf.Kind == SurfaceLinkAsk && e.Action == PaneYes && e.Hidden {
 			return needsShown
 		}

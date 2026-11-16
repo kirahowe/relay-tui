@@ -550,8 +550,8 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		case core.CardTracker:
 			pr.keys = "↑↓←→ select · pgup/pgdn scroll · x mark · a row · A column · e rename · E rename column · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardSurface:
-			if len(c.Inputs()) > 0 {
-				pr.keys = "tab box · ↑↓ scroll · x tick · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
+			if verb := surfaceVerb(c); verb != "" {
+				pr.keys = "tab select · ↑↓ scroll · x " + verb + " · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			} else {
 				pr.keys = "↑↓ scroll · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			}
@@ -574,4 +574,24 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 		pr.foot = append(msg, pr.foot...)
 	}
 	return pr
+}
+
+// surfaceVerb is what x does on a surface card, by what its lines hold:
+// ticks a box, presses a button, or either, and empty when it has no
+// line to act on.
+func surfaceVerb(c core.Card) string {
+	boxes, buttons := false, false
+	for _, in := range c.Inputs() {
+		buttons = buttons || in.Button
+		boxes = boxes || !in.Button
+	}
+	switch {
+	case boxes && buttons:
+		return "tick/press"
+	case buttons:
+		return "press"
+	case boxes:
+		return "tick"
+	}
+	return ""
 }

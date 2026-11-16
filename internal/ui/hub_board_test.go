@@ -226,3 +226,69 @@ func TestHubTicksASurfaceCardsBox(t *testing.T) {
 		t.Errorf("op calls %q", calls)
 	}
 }
+
+// buttonRoles is threeRoles with relay's fixture card of buttons.
+func buttonRoles(t *testing.T) fakehub.Config {
+	t.Helper()
+	b, err := os.ReadFile("../../testdata/surfaces/buttons.card.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := threeRoles()
+	cfg.Cards = []json.RawMessage{b}
+	return cfg
+}
+
+// A button is pressed through relay: a key sooner than ArmDelay after the
+// cursor came to it sends nothing, a later one sends the press with the
+// button's id and the rev and nothing else, and the screen shows what
+// relay answers. An event button changes nothing, and a second press of
+// it is refused with relay's words until the role has taken it up.
+func TestHubPressesAButton(t *testing.T) {
+	h := startHub(t, buttonRoles(t), 170, 40, "")
+	h.waitScreen("the board", contains("Board 1"))
+	h.keys("l")
+	h.waitScreen("the pane has the keys", contains("↑↓ select"))
+	h.keys("\r")
+	h.waitScreen("the surface", contains("x tick/press"))
+	// done__0 is the second line: the box, then its button.
+	h.keys("\t\t")
+	h.waitScreen("the button", func(string) bool { return h.emu.selected("Packed") })
+	h.keys("x")
+	h.waitScreen("the note", contains("too soon"))
+	if calls := h.logged("card-op "); len(calls) != 0 {
+		t.Fatalf("a press went out too soon: %q", calls)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.keys("x")
+	h.waitScreen("the box ticked", contains("✓ Boots"))
+	calls := h.logged("card-op ")
+	if len(calls) != 1 || calls[0] != `card-op {"card":1840,"component":"done__0","op":"press","seen":1840}` {
+		t.Fatalf("op calls %q", calls)
+	}
+	// remove__0 tells the role: nothing on the card changes.
+	h.keys("\t")
+	h.waitScreen("the event button", func(string) bool { return h.emu.selected("Remove Boots") })
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.keys("x")
+	deadline := time.Now().Add(5 * time.Second)
+	for len(h.logged("card-op ")) < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls := h.logged("card-op "); len(calls) != 2 || !strings.Contains(calls[1], `"component":"remove__0"`) {
+		t.Fatalf("op calls %q", calls)
+	}
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.keys("x")
+	h.waitScreen("relay's refusal", contains("has not yet taken up your last press"))
+	h.say("take-up 1840")
+	time.Sleep(core.ArmDelay + 100*time.Millisecond)
+	h.keys("x")
+	deadline = time.Now().Add(5 * time.Second)
+	for len(h.logged("card-op ")) < 4 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if calls := h.logged("card-op "); len(calls) != 4 {
+		t.Fatalf("op calls %q", calls)
+	}
+}

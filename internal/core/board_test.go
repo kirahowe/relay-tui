@@ -1379,6 +1379,13 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 					}
 					break
 				}
+				if held.Inputs()[line-1].Button {
+					// Every key of this run is at t0, so no press is armed.
+					if len(ops) != 0 {
+						t.Fatalf("a press went out on line %d with no ArmDelay", line)
+					}
+					break
+				}
 				if len(ops) != 1 {
 					t.Fatalf("%d ops sent on input line %d", len(ops), line)
 				}

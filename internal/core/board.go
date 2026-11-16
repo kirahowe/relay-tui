@@ -147,7 +147,9 @@ type CardOp struct {
 	Text   *string
 	Path   *string // an input's path in the surface's data model
 	Value  *bool   // the value to set there
-	Seen   *int64
+	// Component is the id of the button a press is of, as relay sent it.
+	Component *string
+	Seen      *int64
 }
 
 // BoardInput is the one-line input for a card's text: an op waiting for
@@ -423,13 +425,17 @@ type boardAnchor struct {
 
 // inputKey is an input as the cursor knows it: no input has an id, and a
 // path into a list is a position, so path and label are all there is.
-type inputKey struct{ path, label string }
+type inputKey struct{ path, label, button string }
 
 // inputKeys lists a surface card's inputs as the cursor knows them.
 func (c Card) inputKeys() []inputKey {
 	var out []inputKey
 	for _, in := range c.Inputs() {
-		out = append(out, inputKey{in.Path, in.Label})
+		k := inputKey{path: in.Path, label: in.Label}
+		if in.Button {
+			k.button = in.ID
+		}
+		out = append(out, k)
 	}
 	return out
 }
@@ -552,7 +558,7 @@ func (r *reducer) cursorStays(a boardAnchor, c Card) bool {
 func (r *reducer) board(e Event) {
 	b := &r.a.Board
 	anchor, anchored := anchorOf(*b)
-	if d, ok := e.(CardOpDone); ok && d.Err == "" && b.Sending == d.CardID && b.SendingOp == "input" {
+	if d, ok := e.(CardOpDone); ok && d.Err == "" && b.Sending == d.CardID && (b.SendingOp == "input" || b.SendingOp == "press") {
 		anchor.own = true
 	}
 	defer func() { r.reanchor(anchor, anchored) }()
@@ -1022,6 +1028,14 @@ func (r *reducer) mark(c Card) {
 		// The board never writes the value itself: it asks relay for the
 		// opposite of what it holds and shows what relay answers.
 		in := c.Inputs()[line-1]
+		if in.Button {
+			// A button is pressed, never run here: relay does what it
+			// stands for and sends the card as it then is.
+			op := opOn("press")
+			op.Component, op.Seen = strp(in.ID), int64p(c.Rev)
+			r.sendOp(c.ID, op)
+			break
+		}
 		on := !in.On
 		op := opOn("input")
 		op.Path, op.Value, op.Seen = &in.Path, &on, int64p(c.Rev)

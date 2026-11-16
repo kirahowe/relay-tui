@@ -97,6 +97,14 @@ func TestCardOpParamsLeaveOutWhatIsNotSet(t *testing.T) {
 	}
 }
 
+func TestAPressIsTheFiveFieldsAndNothingElse(t *testing.T) {
+	id, seen := "remove__1", int64(1840)
+	got, _ := json.Marshal(CardOpParams(1840, core.CardOp{Op: "press", Component: &id, Seen: &seen}))
+	if string(got) != `{"card":1840,"component":"remove__1","op":"press","seen":1840}` {
+		t.Errorf("%s", got)
+	}
+}
+
 func TestCardOpOutcome(t *testing.T) {
 	ok := CardOpOutcome(1840, json.RawMessage(`{"card":`+trackerWire+`}`), nil, t0)
 	if ok.Err != "" || ok.Card == nil || ok.Card.ID != 1840 || ok.CardID != 1840 {

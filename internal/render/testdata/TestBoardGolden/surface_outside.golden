@@ -21,6 +21,6 @@
 
 
 
-␛[0;36mtab␛[m␛[0;2m box␛[m␛[0;2m • ␛[m␛[0;36m↑↓␛[m␛[0;2m scroll␛[m␛[0;2m • ␛[m␛[0;36mx␛[m␛[0;2m tick␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m retitle␛[m␛[0;2m • ␛[m␛[0;36mL␛[m␛[0;2m␛[m
-␛[0;2mlinks␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m archive␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m reload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m workspace␛[m␛[0;2m •␛[m
-␛[0;2m␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
+␛[0;36mtab␛[m␛[0;2m select␛[m␛[0;2m • ␛[m␛[0;36m↑↓␛[m␛[0;2m scroll␛[m␛[0;2m • ␛[m␛[0;36mx␛[m␛[0;2m tick␛[m␛[0;2m • ␛[m␛[0;36me␛[m␛[0;2m retitle␛[m␛[0;2m␛[m
+␛[0;2m• ␛[m␛[0;36mL␛[m␛[0;2m links␛[m␛[0;2m • ␛[m␛[0;36mX␛[m␛[0;2m archive␛[m␛[0;2m • ␛[m␛[0;36mr␛[m␛[0;2m reload␛[m␛[0;2m • ␛[m␛[0;36mb␛[m␛[0;2m␛[m
+␛[0;2mworkspace␛[m␛[0;2m • ␛[m␛[0;36mesc␛[m␛[0;2m back␛[m
