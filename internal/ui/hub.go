@@ -173,7 +173,11 @@ func (m *Model) archiveKey(k tea.KeyPressMsg, now time.Time) core.Event {
 	case "y", "Y":
 		// A yes to a link's question counts only when the frame on screen
 		// shows the link's whole host.
-		hidden := core.HubSurface(m.hub).Kind == core.SurfaceLinkAsk && !m.paneAskShown(now)
+		kind := core.HubSurface(m.hub).Kind
+		if m.kind != kindHub {
+			kind = core.SingleSurface(m.one).Kind
+		}
+		hidden := kind == core.SurfaceLinkAsk && !m.paneAskShown(now)
 		e := core.PaneKey{At: now, Action: core.PaneYes, Hidden: hidden}
 		if m.app().Board.Detail {
 			c := m.paneCard(now) // a card too small to draw hides the question too
