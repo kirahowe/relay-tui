@@ -908,7 +908,7 @@ func TestASurfaceCardHasALinePerInput(t *testing.T) {
 
 func TestTickingAnInputSendsTheInputOpAndWaits(t *testing.T) {
 	s := onBoard(surfaceCard(t, 10, 12, box{"/a", "Tent", true}, box{"/b", "Map", false}))
-	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneMark)
+	s, fx := boardKeys(s, PaneEnter, PaneTab, PaneTab, PaneMark)
 	ops := effectsOf[SendCardOp](fx)
 	if len(ops) != 1 || ops[0].Card != 10 {
 		t.Fatalf("ops %+v", ops)
@@ -922,7 +922,7 @@ func TestTickingAnInputSendsTheInputOpAndWaits(t *testing.T) {
 		t.Fatal("the board changed the value itself, or is not waiting")
 	}
 	// A key while the op is on its way is not sent, and says so.
-	s, fx = boardKeys(s, PaneUp, PaneMark)
+	s, fx = boardKeys(s, PaneBackTab, PaneMark)
 	if len(effectsOf[SendCardOp](fx)) != 0 || s.Board.Message != busyNotice {
 		t.Fatalf("sent while sending: %v, message %q", fx, s.Board.Message)
 	}
@@ -932,7 +932,7 @@ func TestTickingAnInputSendsTheInputOpAndWaits(t *testing.T) {
 		t.Fatal("relay's answer did not replace the card")
 	}
 	// The next tick is the opposite of what relay now holds.
-	_, fx = boardKeys(s, PaneDown, PaneMark)
+	_, fx = boardKeys(s, PaneTab, PaneMark)
 	if ops := effectsOf[SendCardOp](fx); len(ops) != 1 || *ops[0].Op.Path != "/b" || *ops[0].Op.Value || *ops[0].Op.Seen != 13 {
 		t.Fatalf("ops %+v", ops)
 	}
@@ -940,7 +940,7 @@ func TestTickingAnInputSendsTheInputOpAndWaits(t *testing.T) {
 
 func TestARefusedInputShowsRelaysText(t *testing.T) {
 	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}))
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneMark)
+	s, _ = boardKeys(s, PaneEnter, PaneTab, PaneMark)
 	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "The card changed since you looked."})
 	if b := s.Board; b.Message != refusedNotice || b.Failure != "The card changed since you looked." || b.Sending != 0 {
 		t.Fatalf("%+v", b)
@@ -949,7 +949,7 @@ func TestARefusedInputShowsRelaysText(t *testing.T) {
 
 func TestALiteralCheckBoxIsNotALine(t *testing.T) {
 	s := onBoard(surfaceCard(t, 10, 10, box{"", "Fixed", true}))
-	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneMark)
+	s, fx := boardKeys(s, PaneEnter, PaneTab, PaneTab, PaneMark)
 	if s.Board.Line != 0 || len(effectsOf[SendCardOp](fx)) != 0 {
 		t.Fatalf("line %d, effects %v", s.Board.Line, fx)
 	}
@@ -958,7 +958,7 @@ func TestALiteralCheckBoxIsNotALine(t *testing.T) {
 func TestAddAndEditSendNothingOnAnInput(t *testing.T) {
 	for _, a := range []PaneAction{PaneAdd, PaneAddColumn, PaneEdit, PaneEditColumn} {
 		s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}))
-		s, fx := boardKeys(s, PaneEnter, PaneDown, a)
+		s, fx := boardKeys(s, PaneEnter, PaneTab, a)
 		if s.Board.Input != nil || len(effectsOf[SendCardOp](fx)) != 0 {
 			t.Errorf("action %v: input %+v, effects %v", a, s.Board.Input, fx)
 		}
@@ -983,7 +983,7 @@ func TestTheCursorStaysOnABoxWhileTheListOfBoxesIsTheSame(t *testing.T) {
 	old := surfaceCard(t, 10, 10, box{"/i/0", "Tent", false}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false})
 	onMap := func() Single {
 		s := onBoard(old)
-		s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown)
+		s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab)
 		return s
 	}
 	// Another client's tick changes values and leaves the list alone.
@@ -1024,7 +1024,7 @@ func TestAChangedListOfBoxesSendsTheCursorToTheTitle(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := onBoard(two(10))
-			s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // on /b
+			s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab) // on /b
 			s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{c}})
 			if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
 				t.Fatalf("line %d, message %q", b.Line, b.Message)
@@ -1040,7 +1040,7 @@ func TestAChangedListOfBoxesSendsTheCursorToTheTitle(t *testing.T) {
 // the cursor still leaves the box, so x acts on nothing.
 func TestAChangedListOfBoxesMovesTheCursorWhileAFailureShows(t *testing.T) {
 	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}, box{"/b", "Map", false}))
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // on Map
+	s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab) // on Map
 	s.Board.Message, s.Board.Failure = refusedNotice, "Card 10 changed."
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{surfaceCard(t, 10, 11, box{"/a", "Tent", false})}})
 	if b := s.Board; b.Line != 0 || b.Failure == "" || b.Message == boxesChanged {
@@ -1100,7 +1100,7 @@ func TestTheCursorLeavesABoxWhenARoleEditsTheTextAroundIt(t *testing.T) {
 		return []textBox{{a, box{"/items/0/done", "Done", false}}, {b, box{"/items/1/done", "Done", false}}}
 	}
 	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows("Tent", "Stove")...))
-	s, _ = boardKeys(s, PaneEnter, PaneDown) // Tent's box
+	s, _ = boardKeys(s, PaneEnter, PaneTab) // Tent's box
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "0 of 2 done", rows("Stove", "Tent")...)}})
 	if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
 		t.Fatalf("line %d, message %q", b.Line, b.Message)
@@ -1112,7 +1112,7 @@ func TestTheCursorLeavesABoxWhenARoleEditsTheTextAroundIt(t *testing.T) {
 // the operator had stays gone.
 func TestALineThatStoppedExistingDoesNotComeBack(t *testing.T) {
 	s := onBoard(surfaceCard(t, 10, 10, box{"/a", "Tent", false}, box{"/b", "Map", false}))
-	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	s, _ = boardKeys(s, PaneEnter, PaneTab)
 	broken := Card{ID: 10, Kind: "surface?", Status: CardActive, Rev: 11, Title: txt("Pack", 10), Text: "Card 10"}
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{broken}})
 	if s.Board.Line != 0 {
@@ -1130,7 +1130,7 @@ func TestTheCursorStaysWhenRelaysAnswerToTheOperatorsOwnTickChangesTheCaption(t 
 		return []textBox{{"Tent", box{"/i/0", "Done", on}}, {"Stove", box{"/i/1", "Done", false}}}
 	}
 	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false)...))
-	s, fx := boardKeys(s, PaneEnter, PaneDown, PaneMark)
+	s, fx := boardKeys(s, PaneEnter, PaneTab, PaneMark)
 	if len(effectsOf[SendCardOp](fx)) != 1 {
 		t.Fatal("no op sent")
 	}
@@ -1150,7 +1150,7 @@ func TestAnotherClientsTickThatChangesTheCaptionSendsTheCursorToTheTitle(t *test
 		return []textBox{{"Tent", box{"/i/0", "Done", a}}, {"Stove", box{"/i/1", "Done", b}}}
 	}
 	s := onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false, false)...))
-	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	s, _ = boardKeys(s, PaneEnter, PaneTab)
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "1 of 2 done", rows(false, true)...)}})
 	if b := s.Board; b.Line != 0 || b.Message != boxesChanged {
 		t.Fatalf("line %d, message %q", b.Line, b.Message)
@@ -1158,7 +1158,7 @@ func TestAnotherClientsTickThatChangesTheCaptionSendsTheCursorToTheTitle(t *test
 	noOp(t, s)
 	// A change of values alone keeps the cursor.
 	s = onBoard(captionedCard(t, 10, 10, "0 of 2 done", rows(false, false)...))
-	s, _ = boardKeys(s, PaneEnter, PaneDown)
+	s, _ = boardKeys(s, PaneEnter, PaneTab)
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{captionedCard(t, 10, 11, "0 of 2 done", rows(false, true)...)}})
 	if b := s.Board; b.Line != 1 || b.Message != "" {
 		t.Fatalf("data only: line %d, message %q", b.Line, b.Message)
@@ -1215,7 +1215,7 @@ func onTitle(t *testing.T, s Single) {
 func TestASavedViewDoesNotPutTheCursorOnABoxNobodyChose(t *testing.T) {
 	old := surfaceCard(t, 10, 10, box{"/i/0", "Tent", false}, box{"/i/1", "Map", false}, box{"/i/2", "Stove", false})
 	s := onBoard(old)
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown) // Map
+	s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab) // Map
 	v := SaveSingle(s)
 	next := surfaceCard(t, 10, 11, box{"/i/0", "Passport", false}, box{"/i/1", "Tent", false}, box{"/i/2", "Map", false}, box{"/i/3", "Stove", false})
 	x, _ := feedS(RestoreSingle(Single{}, v), Connected{At: t0}, CardsLoaded{At: t0, Rev: 101, Cards: []Card{next}})
@@ -1249,7 +1249,7 @@ func TestALateRefusalDoesNotCarryALineToAnotherCard(t *testing.T) {
 				}
 				// While it is on its way: the other card, its second line
 				// and, on a tracker, its second column.
-				s, _ = boardKeys(s, PaneDown, PaneEnter, PaneDown, PaneDown, PaneRight)
+				s, _ = boardKeys(s, PaneTab, PaneEnter, PaneTab, PaneTab, PaneRight)
 				if c, _ := BoardCard(s.Board); c.ID != 11 || BoardLine(s.Board, c) != 2 {
 					t.Fatalf("not on line 2 of card 11: card %d line %d", c.ID, BoardLine(s.Board, c))
 				}
@@ -1271,7 +1271,7 @@ func TestALateRefusalDoesNotCarryALineToAnotherCard(t *testing.T) {
 // where they put it: that line was chosen on this card.
 func TestARefusalOnTheOpenCardKeepsItsLine(t *testing.T) {
 	s := onBoard(checklist(10, 10, false, false, false), checklist(11, 11, false, false, false))
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown, PaneEdit)
+	s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab, PaneEdit)
 	s = typeText(s, "!")
 	s, _ = boardKeys(s, PaneEnter)
 	s, _ = ReduceSingle(s, CardOpDone{At: t0, CardID: 10, Err: "Card 10 was changed at rev 12, after rev 10."})
@@ -1283,7 +1283,7 @@ func TestARefusalOnTheOpenCardKeepsItsLine(t *testing.T) {
 
 func TestACardThatChangesKindKeepsNoLine(t *testing.T) {
 	s := onBoard(checklist(10, 10, false, false, false))
-	s, _ = boardKeys(s, PaneEnter, PaneDown, PaneDown)
+	s, _ = boardKeys(s, PaneEnter, PaneTab, PaneTab)
 	next := surfaceCard(t, 10, 11, box{"/a", "Pay rent", false}, box{"/b", "Cancel insurance", false}, box{"/c", "Sell car", false})
 	s, _ = ReduceSingle(s, CardsChanged{At: t0, Rev: 101, Cards: []Card{next}})
 	onTitle(t, s)
@@ -1358,9 +1358,9 @@ func TestSurfaceOpsAreForTheInputTheCursorIsOn(t *testing.T) {
 			rev++
 			switch step := rapid.SampledFrom([]string{"up", "down", "mark", "answer", "notify", "edit", "malformed", "recover"}).Draw(t, "step"); step {
 			case "up", "down":
-				a := PaneUp
+				a := PaneBackTab
 				if step == "down" {
-					a = PaneDown
+					a = PaneTab
 				}
 				s, _ = boardKeys(s, a)
 				if now, _ := BoardCard(s.Board); now.Surface != nil {
@@ -1534,9 +1534,9 @@ func TestSurfaceCursorAcrossEveryPath(t *testing.T) {
 				if s.Board.Input != nil || s.Board.Confirm != 0 {
 					break
 				}
-				a := PaneUp
+				a := PaneBackTab
 				if step == "down" {
-					a = PaneDown
+					a = PaneTab
 				}
 				s, _ = boardKeys(s, a)
 				c, i := BoardCard(s.Board)

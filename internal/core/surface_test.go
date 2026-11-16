@@ -15,7 +15,7 @@ import (
 
 // genOperator is any event of the operator's, with random fields.
 func genOperator(t *rapid.T, at time.Time) Event {
-	actions := []PaneAction{PaneToggle, PaneUp, PaneDown, PagePrev, PageNext, PaneEnter, PaneEsc, PaneYes,
+	actions := []PaneAction{PaneToggle, PaneUp, PaneDown, PaneTab, PaneBackTab, PagePrev, PageNext, PaneEnter, PaneEsc, PaneYes,
 		PaneBoard, PaneRefresh, PaneLeft, PaneRight, PaneMark, PaneAdd, PaneAddColumn, PaneEdit, PaneEditColumn,
 		PaneArchive, PaneChar, PaneBackspace, PaneOther, PaneLinks, PaneLinks, PaneDrop, PaneDrop}
 	// The ready view's keys, but for the one that opens a reply: its

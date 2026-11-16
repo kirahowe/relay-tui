@@ -144,6 +144,10 @@ type (
 		// not show the whole host of the link a question asks about. A
 		// yes then answers nothing.
 		Hidden bool
+		// Card is the open card as the pane drew it when the key was
+		// pressed; the shell gives it with every board key while a card
+		// is open. Only tests of the core leave it out.
+		Card *CardScroll
 	}
 )
 
@@ -179,6 +183,8 @@ const (
 	PaneBackspace  // delete the input's last character
 	PaneLinks      // L: list the links in the selected card
 	PaneDrop       // d: in that list, drop the live link selected
+	PaneTab        // tab: focus the next thing in an open card that can take it
+	PaneBackTab    // shift+tab: focus the one before
 )
 
 // scrollPage is how far a page key scrolls the detail view.

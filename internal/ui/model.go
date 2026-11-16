@@ -449,13 +449,17 @@ func (m *Model) transcriptKey(k tea.KeyPressMsg, empty bool, now time.Time) core
 
 // paneEvent is the event for one of the pane's own keys, pressed while
 // it has the keys. The input box never sees it.
-func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, detailMax func() int, askShown func() bool) core.PaneKey {
+func paneEvent(a core.App, st core.State, k tea.KeyPressMsg, now time.Time, detailMax func() int, askShown func() bool, card func() core.CardScroll) core.PaneKey {
 	if b := a.Board; !b.Items {
 		if b.Input != nil {
 			a, text := ClassifyBoardInput(k)
 			return core.PaneKey{At: now, Action: a, Text: text}
 		}
 		e := core.PaneKey{At: now, Action: ClassifyBoard(k)}
+		if b.Detail {
+			c := card()
+			e.Card = &c
+		}
 		// A yes to a link's question counts only when the frame on
 		// screen shows the link's whole host.
 		if e.Action == core.PaneYes && b.Links != nil && b.Links.Ask != nil {

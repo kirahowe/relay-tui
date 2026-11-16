@@ -231,7 +231,8 @@ func TestPaneShowsMissingInReverse(t *testing.T) {
 func TestDetailMaxMatchesWhatIsDrawn(t *testing.T) {
 	s := paneState(true, fromWeb)
 	s.Pane.Detail = true
-	_, mx := paneRender(s.App, s.State, t0, 30, 10)
+	_, pd := paneRender(s.App, s.State, t0, 30, 10)
+	mx := pd.Max
 	if mx <= 0 {
 		t.Fatal("no scroll for a long text in a short pane")
 	}

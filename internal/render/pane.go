@@ -229,6 +229,14 @@ type parts struct {
 	head, body, foot []string
 	selA, selB       int
 	scrolls          bool
+	// card is the open card, drawn in a frame that stays in place while
+	// body, its inside, scrolls. top is where the window starts; with
+	// follow it moves as little as shows selA to selB, the focused line,
+	// when there is one.
+	card   *openCard
+	cardID int64
+	top    int
+	follow bool
 	// keys is the pane's key hints, "key what · key what"; a panel puts
 	// them on the screen's row of hints rather than in the pane.
 	keys string
@@ -348,7 +356,7 @@ func detailBody(it core.Item, width int) []string {
 // paneRender draws the pane exactly height lines tall and no wider than
 // width, and says how far its detail view can scroll. Its key hints are
 // its last rows.
-func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]string, int) {
+func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]string, paneDrawn) {
 	pr := paneParts(a, s, now, max(width, 1))
 	if pr.keys != "" {
 		pr.foot = append(pr.foot, wrap(styleKeys(pr.keys), max(width, 1))...)
@@ -358,10 +366,10 @@ func paneRender(a core.App, s core.State, now time.Time, width, height int) ([]s
 
 // paneRenderKeys draws the pane without its key hints, and gives them
 // back for the screen's row of hints.
-func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) ([]string, int, string) {
+func paneRenderKeys(a core.App, s core.State, now time.Time, width, height int) ([]string, paneDrawn, string) {
 	pr := paneParts(a, s, now, max(width, 1))
-	lines, mx := paneDraw(s, pr, width, height)
-	return lines, mx, pr.keys
+	lines, pd := paneDraw(s, pr, width, height)
+	return lines, pd, pr.keys
 }
 
 // paneNeed is how many rows the pane must have for its foot to show whole:
@@ -375,9 +383,19 @@ func paneNeed(a core.App, s core.State, now time.Time, width int) int {
 	return n
 }
 
-func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
+// paneDrawn is what the keys need of how the pane was drawn: how far its
+// detail view scrolls, and the open card.
+type paneDrawn struct {
+	Max  int
+	Card core.CardScroll
+}
+
+func paneDraw(s core.State, pr parts, width, height int) ([]string, paneDrawn) {
 	height = max(height, 0)
 	width = max(width, 1)
+	if pr.card != nil {
+		return cardDraw(pr, width, height)
+	}
 	avail := height - len(pr.head) - len(pr.foot)
 	var all []string
 	maxScroll := 0
@@ -431,7 +449,90 @@ func paneDraw(s core.State, pr parts, width, height int) ([]string, int) {
 	if !pr.scrolls {
 		maxScroll = 0
 	}
-	return selfContained(all), maxScroll
+	return selfContained(all), paneDrawn{Max: maxScroll}
+}
+
+// cardDraw draws the pane with an open card: its frame in place between
+// the pane's head and foot, and inside it the part of the body the window
+// holds, with marks for what is above and below. A card that fits is
+// framed as tall as it is.
+func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
+	f := pr.card
+	border := 0
+	if boxed(width) && height >= 2 {
+		border = 2
+	}
+	room := height - len(pr.head) - len(pr.foot) - border
+	n := len(pr.body)
+	focused := pr.selB > pr.selA
+	cs := core.CardScroll{Card: pr.cardID, Shown: !focused}
+	var all []string
+	switch {
+	case room == 0 && border > 0:
+		// Room for the borders and none for the body: the frame still
+		// says whose card it is and where its text came from.
+		all = append(append(append([]string(nil), pr.head...), panel(f.title, f.right, f.foot, nil, width, 2, f.focus)...), pr.foot...)
+	case room <= 0:
+		all = append(append([]string(nil), pr.head...), pr.foot...)
+		all = all[max(len(all)-height, 0):]
+	default:
+		cs.Max, cs.Page = max(n-room, 0), max(room-1, 1)
+		start := min(max(pr.top, 0), cs.Max)
+		if pr.follow && focused {
+			start = reveal(start, pr.selA, pr.selB, room, n)
+		}
+		cs.Top = start
+		end := min(start+room, n)
+		win := slices.Clone(pr.body[start:end])
+		a, b := start, end
+		if room >= 3 {
+			if start > 0 {
+				win[0] = styled(faint, fmt.Sprintf("↑ %d above", start))
+				a++
+			}
+			if end < n {
+				win[len(win)-1] = styled(faint, fmt.Sprintf("↓ %d below", n-end+1))
+				b--
+			}
+		}
+		// The focused line is on the screen when its first row is.
+		cs.Shown = !focused || a <= pr.selA && pr.selA < b
+		if border > 0 {
+			win = panel(f.title, f.right, f.foot, win, width, len(win)+2, f.focus)
+		}
+		for len(win) < room+border {
+			win = append(win, "") // the foot stays at the bottom
+		}
+		all = append(append(append([]string(nil), pr.head...), win...), pr.foot...)
+	}
+	all = all[:min(len(all), height)]
+	for i, l := range all {
+		all[i] = truncate(l, width)
+	}
+	for len(all) < height {
+		all = append(all, "")
+	}
+	return selfContained(all), paneDrawn{Card: cs}
+}
+
+// reveal is where a window of room rows over n starts so that rows a to
+// b are on the screen, moved from start as little as it takes: the whole
+// of them when they fit between the marks, else from their first row.
+func reveal(start, a, b, room, n int) int {
+	mark := 0
+	if room >= 3 {
+		mark = 1
+	}
+	if b-a > room-2*mark {
+		b = a + 1 // too tall to show whole: from its first row
+	}
+	if b+mark > start+room {
+		start = b + mark - room
+	}
+	if a-mark < start {
+		start = a - mark
+	}
+	return min(max(start, 0), max(n-room, 0))
 }
 
 // paneActive is what the pane draws while it has the keys: its editor,

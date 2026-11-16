@@ -67,6 +67,8 @@ type HubFrame struct {
 	Content   string
 	Max, Page int
 	DetailMax int
+	// Card is the open card in the pane as drawn, for the board's keys.
+	Card core.CardScroll
 	// Top is the first row of the ready view's open item as drawn.
 	Top            int
 	Cursor         bool
@@ -414,7 +416,7 @@ func paneScreen(h core.Hub, now time.Time, width, height int) HubFrame {
 	}
 	pane, mx := paneRender(h.App, core.State{}, now, width, max(height-1-len(foot), 0))
 	lines = append(append(lines, pane...), foot...)
-	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx, Active: paneActive(h.App, core.State{}),
+	return HubFrame{Content: strings.Join(lines[:min(len(lines), height)], "\n"), DetailMax: mx.Max, Card: mx.Card, Active: paneActive(h.App, core.State{}),
 		AskShown: askShown(boardAsk(h.App), pane)}
 }
 
@@ -450,7 +452,7 @@ func hubMain(h core.Hub, input, hint string, now time.Time, width, height int, n
 		f := hubMainAt(h, input, hint, now, mw, height, narrow, help, true)
 		pane, mx := paneRender(h.App, focusedChat(h), now, PaneWidth(width), height)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, mw), "\n")
-		f.DetailMax = mx
+		f.DetailMax, f.Card = mx.Max, mx.Card
 		f.AskShown = askShown(boardAsk(h.App), pane)
 		if h.App.PaneFocus && help == nil {
 			f.Active = paneActive(h.App, focusedChat(h)) // the pane is drawn with the keys
@@ -619,12 +621,13 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 	}
 	room := max(free, 0)
 	var lines []string
-	mx, detailMax, shown := 0, 0, false
+	mx, shown := 0, false
+	var detail paneDrawn
 	switch {
 	case surf.Column == core.ColumnPane && !beside:
 		// The pane covers the conversation, or the place of one: the board
 		// works with none open.
-		lines, detailMax = paneRender(h.App, s, now, width, room)
+		lines, detail = paneRender(h.App, s, now, width, room)
 		shown = askShown(boardAsk(h.App), lines)
 		active = paneActive(h.App, s)
 	case h.Focus == "":
@@ -669,7 +672,7 @@ func hubConv(h core.Hub, input, hint string, now time.Time, width, height int, n
 		all[i] = truncate(all[i], width)
 	}
 	return HubFrame{
-		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detailMax, AskShown: shown,
+		Content: strings.Join(all, "\n"), Max: mx, Page: max(room-1, 1), DetailMax: detail.Max, Card: detail.Card, AskShown: shown,
 		Cursor: showInput && surf.Kind == core.SurfaceInput && y >= 0, InputX: x, InputY: max(y, 0),
 		title: panelTitle, right: styled(faint, right), Active: active,
 	}
@@ -714,7 +717,7 @@ func panels(h core.Hub, input, hint string, now time.Time, width, height int, he
 		for i := range main {
 			main[i] += " " + pane[i]
 		}
-		f.DetailMax = mx
+		f.DetailMax, f.Card = mx.Max, mx.Card
 		f.AskShown = askShown(boardAsk(h.App), pane)
 		keys = pk
 		if surf.Column == core.ColumnPane && help == nil {

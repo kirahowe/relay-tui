@@ -322,9 +322,9 @@ A surface card is a card a role lays out itself from relay's catalog:
 text, rows, columns, lists, boxes, rules and checkboxes. relay-tui draws
 what relay sent, in the card's panel, and you can tick and untick a
 checkbox, and nothing else on it. A checkbox with a fixed value is not a
-line you can select. In an open surface card, up and down move over the
-title and then each checkbox, and x or space sends relay the opposite of
-the value shown. A surface relay-tui cannot draw in full shows the card's
+line you can select. In an open surface card, tab and shift+tab move the
+focus over the title and then each checkbox, and x or space sends relay
+the opposite of the value shown. A surface relay-tui cannot draw in full shows the card's
 text form instead. The frame around a surface is relay-tui's own: the
 top corner names the card's owner, the role that laid it out, and "from
 outside" is on the bottom border when the surface or its title may have
@@ -344,8 +344,16 @@ with every card.
 
 Keys on the board:
 
-- Up and down, or k and j, select a card, or, in an open card, its title
-  and then each item or row. Left and right, or h and l, select a
+- Up and down, or k and j, select a card, or, in an open checklist or
+  tracker, its title and then each item or row; the card scrolls to keep
+  the selected line in view. An open note, a card shown as its text form
+  and a surface are read like a page: up, down, Page Up and Page Down
+  scroll them. On a surface, tab and shift+tab move the focus from box to
+  box and bring the box into view; scrolling leaves the focus where it
+  is. An x on a focused box that has scrolled out of sight brings it back
+  into view and ticks nothing, so x never acts on a box you cannot see.
+  An open card's frame stays in place while its inside scrolls, so the
+  title, the owner and "from outside" are always on the screen. Left and right, or h and l, select a
   tracker's column in an open tracker card (elsewhere they move between
   the screen's columns). When a change arrives, the cursor stays on the item,
   row or column it was on. If that one is gone, the cursor stays where it

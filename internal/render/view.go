@@ -20,6 +20,8 @@ type Frame struct {
 	PrintTo core.Cursor
 	// DetailMax is how far the pane's detail view can scroll as drawn.
 	DetailMax int
+	// Card is the open card in the pane as drawn, for the board's keys.
+	Card core.CardScroll
 	// Active is what the frame drew as having the keys.
 	Active core.SurfaceKind
 	// AskShown says a question about a link is open and the frame shows
@@ -79,7 +81,7 @@ func singleFrame(x core.Single, input, hint string, now time.Time, width, height
 		rows := max(height-1, 1)
 		pane, mx := paneRender(a, s, now, PaneWidth(width), rows)
 		f.Content = strings.Join(joinColumns(strings.Split(f.Content, "\n"), pane, MainWidth(width)), "\n")
-		f.DetailMax = mx
+		f.DetailMax, f.Card = mx.Max, mx.Card
 		f.AskShown = askShown(boardAsk(a), pane)
 		if a.PaneFocus && f.Active != core.SurfaceHelp {
 			f.Active = paneActive(a, s) // the pane is drawn with the keys
@@ -90,14 +92,15 @@ func singleFrame(x core.Single, input, hint string, now time.Time, width, height
 		return view(a, s, surf, input, hint, now, width, height, h, 0, true)
 	}
 	if surf.Column == core.ColumnPane {
-		mx, shown := 0, false
+		var mx paneDrawn
+		shown := false
 		f := view(a, s, surf, input, hint, now, width, height, func(room int) []string {
 			var lines []string
 			lines, mx = paneRender(a, s, now, width, room)
 			shown = askShown(boardAsk(a), lines)
 			return lines
 		}, paneNeed(a, s, now, width), true)
-		f.DetailMax = mx
+		f.DetailMax, f.Card = mx.Max, mx.Card
 		f.AskShown = shown
 		if a.PaneFocus {
 			f.Active = paneActive(a, s)

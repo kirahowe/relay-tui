@@ -209,7 +209,7 @@ func TestHubTicksASurfaceCardsBox(t *testing.T) {
 	h.waitScreen("the pane has the keys", contains("↑↓ select"))
 	h.keys("\r")
 	h.waitScreen("the surface", contains("x tick"))
-	h.keys("jjj")
+	h.keys("\t\t\t")
 	h.waitScreen("the third box", func(string) bool { return h.emu.selected("Camp stove") })
 	h.keys("x")
 	h.waitScreen("the tick", contains("✓ Camp stove"))
@@ -232,7 +232,7 @@ func TestHubTicksASurfaceCardsBox(t *testing.T) {
 	}
 	// The rev moves on elsewhere, and the client is not told.
 	h.say("bump-card 21")
-	h.keys("j")
+	h.keys("\t")
 	h.waitScreen("the fourth box", func(string) bool { return h.emu.selected("Paper map") })
 	h.keys("x")
 	s := h.waitScreen("the refusal", contains("Refused."))

@@ -432,7 +432,7 @@ func (m *Model) paneMoving(k tea.KeyPressMsg, a MoveAction, index int, now time.
 			return nil, nil
 		}
 	}
-	e := paneEvent(app, m.paneState(), k, now, func() int { return m.paneDetailMax(now) }, func() bool { return m.paneAskShown(now) })
+	e := paneEvent(app, m.paneState(), k, now, func() int { return m.paneDetailMax(now) }, func() bool { return m.paneAskShown(now) }, func() core.CardScroll { return m.paneCard(now) })
 	if e.Action == core.PaneOther && printable(k) {
 		return []core.Event{e, core.Unbound{At: now}}, nil
 	}
@@ -448,6 +448,14 @@ func (m Model) app() core.App {
 }
 
 // paneDetailMax is how far the pane's detail view scrolls, as drawn.
+// paneCard is the open card in the pane as drawn.
+func (m Model) paneCard(now time.Time) core.CardScroll {
+	if m.kind == kindHub {
+		return m.hubFrame(now).Card
+	}
+	return m.frame(now).Card
+}
+
 // paneAskShown says the frame on screen shows the whole host of the link
 // the board's question is about.
 func (m Model) paneAskShown(now time.Time) bool {

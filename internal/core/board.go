@@ -189,8 +189,15 @@ type Board struct {
 	// position in a copy, so a line means a box only on that copy (see
 	// BoardLine); any path that carries Line to another copy or another
 	// card leaves the cursor on the title instead.
-	Box   *RoleSurface
-	Input *BoardInput
+	Box *RoleSurface
+	// Scroll is where the open card's body starts in the window, for
+	// card ScrollCard only. With Follow the window moves from there as
+	// little as shows the focused line; without it, the operator has
+	// scrolled and it stays put.
+	Scroll     int
+	ScrollCard int64
+	Follow     bool
+	Input      *BoardInput
 	// Confirm is the card waiting for y to archive it, at ConfirmRev, the
 	// rev the operator was shown. A newer copy of it cancels the question.
 	Confirm, ConfirmRev int64
@@ -259,6 +266,62 @@ type (
 
 func (RequestCards) effect() {}
 func (SendCardOp) effect()   {}
+
+// CardScroll is an open card as the pane drew it: its id, the first row
+// of its body in the window, the furthest the window can start, how far a
+// page moves it, and whether the focused line is on the screen.
+type CardScroll struct {
+	Card           int64
+	Top, Max, Page int
+	Shown          bool
+}
+
+// offScreenNotice says why x did not act: the focused line was out of
+// sight, and is now brought back into view.
+const offScreenNotice = "That box was off the screen. It is shown now: x again to tick it."
+
+// Scrolls says the open card is read like a page, scrolled with the keys
+// that move, rather than a list whose lines they select: a note, a card
+// shown as its text form, and a surface.
+func (c Card) Scrolls() bool { return c.Kind != CardChecklist && c.Kind != CardTracker }
+
+// BoardScroll is where the open card c's body starts in the window, and
+// whether the window follows the focus from there.
+func BoardScroll(b Board, c Card) (top int, follow bool) {
+	if !b.Detail || b.ScrollCard != c.ID {
+		return 0, true
+	}
+	return max(b.Scroll, 0), b.Follow
+}
+
+// scrollCard scrolls the open card by a row or a page from where the pane
+// drew it. The focus stays where it is, on the screen or not.
+func (r *reducer) scrollCard(c Card, e PaneKey) {
+	v := e.Card
+	if v == nil || v.Card != c.ID {
+		return
+	}
+	d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -v.Page, PageNext: v.Page}[e.Action]
+	b := &r.a.Board
+	b.Scroll, b.ScrollCard, b.Follow = min(max(v.Top+d, 0), v.Max), c.ID, false
+}
+
+// focusNext moves the focus in the open card to the next line (d 1) or
+// the one before, past the last back to the title, and the window follows
+// it from where the pane drew it.
+func (r *reducer) focusNext(c Card, d int, v *CardScroll) {
+	b := &r.a.Board
+	n := c.Lines()
+	b.Line = ((BoardLine(*b, c)+d)%n + n) % n
+	b.Box = nil
+	if c.Kind == CardSurface && b.Line > 0 {
+		b.Box = c.Surface
+	}
+	b.ScrollCard, b.Follow = c.ID, true
+	if v != nil && v.Card == c.ID {
+		b.Scroll = v.Top
+	}
+}
 
 // BoardCard is the selected card and its index, or -1.
 func BoardCard(b Board) (Card, int) {
@@ -701,11 +764,21 @@ func (r *reducer) boardKey(e PaneKey) {
 		b.Asked = false
 		r.askLinks()
 		r.askCards()
-	case PaneUp, PaneDown, PagePrev, PageNext:
-		d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -scrollPage, PageNext: scrollPage}[e.Action]
+	case PaneUp, PaneDown, PagePrev, PageNext, PaneTab, PaneBackTab:
+		d := map[PaneAction]int{PaneUp: -1, PaneDown: 1, PagePrev: -scrollPage, PageNext: scrollPage, PaneTab: 1, PaneBackTab: -1}[e.Action]
+		tab := e.Action == PaneTab || e.Action == PaneBackTab
 		switch {
 		case i < 0:
+		case b.Detail && c.Scrolls():
+			// A card read like a page: the keys that move scroll it, and
+			// tab moves the focus from box to box.
+			if tab {
+				r.focusNext(c, d, e.Card)
+			} else {
+				r.scrollCard(c, e)
+			}
 		case b.Detail:
+			// A list: the keys move the selection, and the window follows.
 			b.Line = min(max(BoardLine(*b, c)+d, 0), c.Lines()-1)
 			b.Box = nil
 			if c.Kind == CardSurface && b.Line > 0 {
@@ -726,15 +799,23 @@ func (r *reducer) boardKey(e PaneKey) {
 	case PaneEnter:
 		if i >= 0 && !b.Detail {
 			b.SelID, b.Detail, b.Line, b.Col, b.Box = c.ID, true, 0, 0, nil
+			b.Scroll, b.ScrollCard, b.Follow = 0, 0, false
 		}
 	case PaneEsc:
 		if b.Detail {
 			b.Detail, b.Box = false, nil
+			b.Scroll, b.ScrollCard, b.Follow = 0, 0, false
 		} else {
 			r.a.PaneFocus = false
 		}
 	case PaneMark:
-		if i >= 0 && b.Detail {
+		// x acts on the focused line only while it is on the screen. On
+		// one scrolled out of sight it brings it back into view instead,
+		// so what x acts on is always what the operator sees.
+		if v := e.Card; i >= 0 && b.Detail && v != nil && BoardLine(*b, c) > 0 && (v.Card != c.ID || !v.Shown) {
+			b.Follow = true
+			b.Message = offScreenNotice
+		} else if i >= 0 && b.Detail {
 			r.mark(c)
 		}
 	case PaneAdd, PaneAddColumn:

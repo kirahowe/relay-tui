@@ -395,6 +395,27 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 // frame is in the accent colour when it has the keys; in a card's detail,
 // with the title the selected line, the title sits on a tinted bar.
 func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
+	f := cardFrame(b, c, live, width, full, focus)
+	out = panel(f.title, f.right, f.foot, f.body, width, len(f.body)+2, focus)
+	if full && focus {
+		if core.BoardLine(b, c) == 0 {
+			return out, 0, 1
+		}
+		return out, f.selA + 1, f.selB + 1
+	}
+	return out, 0, len(out)
+}
+
+// openCard is a card's panel in parts: what goes in its borders, the body
+// inside them, and the rows of the body the focused line is on.
+type openCard struct {
+	title, right, foot string
+	body               []string
+	selA, selB         int
+	focus              bool
+}
+
+func cardFrame(b core.Board, c core.Card, live core.Links, width int, full, focus bool) openCard {
 	live = live.Of(c.Links)
 	body, a, z := cardLinesFor(b, c, live, framed(width), full, focus)
 	title := cardTitle(c, live)
@@ -412,14 +433,7 @@ func cardPanel(b core.Board, c core.Card, live core.Links, width int, full, focu
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
-	out = panel(title, right, cardFoot(c), body, width, len(body)+2, focus)
-	if full && focus {
-		if core.BoardLine(b, c) == 0 {
-			return out, 0, 1
-		}
-		return out, a + 1, z + 1
-	}
-	return out, 0, len(out)
+	return openCard{title: title, right: right, foot: cardFoot(c), body: body, selA: a, selB: z, focus: focus}
 }
 
 // cellLine names the selected tracker cell and its state.
@@ -480,7 +494,15 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 			cardFoot(linksCard), rows, width, len(rows)+2, focus)
 		pr.selA, pr.selB = selA+1, selB+1
 	case b.Detail && sel >= 0:
-		pr.body, pr.selA, pr.selB = cardPanel(b, c, live, width, true, focus)
+		// The open card's frame stays in place and its body scrolls
+		// inside it, so the title, the owner and where the text came from
+		// are always on the screen.
+		f := cardFrame(b, c, live, width, true, focus)
+		pr.card, pr.cardID, pr.body = &f, c.ID, f.body
+		pr.top, pr.follow = core.BoardScroll(b, c)
+		if core.BoardLine(b, c) > 0 {
+			pr.selA, pr.selB = f.selA, f.selB
+		}
 	case len(b.Cards) == 0:
 		pr.body = []string{styled(faint, "no cards")}
 	default:
@@ -521,12 +543,12 @@ func boardParts(a core.App, s core.State, now time.Time, width int) parts {
 			pr.keys = "↑↓←→ select · x mark · a row · A column · e rename · E rename column · " + linksKey + "X archive · r reload · b workspace · esc back"
 		case core.CardSurface:
 			if len(c.Inputs()) > 0 {
-				pr.keys = "↑↓ select · x tick · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
+				pr.keys = "tab box · ↑↓ scroll · x tick · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			} else {
-				pr.keys = "e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
+				pr.keys = "↑↓ scroll · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 			}
 		default:
-			pr.keys = "e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
+			pr.keys = "↑↓ scroll · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"
 		}
 	case len(b.Cards) > 0:
 		pr.keys = "↑↓ select · enter open · e retitle · " + linksKey + "X archive · r reload · b workspace · esc back"

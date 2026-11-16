@@ -236,10 +236,14 @@ func ClassifyPane(k tea.KeyPressMsg) core.PaneAction {
 // board. Every key is swallowed. It is pure.
 func ClassifyBoard(k tea.KeyPressMsg) core.PaneAction {
 	switch k.String() {
-	case "up", "k", "shift+tab":
+	case "up", "k":
 		return core.PaneUp
-	case "down", "j", "tab":
+	case "down", "j":
 		return core.PaneDown
+	case "tab":
+		return core.PaneTab
+	case "shift+tab":
+		return core.PaneBackTab
 	case "left", "h":
 		return core.PaneLeft
 	case "right", "l":
