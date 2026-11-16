@@ -115,8 +115,11 @@ func TestTheBoardIsTheDefaultAndACardAddedInATurnShows(t *testing.T) {
 	}
 	h.keys("go\r")
 	h.waitIdle()
-	scr := h.waitScreen("the new card", func(s string) bool { return strings.Contains(s, "Board 2") })
-	if !strings.Contains(scr, "Focus by area") || !strings.Contains(scr, "I've put a note on your board.") {
+	// The card and the reply arrive apart, so wait for both.
+	scr := h.waitScreen("the new card", func(s string) bool {
+		return strings.Contains(s, "Board 2") && strings.Contains(s, "I've put a note on your board.")
+	})
+	if !strings.Contains(scr, "Focus by area") {
 		t.Errorf("the new card is not in view:\n%s", scr)
 	}
 	if n := len(h.extensionCalls("_relay/cards")); n != 1 {
@@ -152,7 +155,7 @@ func TestBoardTicksASurfaceCard(t *testing.T) {
 	h.waitScreen("focus", func(s string) bool { return strings.Contains(s, "↑↓ select") })
 	h.keys("\r")
 	h.waitScreen("the surface", func(s string) bool { return strings.Contains(s, "x tick") && strings.Contains(s, "Camp stove") })
-	h.keys("jjj")
+	h.keys("\t\t\t")
 	h.waitScreen("the third box", func(string) bool { return h.emu.selected("Camp stove") })
 	h.keys("x")
 	h.waitScreen("the answer", func(s string) bool { return strings.Contains(s, "✓ Camp stove") })
