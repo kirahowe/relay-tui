@@ -496,6 +496,16 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 	left -= len(hints)
 	room := least + left
 
+	// Rows that stay at the top of the window, as a table's header does,
+	// while the rest of the body scrolls under them.
+	var pinned []string
+	if k := f.sticky; k > 0 && room > k && n > k {
+		pinned, pr.body = pr.body[:k], pr.body[k:]
+		n, room = n-k, room-k
+		if focused {
+			pr.selA, pr.selB = pr.selA-k, pr.selB-k
+		}
+	}
 	var win []string
 	if room > 0 {
 		// A page moves by the rows the window shows between its marks,
@@ -529,6 +539,8 @@ func cardDraw(pr parts, width, height int) ([]string, paneDrawn) {
 		// be acted on until the pane is taller.
 		cs.Shown = !focused || a <= pr.selA && pr.selB <= b
 	}
+	win = append(slices.Clone(pinned), win...)
+	room += len(pinned)
 	if border > 0 {
 		win = panel(f.title, f.right, f.foot, win, width, len(win)+2, f.focus)
 	}

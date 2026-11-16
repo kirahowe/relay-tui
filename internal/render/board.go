@@ -301,7 +301,7 @@ func trackerGrid(c core.Card, live core.Links, width int, line, col int, focus b
 // board's list (full false) a long checklist or note is cut short. In a
 // card's detail (full true) everything shows, and with focus the selected
 // line is on a tinted bar; selA and selB are its rows.
-func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB int) {
+func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, focus bool) (out []string, selA, selB, sticky int) {
 	live = live.Of(c.Links)
 	line := core.BoardLine(b, c)
 	col := core.BoardCol(b, c)
@@ -338,6 +338,7 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 			if full && focus && line > 0 {
 				selA, selB = len(out)+a, len(out)+z
 			}
+			sticky = 1 // the columns' names stay at the top as the rows scroll
 			out = append(out, grid...)
 			break
 		}
@@ -392,7 +393,7 @@ func cardLinesFor(b core.Board, c core.Card, live core.Links, width int, full, f
 		}
 		out = append(out, lines...)
 	}
-	return out, selA, selB
+	return out, selA, selB, sticky
 }
 
 // cardPanel is a card in its panel, width wide, as tall as it needs. Its
@@ -417,11 +418,14 @@ type openCard struct {
 	body               []string
 	selA, selB         int
 	focus              bool
+	// sticky is how many rows at the top of the body stay in place while
+	// the rest scrolls: a tracker grid's row of column names.
+	sticky int
 }
 
 func cardFrame(b core.Board, c core.Card, live core.Links, width int, full, focus bool) openCard {
 	live = live.Of(c.Links)
-	body, a, z := cardLinesFor(b, c, live, framed(width), full, focus)
+	body, a, z, sticky := cardLinesFor(b, c, live, framed(width), full, focus)
 	title := cardTitle(c, live)
 	right := cardRight(b, c)
 	if c.Kind == core.CardSurface && c.Surface != nil {
@@ -437,7 +441,7 @@ func cardFrame(b core.Board, c core.Card, live core.Links, width int, full, focu
 	if full && focus && core.BoardLine(b, c) == 0 {
 		title = tint(title, selBar)
 	}
-	return openCard{title: title, right: right, foot: cardFoot(c), body: body, selA: a, selB: z, focus: focus}
+	return openCard{title: title, right: right, foot: cardFoot(c), body: body, selA: a, selB: z, focus: focus, sticky: sticky}
 }
 
 // cellLine names the selected tracker cell and its state.

@@ -187,3 +187,28 @@ func TestAnOpenCardIsDrawnWholeInAPaneWithRoom(t *testing.T) {
 		}
 	}
 }
+
+// Review round six of relay#110's rebuild: keeping a low row of a tracker
+// grid in view scrolled its row of column names away, so x marked a cell
+// with no column named on the screen. The names stay at the top, as a
+// table's header does, while the rows scroll under them.
+func TestATrackersColumnNamesStayAsItsRowsScroll(t *testing.T) {
+	c := cardTracker
+	c.Rows = nil
+	for i := range 40 {
+		c.Rows = append(c.Rows, core.CardElem{ID: i + 1, CardText: ct(fmt.Sprintf("Row%02d", i+1))})
+	}
+	for _, height := range []int{8, 12, 20} {
+		for _, line := range []int{1, 20, 40} {
+			s := detail(boardState(true, c), c.ID, line, 1)
+			rows, pd := paneRender(s.App, s.State, t0, 44, height)
+			flat := ansi.Strip(strings.Join(rows, "\n"))
+			if !pd.Card.Shown || !strings.Contains(flat, fmt.Sprintf("Row%02d", line)) {
+				t.Fatalf("height %d, row %d: not shown:\n%s", height, line, flat)
+			}
+			if !strings.Contains(flat, "JUN") || !strings.Contains(flat, "JUL") {
+				t.Fatalf("height %d, row %d: the column names scrolled away:\n%s", height, line, flat)
+			}
+		}
+	}
+}
